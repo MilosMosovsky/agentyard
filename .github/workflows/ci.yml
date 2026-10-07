@@ -16,6 +16,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false # stdlib only: no go.sum to key a module cache on
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
@@ -33,5 +34,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: false # stdlib only: no go.sum to key a module cache on
       - run: go build ./...
       - run: go test ./...
