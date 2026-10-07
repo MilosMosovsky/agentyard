@@ -1,7 +1,7 @@
 # worktreesd
 
-A tiny macOS dashboard of every git worktree you have, plus every open PR you authored, served on your
-network at **http://worktrees.local**. One Go binary (~20 MB RAM), started at login by launchd.
+A tiny macOS dashboard of every git worktree you have, every open PR you authored, and your Claude Code /
+Codex sessions, served on your network at **http://worktrees.local**. One Go binary (~20 MB RAM), started at login by launchd.
 
 ## Install
 
@@ -53,6 +53,22 @@ It costs ~1 GraphQL point per 20 PRs per poll (≈7 points every 5 minutes for 1
 failing check names are fetched only for PRs that have failures. Polling pauses when fewer than 300
 points remain. Both tabs' last results are cached in `~/Library/Caches/worktreesd/`, so a restart serves
 the page immediately without re-querying GitHub or re-measuring disk.
+
+## Sessions tab
+
+`/sessions` lists every Claude Code (`~/.claude/projects`) and Codex (`~/.codex/sessions`) session on disk,
+newest activity first, with its title (yours, or the one the tool generated), last prompt, folder, branch and
+linked PR. Click a row for its latest 40 messages; **Copy resume** copies `cd <folder> && claude --resume <id>`
+(or `codex resume <id>`) — the folder Claude Code filed the session under, which is the only place
+`--resume` finds it. A session whose folder was deleted (e.g. a removed worktree) is flagged.
+
+Sub-agents are left out (Codex reviewer/sub-agent rollouts, Claude agent-team workers); scheduled-task runs
+have their own chip. Transcripts are never read whole: a head and a tail window per file, re-read only when
+the file changes; the index is cached in `~/Library/Caches/worktreesd/sessions.json`.
+
+**Only the Mac running worktreesd can open this tab** — transcripts include tool output, which can contain
+tokens and customer data. Other devices see a notice instead. `WORKTREES_SESSIONS_LAN=1 ./install.sh` lifts
+that, if you're sure.
 
 ## Things to know
 

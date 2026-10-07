@@ -8,6 +8,8 @@
 #   WORKTREES_ROOT    folder to scan for repositories       (default: ~/Projects)
 #   WORKTREES_NAME    publish as http://<name>.local         (default: worktrees; "" = no mDNS)
 #   WORKTREES_LISTEN  HTTP listen address                    (default: :80; 127.0.0.1:80 = this Mac only)
+#   WORKTREES_SESSIONS_LAN=1   also show the Sessions tab to other devices (off: transcripts can hold secrets)
+#   CLAUDE_CONFIG_DIR / CODEX_HOME   where Claude Code / Codex keep sessions, if not ~/.claude / ~/.codex
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -81,6 +83,11 @@ cat >"$plist" <<EOF
         <string>$(xml "$name")</string>
         <string>-listen</string>
         <string>$(xml "$listen")</string>
+        <string>-claude-dir</string>
+        <string>$(xml "${CLAUDE_CONFIG_DIR:-$HOME/.claude}")</string>
+        <string>-codex-dir</string>
+        <string>$(xml "${CODEX_HOME:-$HOME/.codex}")</string>
+        <string>-sessions-lan=$([[ "${WORKTREES_SESSIONS_LAN:-}" == 1 ]] && echo true || echo false)</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="{{.RefreshSec}}">
-<title>{{if eq .Tab "prs"}}Pull requests{{else}}Worktrees{{end}}</title>
+{{if ne .Tab "sessions"}}<meta http-equiv="refresh" content="{{.RefreshSec}}">{{end}}
+<title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else}}Worktrees{{end}}</title>
 <style>
 :root {
   --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e4e3df; --head: #f2f1ee; --link: #2457c5;
@@ -74,6 +74,23 @@ nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
 .chip:focus-visible, .reset:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
 .reset { margin-left: 6px; font: inherit; font-size: 12px; color: var(--link); background: none; border: 0; padding: 2px 0; cursor: pointer; }
 tr[hidden] { display: none; }
+#q { font: inherit; font-size: 12px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 10px; min-width: 260px; flex: 1; max-width: 420px; margin-left: 8px; }
+#q:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+tr.srow { cursor: pointer; }
+tr.srow:hover, tr.srow.open { background: var(--head); }
+button.copy { font: inherit; font-size: 12px; color: var(--fg); background: var(--head); border: 1px solid var(--line);
+  border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+button.copy:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+tr.detail > td { white-space: normal; overflow: visible; padding: 4px 10px 16px; background: var(--bg); }
+.resume { display: flex; gap: 8px; align-items: center; margin: 6px 0 4px; }
+.resume code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; background: var(--head); padding: 5px 8px; border-radius: 6px; }
+.msgs { list-style: none; margin: 10px 0 0; padding: 0; max-height: 60vh; overflow-y: auto; display: grid; gap: 10px; }
+.m .who { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
+.m .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-user { background: var(--head); border-radius: 6px; padding: 8px 10px; }
+.m-assistant { padding: 0 10px; }
+.m-tools { padding: 0 10px; }
 </style>
 </head>
 <body>
@@ -81,6 +98,7 @@ tr[hidden] { display: none; }
 <nav>
   <a href="/" {{if eq .Tab "worktrees"}}class="on"{{end}}>Worktrees{{with .WT}}<b>{{.Total.Count}}</b>{{end}}</a>
   <a href="/prs" {{if eq .Tab "prs"}}class="on"{{end}}>Pull requests{{with .PR}}<b>{{len .PRs}}</b>{{end}}</a>
+  <a href="/sessions" {{if eq .Tab "sessions"}}class="on"{{end}}>Sessions{{if .Sessions}}<b>{{len .Sessions}}</b>{{end}}</a>
   <span class="sync">{{with .WT}}<span class="sub" id="synced" title="worktrees scanned {{.At.Format "15:04:05"}}">synced {{ago .At}}</span>{{end}}<button type="button" id="sync">Sync now</button></span>
 </nav>
 <script>
@@ -241,3 +259,112 @@ tr[hidden] { display: none; }
 </script>
 {{else}}{{if not .PR}}<p class="meta">Fetching your open PRs — this page reloads by itself.</p>{{end}}{{end}}
 {{template "foot"}}{{end}}
+
+{{define "sessions"}}{{template "head" .}}
+{{if not .Local}}
+<p class="meta">Sessions are only viewable on the Mac that runs this dashboard: transcripts include tool output, which can contain tokens and customer data.</p>
+{{else}}
+<p class="meta"><span id="shown">{{len .Sessions}}</span> of {{len .Sessions}} sessions on this Mac · newest activity first · click a row for its latest messages</p>
+<div class="filters"><div class="filter-row">
+  <button type="button" class="chip" data-tool-filter="claude" aria-pressed="true">Claude Code <b>{{count .Sessions "claude"}}</b></button>
+  <button type="button" class="chip" data-tool-filter="codex" aria-pressed="true">Codex <b>{{count .Sessions "codex"}}</b></button>
+  <button type="button" class="chip" data-tool-filter="scheduled" aria-pressed="true">Scheduled tasks <b>{{countKind .Sessions "scheduled"}}</b></button>
+  <input type="search" id="q" placeholder="Filter by title, prompt, folder or branch" autocomplete="off" aria-label="Filter sessions">
+</div></div>
+<div class="scroll"><table id="sessions" data-refresh="{{.RefreshSec}}">
+<colgroup><col style="width:9%"><col style="width:42%"><col style="width:19%"><col style="width:10%"><col style="width:7%"><col style="width:13%"></colgroup>
+<tr><th>Tool</th><th>Session</th><th>Folder · branch</th><th>Last active</th><th class="n">Size</th><th>Resume</th></tr>
+{{range .Sessions}}<tr class="srow" data-tool="{{.Tool}}" data-kind="{{.Kind}}" data-id="{{.ID}}" data-search="{{lowerAll .Label .LastPrompt .FirstPrompt .Cwd .Branch .Kind}}">
+  <td><span>{{if eq .Tool "claude"}}Claude Code{{else}}Codex{{end}}</span><span class="sub">{{.Kind}}</span></td>
+  <td title="{{.Label}}"><span>{{.Label}}</span><span class="sub">{{if .PRURL}}<a href="{{.PRURL}}">PR #{{.PRNumber}}</a> · {{end}}{{if .Title}}{{.LastPrompt}}{{else}}{{.FirstPrompt}}{{end}}</span></td>
+  <td title="{{.Cwd}}"><span class="mono">{{base .Cwd}}</span><span class="sub">{{if .FolderGone}}<span class="t-warn" style="display:inline">folder deleted</span>{{else if .Branch}}{{.Branch}}{{else}}{{tilde .Cwd}}{{end}}</span></td>
+  <td title="started {{.Started.Format "2006-01-02 15:04"}}"><span>{{ago .Modified}}</span><span class="sub">started {{ago .Started}}</span></td>
+  <td class="n">{{fsize .Size}}</td>
+  <td><button type="button" class="copy" data-copy="{{.ResumeCmd}}">Copy resume</button></td>
+</tr>{{end}}
+</table></div>
+<script>
+(() => {
+  const table = document.getElementById("sessions");
+  const rows = [...table.querySelectorAll("tr.srow")];
+  const q = document.getElementById("q");
+  const chips = [...document.querySelectorAll("[data-tool-filter]")];
+  let off;
+  try { off = new Set(JSON.parse(localStorage.getItem("sessions-off") || "[]")); } catch { off = new Set(); }
+  try { q.value = sessionStorage.getItem("sessions-q") || ""; } catch {}
+  const apply = () => {
+    const terms = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    for (const r of rows) {
+      const hide = off.has(r.dataset.tool) || off.has(r.dataset.kind) || !terms.every(t => r.dataset.search.includes(t));
+      r.hidden = hide;
+      if (!hide) shown++;
+      const d = r.nextElementSibling;
+      if (d && d.classList.contains("detail")) d.hidden = hide;
+    }
+    for (const c of chips) c.setAttribute("aria-pressed", String(!off.has(c.dataset.toolFilter)));
+    document.getElementById("shown").textContent = shown;
+    try { localStorage.setItem("sessions-off", JSON.stringify([...off])); sessionStorage.setItem("sessions-q", q.value); } catch {}
+  };
+  for (const c of chips) c.addEventListener("click", () => {
+    const k = c.dataset.toolFilter;
+    off.has(k) ? off.delete(k) : off.add(k);
+    apply();
+  });
+  q.addEventListener("input", apply);
+
+  // navigator.clipboard needs https or localhost; http://<name>.local gets the textarea fallback.
+  const copy = async (text, btn) => {
+    let ok = false;
+    try { if (window.isSecureContext && navigator.clipboard) { await navigator.clipboard.writeText(text); ok = true; } } catch {}
+    if (!ok) {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.append(ta); ta.select();
+      try { ok = document.execCommand("copy"); } catch {}
+      ta.remove();
+    }
+    const label = btn.textContent;
+    btn.textContent = ok ? "Copied" : "Copy failed";
+    setTimeout(() => { btn.textContent = label; }, 1500);
+  };
+
+  table.addEventListener("click", async e => {
+    const btn = e.target.closest("button.copy");
+    if (btn) { copy(btn.dataset.copy, btn); return; }
+    if (e.target.closest("a")) return;
+    const row = e.target.closest("tr.srow");
+    if (!row) return;
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains("detail")) { next.remove(); row.classList.remove("open"); return; }
+    const tr = document.createElement("tr");
+    tr.className = "detail";
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.textContent = "Loading…";
+    tr.append(td);
+    row.after(tr);
+    row.classList.add("open");
+    try {
+      const res = await fetch(`/sessions/view?tool=${encodeURIComponent(row.dataset.tool)}&id=${encodeURIComponent(row.dataset.id)}`);
+      td.innerHTML = res.ok ? await res.text() : "Could not load this session.";
+      const list = td.querySelector(".msgs");
+      if (list) list.scrollTop = list.scrollHeight;
+    } catch { td.textContent = "Could not load this session."; }
+  });
+
+  // Reload on the usual cadence, but never while a session is open or the filter has focus.
+  setInterval(() => {
+    if (!document.querySelector("tr.detail") && document.activeElement !== q) location.reload();
+  }, Number(table.dataset.refresh) * 1000);
+  apply();
+})();
+</script>
+{{end}}
+{{template "foot"}}{{end}}
+
+{{define "session-detail"}}<div class="resume"><code class="mono">{{.S.ResumeCmd}}</code><button type="button" class="copy" data-copy="{{.S.ResumeCmd}}">Copy</button></div>
+{{if .S.FolderGone}}<p class="sub t-warn">{{tilde .S.Cwd}} no longer exists — recreate it (e.g. the worktree) before resuming.</p>{{end}}
+<p class="sub">{{tilde .S.Path}} · {{fsize .S.Size}}{{with .S.PRURL}} · <a href="{{.}}">PR #{{$.S.PRNumber}}</a>{{end}}</p>
+{{if .Msgs}}<ol class="msgs">{{range .Msgs}}<li class="m m-{{.Role}}">{{if eq .Role "tools"}}<span class="sub">· {{.Tools}} tool call{{if gt .Tools 1}}s{{end}}</span>{{else}}<div class="who">{{if eq .Role "user"}}You{{else if eq $.S.Tool "claude"}}Claude{{else}}Codex{{end}} <span class="sub" style="display:inline;font-weight:400">{{ago .At}}</span></div><div class="text">{{.Text}}</div>{{end}}</li>{{end}}</ol>
+{{else}}<p class="meta">No readable messages near the end of this transcript.</p>{{end}}{{end}}

@@ -776,17 +776,35 @@ func ago(t time.Time) string {
 var pageHTML string
 
 var page = template.Must(template.New("page").Funcs(template.FuncMap{
-	"size":       kbSize,
-	"bytes":      byteSize,
-	"ago":        ago,
-	"tilde":      tilde,
-	"anchorOf":   func(r *Repo) string { return anchor(r.Path) },
-	"base":       filepath.Base,
-	"seq":        func(n int) []int { return make([]int, n) },
-	"join":       strings.Join,
-	"org":        func(repo string) string { o, _, _ := strings.Cut(repo, "/"); return o },
-	"repoShort":  func(repo string) string { _, r, _ := strings.Cut(repo, "/"); return r },
-	"prOrgs":     prOrgs,
+	"size":      kbSize,
+	"bytes":     byteSize,
+	"ago":       ago,
+	"tilde":     tilde,
+	"anchorOf":  func(r *Repo) string { return anchor(r.Path) },
+	"base":      filepath.Base,
+	"seq":       func(n int) []int { return make([]int, n) },
+	"join":      strings.Join,
+	"org":       func(repo string) string { o, _, _ := strings.Cut(repo, "/"); return o },
+	"repoShort": func(repo string) string { _, r, _ := strings.Cut(repo, "/"); return r },
+	"prOrgs":    prOrgs,
+	"fsize":     func(n int64) string { return byteSize(uint64(max(n, 0))) },
+	"countKind": func(list []*Session, kind string) (n int) {
+		for _, x := range list {
+			if x.Kind == kind {
+				n++
+			}
+		}
+		return
+	},
+	"lowerAll": func(parts ...string) string { return strings.ToLower(strings.Join(parts, " ")) },
+	"count": func(list []*Session, tool string) (n int) {
+		for _, x := range list {
+			if x.Tool == tool {
+				n++
+			}
+		}
+		return
+	},
 	"lower":      strings.ToLower,
 	"branchLink": func(slug, branch string) string { return branchURL(slug, branch) },
 	"countState": func(prs []*TrackedPR, state string) (n int) {
@@ -860,6 +878,7 @@ func isPrivate(remote string) bool {
 type syncer struct {
 	s       *scanner
 	t       *prTracker
+	x       *sessionIndex
 	running atomic.Bool
 	mu      sync.Mutex
 	last    time.Time
@@ -880,9 +899,10 @@ func (y *syncer) start() string {
 	y.running.Store(true)
 	go func() {
 		var wg sync.WaitGroup
-		wg.Add(2)
+		wg.Add(3)
 		go func() { defer wg.Done(); y.s.scan() }()
 		go func() { defer wg.Done(); y.t.poll() }()
+		go func() { defer wg.Done(); y.x.refresh(0) }()
 		wg.Wait()
 		y.mu.Lock()
 		y.last = time.Now() // cooldown counts from the end of a sync
@@ -893,8 +913,8 @@ func (y *syncer) start() string {
 	return "started"
 }
 
-func serve(s *scanner, t *prTracker) http.Handler {
-	y := &syncer{s: s, t: t}
+func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
+	y := &syncer{s: s, t: t, x: x}
 	mux := http.NewServeMux()
 	render := func(w http.ResponseWriter, name string, data any) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -909,9 +929,11 @@ func serve(s *scanner, t *prTracker) http.Handler {
 		WT         *Snapshot
 		PR         *PRSnapshot
 		PRs        []*TrackedPR
+		Sessions   []*Session
+		Local      bool // viewer is on this Mac; gates the Sessions tab
 	}
 	newView := func(tab string) view {
-		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load()}
+		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load(), Local: true}
 		if v.WT != nil {
 			v.Next = v.WT.At.Add(*flagInterval)
 		}
@@ -937,6 +959,29 @@ func serve(s *scanner, t *prTracker) http.Handler {
 			}
 		}
 		render(w, "prs", v)
+	})
+	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
+		v := newView("sessions")
+		if v.Local = sessionsAllowed(r); v.Local {
+			x.refresh(20 * time.Second) // cheap: only changed files are re-read
+			if l := x.list.Load(); l != nil {
+				v.Sessions = *l
+			}
+		}
+		render(w, "sessions", v)
+	})
+	mux.HandleFunc("GET /sessions/view", func(w http.ResponseWriter, r *http.Request) {
+		if !sessionsAllowed(r) {
+			http.Error(w, "sessions are only viewable on the Mac that runs this", http.StatusForbidden)
+			return
+		}
+		// Resolve through the index, never from a path in the request.
+		sess := x.lookup(r.URL.Query().Get("tool"), r.URL.Query().Get("id"))
+		if sess == nil {
+			http.Error(w, "unknown session", http.StatusNotFound)
+			return
+		}
+		render(w, "session-detail", map[string]any{"S": sess, "Msgs": latestMessages(sess, 40)})
 	})
 	mux.HandleFunc("GET /api.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1016,6 +1061,7 @@ func main() {
 	log.SetFlags(log.LstdFlags)
 	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
 	t := &prTracker{}
+	x := newSessionIndex()
 	var cachedWT Snapshot
 	if loadCache("worktrees.json", &cachedWT) {
 		s.snap.Store(&cachedWT)
@@ -1042,7 +1088,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv := &http.Server{Handler: serve(s, t), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: serve(s, t, x), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
@@ -1071,6 +1117,7 @@ func main() {
 	}
 	go every(func() { s.scan() }, cachedWT.At)
 	go every(t.poll, cachedPR.At)
+	go every(func() { x.refresh(0) }, time.Time{})
 
 	<-ctx.Done()
 	shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)
