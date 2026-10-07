@@ -1,0 +1,111 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: agentyard
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agentyard
+    main: .
+    binary: agentyard
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version=v{{.Version}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "agentyard_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: git
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^docs?:'
+      - '^test:'
+      - '^chore:'
+      - "Merge pull request"
+
+release:
+  github:
+    owner: MilosMosovsky
+    name: agentyard
+  prerelease: auto
+
+# Homebrew: casks are GoReleaser's current mechanism ('brews' is deprecated).
+# Published only when HOMEBREW_TAP_GITHUB_TOKEN is set and the tag is not a
+# prerelease (auto); otherwise the cask is written to dist/ and the release
+# carries on.
+homebrew_casks:
+  - name: agentyard
+    binaries: [agentyard]
+    homepage: https://github.com/MilosMosovsky/agentyard
+    description: "The yard where your coding agents work: every worktree, PR and agent session on one calm page"
+    license: MIT
+    repository:
+      owner: MilosMosovsky
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_GITHUB_TOKEN" }}auto{{ else }}true{{ end }}'
+    commit_author:
+      name: agentyard-release
+      email: noreply@github.com
+    # The binary is unsigned and not notarized: drop the quarantine flag so
+    # Gatekeeper does not block the first run.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/agentyard"]
+          end
+    # No 'uninstall: launchctl': Homebrew runs the uninstall stanza on every
+    # 'brew upgrade' too, which would stop the agent and delete the plist that
+    # 'agentyard install --yes' reads the previous settings from. zap runs only
+    # on 'brew uninstall --zap'.
+    zap:
+      launchctl:
+        - com.github.milosmosovsky.agentyard
+      trash:
+        - ~/Library/LaunchAgents/com.github.milosmosovsky.agentyard.plist
+        - ~/Library/Caches/agentyard
+        - ~/Library/Logs/agentyard.log
+    caveats: |
+      Start agentyard in the background (asks before changing anything):
+
+        agentyard install
+
+      Or just try it on sample data:
+
+        agentyard demo
+
+      Before removing it, stop the background agent first:
+
+        agentyard uninstall && brew uninstall agentyard
+
+      (or: brew uninstall --zap agentyard)

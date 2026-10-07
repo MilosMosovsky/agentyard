@@ -1,0 +1,32 @@
+name: Bug report
+description: Something looks wrong or broke
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: "`agentyard demo` shows whether it reproduces on synthetic data."
+  - type: input
+    id: version
+    attributes:
+      label: "`agentyard version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options: [Homebrew, install.sh, go install, Built from source]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: "`~/Library/Logs/agentyard.log`. Remove private repo names and tokens first."
+      render: text
