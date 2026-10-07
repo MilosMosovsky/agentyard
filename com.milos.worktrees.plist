@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.milos.worktrees</string>
+
+    <!-- install.sh replaces __HOME__. Add -listen 127.0.0.1:80 to keep it off the LAN. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>__HOME__/.local/bin/worktreesd</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- gh lives in Homebrew; git, du and dns-sd are system binaries. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>GOMEMLIMIT</key>
+        <string>32MiB</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Scans run git and du across ~70 GB; keep them out of the way. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/worktreesd.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/worktreesd.log</string>
+</dict>
+</plist>

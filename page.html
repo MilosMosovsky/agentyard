@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="{{.RefreshSec}}">
+<title>Worktrees</title>
+<style>
+:root {
+  --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e4e3df; --head: #f2f1ee; --link: #2457c5;
+  --merged: #1f7a3d; --prunable: #6b6b66; --unmerged: #9a6200; --open: #2457c5; --keep: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --fg: #e9e8e4; --muted: #9b9a94; --line: #2c2b29; --head: #1f1e1d; --link: #8ab0ff;
+    --merged: #6fcf8e; --prunable: #9b9a94; --unmerged: #e6b04a; --open: #8ab0ff; --keep: #ff8a80;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --fg: #e9e8e4; --muted: #9b9a94; --line: #2c2b29; --head: #1f1e1d; --link: #8ab0ff;
+  --merged: #6fcf8e; --prunable: #9b9a94; --unmerged: #e6b04a; --open: #8ab0ff; --keep: #ff8a80;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 64px; background: var(--bg); color: var(--fg);
+  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+main { max-width: 1280px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 32px 0 8px; }
+h2 small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.meta { color: var(--muted); margin: 0; }
+.kpis { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 16px 0 0; }
+.kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--muted); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+th { background: var(--head); font-weight: 600; color: var(--muted); font-size: 12px; }
+td.n, th.n { text-align: right; }
+td.wrap { white-space: normal; min-width: 180px; max-width: 280px; }
+td.path { white-space: normal; overflow-wrap: anywhere; min-width: 160px; max-width: 360px; }
+.why.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.zero { color: var(--line); }
+.v { font-weight: 600; white-space: nowrap; }
+.v::before { content: "●"; margin-right: 5px; font-size: 10px; vertical-align: 1px; }
+.v-merged { color: var(--merged); } .v-prunable { color: var(--prunable); }
+.v-unmerged { color: var(--unmerged); } .v-open { color: var(--open); } .v-keep { color: var(--keep); }
+.why { color: var(--muted); display: block; font-size: 12px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.dim { color: var(--muted); }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--muted); }
+pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px 0 0; }
+.errors li { color: var(--keep); }
+</style>
+</head>
+<body>
+<main>
+<h1>Worktrees</h1>
+<p class="meta">Scanned {{.At.Format "15:04:05"}} in {{.Took}} · next scan ~{{.Next.Format "15:04"}} · sizes refresh every 30 min · read-only, nothing is deleted from here</p>
+
+<div class="kpis">
+  <div class="kpi"><b>{{.Total.Count}}</b><span>worktrees</span></div>
+  <div class="kpi"><b>{{size .Total.SizeKB}}</b><span>on disk</span></div>
+  <div class="kpi"><b class="v-merged">{{size .Total.ReclaimKB}}</b><span>reclaimable (merged only)</span></div>
+  <div class="kpi"><b>{{bytes .DiskFree}}</b><span>free of {{bytes .DiskTotal}} ({{pct .DiskFree .DiskTotal}}% used)</span></div>
+</div>
+
+{{if .Errors}}<h2>Scan errors</h2><ul class="errors">{{range .Errors}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+
+{{define "stats"}}
+<div class="scroll"><table>
+<tr><th>{{.Title}}</th><th class="n">Worktrees</th><th class="n">Size</th><th class="n">Reclaimable</th>{{range verdicts}}<th class="n">{{.Label}}</th>{{end}}</tr>
+{{range .Groups}}<tr>
+  <td class="path">{{if .Anchor}}<a href="#{{.Anchor}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
+  <td class="n">{{.Count}}</td><td class="n">{{size .SizeKB}}</td><td class="n v-merged">{{if .ReclaimKB}}{{size .ReclaimKB}}{{else}}<span class="zero">—</span>{{end}}</td>
+  {{range .Verdicts}}<td class="n">{{if .}}{{.}}{{else}}<span class="zero">·</span>{{end}}</td>{{end}}
+</tr>{{end}}
+</table></div>
+{{end}}
+
+<h2>By project</h2>
+{{template "stats" (dict "Title" "Repository" "Groups" .ByRepo)}}
+
+<h2>By folder</h2>
+{{template "stats" (dict "Title" "Folder" "Groups" .ByFolder)}}
+
+{{range .Repos}}{{$repo := .}}
+<h2 id="{{anchorOf .}}">{{rel .Path}}{{if .Slug}} <small><a href="https://github.com/{{.Slug}}">{{.Slug}}</a> · {{.Default}}</small>{{end}}</h2>
+{{range .Errors}}<p class="errors mono">{{.}}</p>{{end}}
+<div class="scroll"><table>
+<tr><th>Worktree</th><th>Branch</th><th>Pull request</th><th>Status</th><th class="n">Changes</th><th class="n">Unpushed</th><th>Last commit</th><th class="n">Size</th></tr>
+{{range .Worktrees}}<tr>
+  <td class="mono path" title="{{.Path}}">{{rel .Path}}</td>
+  <td class="mono path">{{if .BranchURL}}<a href="{{.BranchURL}}">{{.Branch}}</a>{{else}}{{.Branch}} <span class="dim">(local only)</span>{{end}}</td>
+  <td class="wrap">{{with .PR}}<a href="{{.URL}}">#{{.Number}}</a> <span class="dim">{{.State}}{{if .IsDraft}} · draft{{end}}</span><span class="why clamp" title="{{.Title}}">{{.Title}}</span>{{else}}<span class="dim">—</span>{{end}}</td>
+  <td><span class="v v-{{.Verdict}}">{{label .Verdict}}</span><span class="why">{{.Reason}}</span></td>
+  <td class="n">{{if or .Modified .Untracked}}{{.Modified}} mod · {{.Untracked}} new{{else}}<span class="zero">·</span>{{end}}</td>
+  <td class="n">{{if .Unpushed}}{{.Unpushed}}{{else}}<span class="zero">·</span>{{end}}</td>
+  <td><span title="{{.Sha}}">{{ago .LastCommit}}</span> <span class="mono dim">{{short .Sha}}</span></td>
+  <td class="n">{{size .SizeKB}}</td>
+</tr>{{end}}
+</table></div>
+{{with reclaimCount .}}<details><summary>Commands to remove the {{.}} reclaimable worktree(s)</summary><pre class="mono">{{range $repo.Worktrees}}{{if .RemoveCmd}}{{.RemoveCmd}}
+{{end}}{{end}}</pre></details>{{end}}
+{{end}}
+</main>
+</body>
+</html>
