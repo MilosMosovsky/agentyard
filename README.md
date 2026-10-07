@@ -7,7 +7,7 @@ classifies every worktree:
 
 | Status | Meaning |
 |---|---|
-| Merged | PR merged (or HEAD already in the default branch) and the worktree is clean — the only status that is safe to delete |
+| Safe to delete | PR merged (or HEAD already in the default branch) and the worktree is clean — the only status that is safe to delete |
 | Prunable | Folder is gone; only the registration is left (`git worktree prune`) |
 | Not merged | Clean and pushed, but never merged (closed PR, or no PR) — needs a human decision |
 | Open PR | PR in review |

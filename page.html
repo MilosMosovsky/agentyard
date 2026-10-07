@@ -63,7 +63,7 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
 <div class="kpis">
   <div class="kpi"><b>{{.Total.Count}}</b><span>worktrees</span></div>
   <div class="kpi"><b>{{size .Total.SizeKB}}</b><span>on disk</span></div>
-  <div class="kpi"><b class="v-merged">{{size .Total.ReclaimKB}}</b><span>reclaimable (merged only)</span></div>
+  <div class="kpi"><b class="v-merged">{{size .Total.ReclaimKB}}</b><span>safe to delete (merged)</span></div>
   <div class="kpi"><b>{{bytes .DiskFree}}</b><span>free of {{bytes .DiskTotal}} ({{pct .DiskFree .DiskTotal}}% used)</span></div>
 </div>
 

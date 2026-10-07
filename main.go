@@ -107,7 +107,7 @@ type Snapshot struct {
 // Verdicts in display order; the first two are reclaimable. Only merged work is
 // safe to delete — being pushed somewhere does not make a branch disposable.
 var verdicts = []struct{ Key, Label string }{
-	{"merged", "Merged"},
+	{"merged", "Safe to delete"},
 	{"prunable", "Prunable"},
 	{"unmerged", "Not merged"},
 	{"open", "Open PR"},
@@ -510,9 +510,9 @@ func classify(w *Worktree) {
 			w.Reason = "draft PR; fully pushed"
 		}
 	case w.PR != nil && w.PR.State == "MERGED":
-		w.Verdict, w.Reason = "merged", "PR merged"
+		w.Verdict, w.Reason = "merged", "merged: PR merged"
 	case w.InDefault:
-		w.Verdict, w.Reason = "merged", "no PR; HEAD already in default branch"
+		w.Verdict, w.Reason = "merged", "merged: no PR, HEAD already in default branch"
 	case w.PR != nil && w.PR.State == "CLOSED":
 		w.Verdict, w.Reason = "unmerged", "PR closed without merging"
 	case !w.RemoteBranch:
