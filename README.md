@@ -43,7 +43,7 @@ worktree's index and any uncommitted file. It never deletes anything itself. JSO
 `/prs` lists every open PR you authored (`is:pr is:open author:@me`), sorted by last commit: one status
 that says what blocks it (conflicts, failing checks with their names, changes requested, awaiting review,
 ready to merge, in merge queue), check counts, review state, and the local worktree that has the branch
-checked out. Org and repo chips filter the list; the selection is remembered per browser. JSON at
+checked out. Org chips filter the list (hover one to see its repos); the selection is remembered per browser. JSON at
 `/api/prs.json`.
 
 It costs ~1 GraphQL point per 20 PRs per poll (≈7 points every 5 minutes for 120 PRs, out of 5,000/hour);

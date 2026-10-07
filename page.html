@@ -60,15 +60,14 @@ nav a { color: var(--muted); padding: 0 0 8px; font-weight: 600; font-size: 14px
 nav a.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
 nav a:hover { text-decoration: none; color: var(--fg); }
 nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
-.filters { margin: 24px 0 12px; display: grid; gap: 6px; }
+.filters { margin: 24px 0 12px; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { font: inherit; font-size: 12px; color: var(--fg); background: var(--head); border: 1px solid var(--line);
   border-radius: 999px; padding: 2px 10px; cursor: pointer; }
-.chip.org { font-weight: 600; margin-right: 6px; }
 .chip b { font-weight: 400; color: var(--muted); margin-left: 2px; }
-.chip[aria-pressed="false"], .chip.under-off { background: transparent; color: var(--muted); text-decoration: line-through; opacity: .6; }
+.chip[aria-pressed="false"] { background: transparent; color: var(--muted); text-decoration: line-through; opacity: .6; }
 .chip:focus-visible, .reset:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-.reset { justify-self: start; font: inherit; font-size: 12px; color: var(--link); background: none; border: 0; padding: 2px 0; cursor: pointer; }
+.reset { margin-left: 6px; font: inherit; font-size: 12px; color: var(--link); background: none; border: 0; padding: 2px 0; cursor: pointer; }
 tr[hidden] { display: none; }
 </style>
 </head>
@@ -153,11 +152,10 @@ tr[hidden] { display: none; }
 {{end}}
 {{if .PRs}}
 <div class="filters">
-  {{range prOrgs .PRs}}<div class="filter-row">
-    <button type="button" class="chip org" data-filter="{{.Name}}" aria-pressed="true">{{.Name}} <b>{{.Count}}</b></button>
-    {{range .Repos}}<button type="button" class="chip" data-filter="{{.Name}}" data-org="{{.Org}}" aria-pressed="true" title="{{.Name}}">{{.Short}} <b>{{.Count}}</b></button>{{end}}
-  </div>{{end}}
-  <button type="button" class="reset" id="reset" hidden>Show all</button>
+  <div class="filter-row">
+    {{range prOrgs .PRs}}<button type="button" class="chip" data-filter="{{.Name}}" aria-pressed="true" title="{{range $i, $r := .Repos}}{{if $i}}, {{end}}{{.Short}} ({{.Count}}){{end}}">{{.Name}} <b>{{.Count}}</b></button>{{end}}
+    <button type="button" class="reset" id="reset" hidden>Show all</button>
+  </div>
 </div>
 <div class="scroll"><table>
 <colgroup><col style="width:11%"><col style="width:22%"><col style="width:15%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:6%"></colgroup>
@@ -175,20 +173,20 @@ tr[hidden] { display: none; }
 </tr>{{end}}
 </table></div>
 <script>
-// Org/repo toggles. Hidden keys persist per browser so the 5-minute reload keeps them.
+// Org toggles. Hidden orgs persist per browser so the 5-minute reload keeps them.
 (() => {
   const KEY = "prs-hidden";
   let hidden;
   try { hidden = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); } catch { hidden = new Set(); }
-  const rows = [...document.querySelectorAll("tr[data-repo]")];
+  const rows = [...document.querySelectorAll("tr[data-org]")];
   const chips = [...document.querySelectorAll("[data-filter]")];
+  // Forget saved keys with no chip (an org with no open PRs left), or they'd hide rows for good.
+  const known = new Set(chips.map(c => c.dataset.filter));
+  hidden = new Set([...hidden].filter(k => known.has(k)));
   const reset = document.getElementById("reset");
   const apply = () => {
-    for (const r of rows) r.hidden = hidden.has(r.dataset.org) || hidden.has(r.dataset.repo);
-    for (const c of chips) {
-      c.setAttribute("aria-pressed", String(!hidden.has(c.dataset.filter)));
-      c.classList.toggle("under-off", !!c.dataset.org && hidden.has(c.dataset.org));
-    }
+    for (const r of rows) r.hidden = hidden.has(r.dataset.org);
+    for (const c of chips) c.setAttribute("aria-pressed", String(!hidden.has(c.dataset.filter)));
     const shown = rows.filter(r => !r.hidden);
     for (const el of document.querySelectorAll("[data-kpi]")) {
       const k = el.dataset.kpi;
