@@ -55,11 +55,16 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
 .errors li { color: var(--keep); }
 .t-ok { color: var(--merged); } .t-info { color: var(--open); } .t-warn { color: var(--unmerged); }
 .t-bad { color: var(--keep); } .t-muted { color: var(--prunable); }
-nav { display: flex; gap: 20px; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
+nav { display: flex; gap: 20px; align-items: flex-end; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
 nav a { color: var(--muted); padding: 0 0 8px; font-weight: 600; font-size: 14px; }
 nav a.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
 nav a:hover { text-decoration: none; color: var(--fg); }
 nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.sync { margin-left: auto; display: flex; gap: 10px; align-items: baseline; padding-bottom: 6px; }
+#sync { font: inherit; font-size: 12px; font-weight: 600; color: var(--fg); background: var(--head);
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; min-width: 92px; }
+#sync:disabled { color: var(--muted); cursor: default; }
+#sync:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
 .filters { margin: 24px 0 12px; }
 .filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { font: inherit; font-size: 12px; color: var(--fg); background: var(--head); border: 1px solid var(--line);
@@ -76,7 +81,37 @@ tr[hidden] { display: none; }
 <nav>
   <a href="/" {{if eq .Tab "worktrees"}}class="on"{{end}}>Worktrees{{with .WT}}<b>{{.Total.Count}}</b>{{end}}</a>
   <a href="/prs" {{if eq .Tab "prs"}}class="on"{{end}}>Pull requests{{with .PR}}<b>{{len .PRs}}</b>{{end}}</a>
+  <span class="sync">{{with .WT}}<span class="sub" id="synced" title="worktrees scanned {{.At.Format "15:04:05"}}">synced {{ago .At}}</span>{{end}}<button type="button" id="sync">Sync now</button></span>
 </nav>
+<script>
+// Sync now: start an on-demand scan + PR poll, then reload once both are done.
+(() => {
+  const btn = document.getElementById("sync");
+  let started = 0, timer = 0;
+  const label = () => { btn.textContent = `Syncing… ${Math.round((Date.now() - started) / 1000)}s`; };
+  const watch = () => {
+    btn.disabled = true; started = started || Date.now(); label();
+    clearInterval(timer);
+    timer = setInterval(async () => {
+      label();
+      try {
+        const st = await (await fetch("/api/status", { cache: "no-store" })).json();
+        if (!st.syncing) location.reload();
+      } catch {}
+    }, 2000);
+  };
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const { state } = await (await fetch("/sync", { method: "POST" })).json();
+      if (state === "recent") { btn.textContent = "Synced moments ago"; setTimeout(() => { btn.textContent = "Sync now"; btn.disabled = false; }, 3000); return; }
+      started = Date.now(); watch();
+    } catch { btn.textContent = "Sync failed"; btn.disabled = false; }
+  });
+  // Pick up a sync started from another tab or device.
+  fetch("/api/status", { cache: "no-store" }).then(r => r.json()).then(st => { if (st.syncing) watch(); }).catch(() => {});
+})();
+</script>
 {{end}}
 
 {{define "foot"}}</main>

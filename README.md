@@ -15,6 +15,9 @@ WORKTREES_LISTEN=127.0.0.1:80 ./install.sh    # only this Mac can open it
 ./install.sh --uninstall
 ```
 
+Both tabs refresh every 5 minutes; **Sync now** (top right) re-runs the worktree scan and PR poll
+immediately and reloads the page when they finish (at most one sync per 30 seconds).
+
 Re-run `./install.sh` (with the same variables) after pulling changes. It builds `~/.local/bin/worktreesd`,
 smoke-tests it, and (re)loads the `local.worktreesd` LaunchAgent. Log: `~/Library/Logs/worktreesd.log`.
 

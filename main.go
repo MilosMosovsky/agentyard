@@ -854,7 +854,47 @@ func isPrivate(remote string) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
 
+// syncer runs an on-demand worktree scan and PR poll. Clicks while one is
+// running join it, and a new one starts at most every syncCooldown so the
+// button can't burn GitHub API budget.
+type syncer struct {
+	s       *scanner
+	t       *prTracker
+	running atomic.Bool
+	mu      sync.Mutex
+	last    time.Time
+}
+
+const syncCooldown = 30 * time.Second
+
+func (y *syncer) start() string {
+	y.mu.Lock()
+	defer y.mu.Unlock()
+	if y.running.Load() {
+		return "running"
+	}
+	if time.Since(y.last) < syncCooldown {
+		return "recent"
+	}
+	start := time.Now()
+	y.running.Store(true)
+	go func() {
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); y.s.scan() }()
+		go func() { defer wg.Done(); y.t.poll() }()
+		wg.Wait()
+		y.mu.Lock()
+		y.last = time.Now() // cooldown counts from the end of a sync
+		y.running.Store(false)
+		y.mu.Unlock()
+		log.Printf("sync: on-demand sync done in %s", time.Since(start).Round(time.Second))
+	}()
+	return "started"
+}
+
 func serve(s *scanner, t *prTracker) http.Handler {
+	y := &syncer{s: s, t: t}
 	mux := http.NewServeMux()
 	render := func(w http.ResponseWriter, name string, data any) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -905,6 +945,28 @@ func serve(s *scanner, t *prTracker) http.Handler {
 	mux.HandleFunc("GET /api/prs.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t.snap.Load())
+	})
+	mux.HandleFunc("POST /sync", func(w http.ResponseWriter, r *http.Request) {
+		// Only the dashboard's own page may trigger it, not any site the viewer has open.
+		if o := r.Header.Get("Origin"); o != "" {
+			if u, err := url.Parse(o); err != nil || u.Host != r.Host {
+				http.Error(w, "cross-origin", http.StatusForbidden)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"state": y.start()})
+	})
+	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
+		st := map[string]any{"syncing": y.running.Load()}
+		if wt := s.snap.Load(); wt != nil {
+			st["worktreesAt"] = wt.At
+		}
+		if pr := t.snap.Load(); pr != nil {
+			st["prsAt"] = pr.At
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(st)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isPrivate(r.RemoteAddr) {
