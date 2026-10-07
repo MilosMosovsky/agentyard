@@ -97,7 +97,7 @@ nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
   <div class="kpi"><b>{{bytes .DiskFree}}</b><span>free of {{bytes .DiskTotal}} ({{pct .DiskFree .DiskTotal}}% used)</span></div>
 </div>
 
-{{if .Errors}}<h2>Scan errors</h2><ul class="errors">{{range .Errors}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+{{if .Errors}}<h2>Couldn’t refresh</h2><p class="meta">Retried 3 times. These repos show the state from the last successful fetch; the next scan tries again.</p><ul class="errors">{{range .Errors}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
 
 
 <h2>By project</h2>
