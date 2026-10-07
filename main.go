@@ -727,8 +727,10 @@ func ago(t time.Time) string {
 		return fmt.Sprintf("%dm ago", int(d.Minutes()))
 	case d < 48*time.Hour:
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 90*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
-	return t.Format("2006-01-02")
+	return t.Format("Jan 2006")
 }
 
 //go:embed page.html
@@ -740,6 +742,8 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"ago":      ago,
 	"tilde":    tilde,
 	"anchorOf": func(r *Repo) string { return anchor(r.Path) },
+	"base":     filepath.Base,
+	"seq":      func(n int) []int { return make([]int, n) },
 	"dict": func(kv ...any) map[string]any {
 		m := map[string]any{}
 		for i := 0; i+1 < len(kv); i += 2 {

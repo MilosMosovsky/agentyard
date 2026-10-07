@@ -34,19 +34,19 @@ a:hover { text-decoration: underline; }
 .kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
 .kpi span { color: var(--muted); }
 .scroll { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+/* One fixed grid per table kind, so every section lines up. */
+table { border-collapse: collapse; width: 100%; min-width: 980px; table-layout: fixed; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 th { background: var(--head); font-weight: 600; color: var(--muted); font-size: 12px; }
-td.n, th.n { text-align: right; }
-td.wrap { white-space: normal; min-width: 180px; max-width: 280px; }
-td.path { white-space: normal; overflow-wrap: anywhere; min-width: 160px; max-width: 360px; }
-.why.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.zero { color: var(--line); }
-.v { font-weight: 600; white-space: nowrap; }
+.n { text-align: right; }
+td > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.sub { color: var(--muted); font-size: 12px; }
+.zero { color: var(--muted); opacity: .45; }
+.v { font-weight: 600; }
 .v::before { content: "●"; margin-right: 5px; font-size: 10px; vertical-align: 1px; }
 .v-merged { color: var(--merged); } .v-prunable { color: var(--prunable); }
 .v-unmerged { color: var(--unmerged); } .v-open { color: var(--open); } .v-keep { color: var(--keep); }
-.why { color: var(--muted); display: block; font-size: 12px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .dim { color: var(--muted); }
 details { margin-top: 8px; }
@@ -71,9 +71,10 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
 
 {{define "stats"}}
 <div class="scroll"><table>
+<colgroup><col style="width:32%">{{range $i := seq 8}}<col style="width:8.5%">{{end}}</colgroup>
 <tr><th>{{.Title}}</th><th class="n">Worktrees</th><th class="n">Size</th><th class="n">Reclaimable</th>{{range verdicts}}<th class="n">{{.Label}}</th>{{end}}</tr>
 {{range .Groups}}<tr>
-  <td class="path">{{if .Anchor}}<a href="#{{.Anchor}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
+  <td title="{{.Name}}">{{if .Anchor}}<a href="#{{.Anchor}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
   <td class="n">{{.Count}}</td><td class="n">{{size .SizeKB}}</td><td class="n v-merged">{{if .ReclaimKB}}{{size .ReclaimKB}}{{else}}<span class="zero">—</span>{{end}}</td>
   {{range .Verdicts}}<td class="n">{{if .}}{{.}}{{else}}<span class="zero">·</span>{{end}}</td>{{end}}
 </tr>{{end}}
@@ -90,19 +91,20 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
 <h2 id="{{anchorOf .}}">{{rel .Path}}{{if .Slug}} <small><a href="https://github.com/{{.Slug}}">{{.Slug}}</a> · {{.Default}}</small>{{end}}</h2>
 {{range .Errors}}<p class="errors mono">{{.}}</p>{{end}}
 <div class="scroll"><table>
+<colgroup><col style="width:20%"><col style="width:18%"><col style="width:21%"><col style="width:15%"><col style="width:5%"><col style="width:7%"><col style="width:8%"><col style="width:6%"></colgroup>
 <tr><th>Worktree</th><th>Branch</th><th>Pull request</th><th>Status</th><th class="n">Changes</th><th class="n">Unpushed</th><th>Last commit</th><th class="n">Size</th></tr>
 {{range .Worktrees}}<tr>
-  <td class="mono path" title="{{.Path}}">{{rel .Path}}</td>
-  <td class="mono path">{{if .BranchURL}}<a href="{{.BranchURL}}">{{.Branch}}</a>{{else}}{{.Branch}} <span class="dim">(local only)</span>{{end}}</td>
-  <td class="wrap">{{with .PR}}<a href="{{.URL}}">#{{.Number}}</a> <span class="dim">{{.State}}{{if .IsDraft}} · draft{{end}}</span><span class="why clamp" title="{{.Title}}">{{.Title}}</span>{{else}}<span class="dim">—</span>{{end}}</td>
-  <td><span class="v v-{{.Verdict}}">{{label .Verdict}}</span><span class="why">{{.Reason}}</span></td>
-  <td class="n">{{if or .Modified .Untracked}}{{.Modified}} mod · {{.Untracked}} new{{else}}<span class="zero">·</span>{{end}}</td>
+  <td title="{{.Path}}"><span class="mono">{{base .Path}}</span><span class="sub">{{tilde .Folder}}</span></td>
+  <td title="{{.Branch}}">{{if .BranchURL}}<span class="mono"><a href="{{.BranchURL}}">{{.Branch}}</a></span>{{else}}<span class="mono">{{.Branch}}</span><span class="sub">local only</span>{{end}}</td>
+  <td title="{{with .PR}}{{.Title}}{{end}}">{{with .PR}}<span><a href="{{.URL}}">#{{.Number}}</a> <span class="sub" style="display:inline">{{.State}}{{if .IsDraft}} · draft{{end}}</span></span><span class="sub">{{.Title}}</span>{{else}}<span class="zero">—</span>{{end}}</td>
+  <td title="{{.Reason}}"><span class="v v-{{.Verdict}}">{{label .Verdict}}</span><span class="sub">{{.Reason}}</span></td>
+  <td class="n">{{if or .Modified .Untracked}}{{if .Modified}}<span>{{.Modified}} mod</span>{{end}}{{if .Untracked}}<span>{{.Untracked}} new</span>{{end}}{{else}}<span class="zero">·</span>{{end}}</td>
   <td class="n">{{if .Unpushed}}{{.Unpushed}}{{else}}<span class="zero">·</span>{{end}}</td>
-  <td><span title="{{.Sha}}">{{ago .LastCommit}}</span> <span class="mono dim">{{short .Sha}}</span></td>
+  <td title="{{.Sha}}"><span>{{ago .LastCommit}}</span><span class="sub mono">{{short .Sha}}</span></td>
   <td class="n">{{size .SizeKB}}</td>
 </tr>{{end}}
 </table></div>
-{{with reclaimCount .}}<details><summary>Commands to remove the {{.}} reclaimable worktree(s)</summary><pre class="mono">{{range $repo.Worktrees}}{{if .RemoveCmd}}{{.RemoveCmd}}
+{{with reclaimCount .}}<details><summary>Commands to remove the {{.}} safe-to-delete worktree(s)</summary><pre class="mono">{{range $repo.Worktrees}}{{if .RemoveCmd}}{{.RemoveCmd}}
 {{end}}{{end}}</pre></details>{{end}}
 {{end}}
 </main>
