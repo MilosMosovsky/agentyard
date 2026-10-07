@@ -357,3 +357,43 @@ func deriveState(pr *TrackedPR) {
 		}
 	}
 }
+
+type repoCount struct {
+	Name, Org, Short string
+	Count            int
+}
+
+type orgCount struct {
+	Name  string
+	Count int
+	Repos []*repoCount
+}
+
+// prOrgs groups PRs by org and repo for the filter chips, biggest first.
+func prOrgs(prs []*TrackedPR) []*orgCount {
+	orgs := map[string]*orgCount{}
+	repos := map[string]*repoCount{}
+	for _, pr := range prs {
+		org, short, _ := strings.Cut(pr.Repo, "/")
+		o := orgs[org]
+		if o == nil {
+			o = &orgCount{Name: org}
+			orgs[org] = o
+		}
+		r := repos[pr.Repo]
+		if r == nil {
+			r = &repoCount{Name: pr.Repo, Org: org, Short: short}
+			repos[pr.Repo] = r
+			o.Repos = append(o.Repos, r)
+		}
+		o.Count++
+		r.Count++
+	}
+	var out []*orgCount
+	for _, o := range orgs {
+		sort.Slice(o.Repos, func(a, b int) bool { return o.Repos[a].Count > o.Repos[b].Count })
+		out = append(out, o)
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Count > out[b].Count })
+	return out
+}

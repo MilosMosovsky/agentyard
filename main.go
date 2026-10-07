@@ -784,6 +784,9 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"base":       filepath.Base,
 	"seq":        func(n int) []int { return make([]int, n) },
 	"join":       strings.Join,
+	"org":        func(repo string) string { o, _, _ := strings.Cut(repo, "/"); return o },
+	"repoShort":  func(repo string) string { _, r, _ := strings.Cut(repo, "/"); return r },
+	"prOrgs":     prOrgs,
 	"lower":      strings.ToLower,
 	"branchLink": func(slug, branch string) string { return branchURL(slug, branch) },
 	"countState": func(prs []*TrackedPR, state string) (n int) {

@@ -60,6 +60,16 @@ nav a { color: var(--muted); padding: 0 0 8px; font-weight: 600; font-size: 14px
 nav a.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
 nav a:hover { text-decoration: none; color: var(--fg); }
 nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
+.filters { margin: 24px 0 12px; display: grid; gap: 6px; }
+.filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { font: inherit; font-size: 12px; color: var(--fg); background: var(--head); border: 1px solid var(--line);
+  border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+.chip.org { font-weight: 600; margin-right: 6px; }
+.chip b { font-weight: 400; color: var(--muted); margin-left: 2px; }
+.chip[aria-pressed="false"], .chip.under-off { background: transparent; color: var(--muted); text-decoration: line-through; opacity: .6; }
+.chip:focus-visible, .reset:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+.reset { justify-self: start; font: inherit; font-size: 12px; color: var(--link); background: none; border: 0; padding: 2px 0; cursor: pointer; }
+tr[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -134,20 +144,27 @@ nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
 <p class="meta">Open PRs authored by you · fetched {{.At.Format "15:04:05"}} in {{.Took}} · cost {{.Cost}} GraphQL points, {{.RateRemaining}} left this hour · sorted by last commit</p>
 {{if .Error}}<ul class="errors"><li class="mono">last poll failed, showing the previous list: {{.Error}}</li></ul>{{end}}
 <div class="kpis">
-  <div class="kpi"><b>{{len .PRs}}</b><span>open</span></div>
-  <div class="kpi"><b class="t-ok">{{countState .PRs "Ready to merge"}}</b><span>ready to merge</span></div>
-  <div class="kpi"><b class="t-bad">{{countTone .PRs "bad"}}</b><span>failing · conflicts · changes requested</span></div>
-  <div class="kpi"><b class="t-warn">{{countTone .PRs "warn"}}</b><span>waiting (review · checks · branch)</span></div>
-  <div class="kpi"><b class="t-muted">{{countState .PRs "Draft"}}</b><span>drafts</span></div>
+  <div class="kpi"><b data-kpi="all">{{len .PRs}}</b><span>open</span></div>
+  <div class="kpi"><b class="t-ok" data-kpi="Ready to merge">{{countState .PRs "Ready to merge"}}</b><span>ready to merge</span></div>
+  <div class="kpi"><b class="t-bad" data-kpi="bad">{{countTone .PRs "bad"}}</b><span>failing · conflicts · changes requested</span></div>
+  <div class="kpi"><b class="t-warn" data-kpi="warn">{{countTone .PRs "warn"}}</b><span>waiting (review · checks · branch)</span></div>
+  <div class="kpi"><b class="t-muted" data-kpi="Draft">{{countState .PRs "Draft"}}</b><span>drafts</span></div>
 </div>
 {{end}}
 {{if .PRs}}
-<h2>Open pull requests</h2>
+<div class="filters">
+  {{range prOrgs .PRs}}<div class="filter-row">
+    <button type="button" class="chip org" data-filter="{{.Name}}" aria-pressed="true">{{.Name}} <b>{{.Count}}</b></button>
+    {{range .Repos}}<button type="button" class="chip" data-filter="{{.Name}}" data-org="{{.Org}}" aria-pressed="true" title="{{.Name}}">{{.Short}} <b>{{.Count}}</b></button>{{end}}
+  </div>{{end}}
+  <button type="button" class="reset" id="reset" hidden>Show all</button>
+</div>
 <div class="scroll"><table>
-<colgroup><col style="width:26%"><col style="width:17%"><col style="width:17%"><col style="width:9%"><col style="width:10%"><col style="width:8%"><col style="width:7%"><col style="width:6%"></colgroup>
-<tr><th>Pull request</th><th>Branch · local worktree</th><th>Status</th><th>Checks</th><th>Review</th><th>Last commit</th><th>Opened</th><th class="n">Diff</th></tr>
-{{range .PRs}}<tr>
-  <td title="{{.Title}}"><span><a href="{{.URL}}">{{.Title}}</a></span><span class="sub">{{.Repo}} #{{.Number}}</span></td>
+<colgroup><col style="width:11%"><col style="width:22%"><col style="width:15%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:6%"></colgroup>
+<tr><th>Repository</th><th>Pull request</th><th>Branch · local worktree</th><th>Status</th><th>Checks</th><th>Review</th><th>Last commit</th><th>Opened</th><th class="n">Diff</th></tr>
+{{range .PRs}}<tr data-org="{{org .Repo}}" data-repo="{{.Repo}}" data-tone="{{.Tone}}" data-state="{{.State}}">
+  <td title="{{.Repo}}"><span><a href="https://github.com/{{.Repo}}/pulls">{{repoShort .Repo}}</a></span><span class="sub">{{org .Repo}}</span></td>
+  <td title="{{.Title}}"><span><a href="{{.URL}}">{{.Title}}</a></span><span class="sub">#{{.Number}}</span></td>
   <td title="{{.Branch}}{{with .Worktree}} · {{.}}{{end}}"><span class="mono"><a href="{{branchLink .Repo .Branch}}">{{.Branch}}</a></span><span class="sub">{{with .Worktree}}{{tilde .}}{{else}}no local worktree{{end}}</span></td>
   <td title="{{.Why}}"><span class="v t-{{.Tone}}">{{.State}}</span><span class="sub">{{.Why}}</span></td>
   <td title="{{join .Checks.Failing ", "}}">{{if or .Checks.Passed .Checks.Failed .Checks.Pending}}<span>{{if .Checks.Failed}}<span class="t-bad" style="display:inline">✗ {{.Checks.Failed}}</span> {{end}}{{if .Checks.Pending}}<span class="t-warn" style="display:inline">◷ {{.Checks.Pending}}</span> {{end}}<span class="t-ok" style="display:inline">✓ {{.Checks.Passed}}</span></span><span class="sub">{{lower .Checks.State}}</span>{{else}}<span class="zero">no checks</span>{{end}}</td>
@@ -157,5 +174,37 @@ nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
   <td class="n"><span class="t-ok">+{{.Additions}}</span><span class="t-bad">−{{.Deletions}}</span></td>
 </tr>{{end}}
 </table></div>
+<script>
+// Org/repo toggles. Hidden keys persist per browser so the 5-minute reload keeps them.
+(() => {
+  const KEY = "prs-hidden";
+  let hidden;
+  try { hidden = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); } catch { hidden = new Set(); }
+  const rows = [...document.querySelectorAll("tr[data-repo]")];
+  const chips = [...document.querySelectorAll("[data-filter]")];
+  const reset = document.getElementById("reset");
+  const apply = () => {
+    for (const r of rows) r.hidden = hidden.has(r.dataset.org) || hidden.has(r.dataset.repo);
+    for (const c of chips) {
+      c.setAttribute("aria-pressed", String(!hidden.has(c.dataset.filter)));
+      c.classList.toggle("under-off", !!c.dataset.org && hidden.has(c.dataset.org));
+    }
+    const shown = rows.filter(r => !r.hidden);
+    for (const el of document.querySelectorAll("[data-kpi]")) {
+      const k = el.dataset.kpi;
+      el.textContent = shown.filter(r => k === "all" || r.dataset.tone === k || r.dataset.state === k).length;
+    }
+    reset.hidden = hidden.size === 0;
+    try { localStorage.setItem(KEY, JSON.stringify([...hidden])); } catch {}
+  };
+  for (const c of chips) c.addEventListener("click", () => {
+    const k = c.dataset.filter;
+    hidden.has(k) ? hidden.delete(k) : hidden.add(k);
+    apply();
+  });
+  reset.addEventListener("click", () => { hidden.clear(); apply(); });
+  apply();
+})();
+</script>
 {{else}}{{if not .PR}}<p class="meta">Fetching your open PRs — this page reloads by itself.</p>{{end}}{{end}}
 {{template "foot"}}{{end}}
