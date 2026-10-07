@@ -31,7 +31,7 @@ One Go binary. No dependencies. Runs quietly in the background on your Mac.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/worktrees-dark.png">
-  <img alt="The agentyard Worktrees page: totals for worktrees, disk use and safe-to-delete size, then each repository's worktrees with a verdict such as Keep, Open PR, Safe to delete or Prunable." src="docs/screenshots/worktrees-light.png" width="100%">
+  <img alt="The agentyard Worktrees page with totals, a colored storage treemap, repository breakdown, and cleanup filters." src="docs/screenshots/worktrees-light.png" width="100%">
 </picture>
 
 <sub>Every screenshot here is <code>agentyard demo</code>: synthetic data, nothing from a real machine.</sub>
@@ -68,6 +68,8 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 | **Open PR** | The branch has a PR in review. |
 | **Keep** | Uncommitted changes, or commits that exist only on this machine. |
 
+An interactive treemap shows measured disk usage by worktree or repository. Select a tile for its verdict and path, or jump to its row. Search, verdict, and repository filters update the chart, totals, and list together. Choose several values in the Filter menu; remove any selection individually.
+
 Totals are grouped by repository and by folder, with ready-to-copy `git worktree remove` commands for
 the safe-to-delete rows. Rows and repositories are sorted by last activity: the newest of the last
 commit, the worktree's index and any uncommitted file. Sizes are `du` logical sizes, refreshed every
@@ -80,7 +82,7 @@ commit, the worktree's index and any uncommitted file. Sizes are `du` logical si
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-dark.png">
-  <img alt="The Pull requests page: counts of open, ready, needs-action, waiting and draft PRs, org filter chips, and a table where each PR shows the one thing blocking it." src="docs/screenshots/prs-light.png" width="100%">
+  <img alt="The Pull requests page: colored status quick views, searchable multi-select filters, and a table where each PR shows the one thing blocking it." src="docs/screenshots/prs-light.png" width="100%">
 </picture>
 
 Every open PR you authored (`is:pr is:open author:@me archived:false`, as whoever `gh` is logged in
@@ -101,13 +103,13 @@ this order:
 | **Ready to merge** | none of the above | who approved it |
 
 Next to the state: check counts, review state, last commit, diff size, and the local worktree that has
-the branch checked out. Org chips filter the list, and your selection is remembered per browser.
+the branch checked out. Status quick views give one-click access to needs-action, ready, waiting, draft, and queued PRs. The Filter menu combines multiple statuses, organizations, and repositories with search. Active selections can be removed individually; filters and sort order are remembered for the browser session.
 
 ### Sessions
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sessions-dark.png">
-  <img alt="The Sessions page with a session open in a side drawer: its resume command with a Copy resume button, folder, branch, linked PR, and the latest messages." src="docs/screenshots/sessions-light.png" width="100%">
+  <img alt="The Sessions page with Claude and Codex icons, agent and session-type filters, prompt previews, branches, and Copy resume actions." src="docs/screenshots/sessions-light.png" width="100%">
 </picture>
 
 Every Claude Code (`~/.claude/projects`) and Codex (`~/.codex/sessions`) session on disk, newest
@@ -118,7 +120,7 @@ session under, which is the only place `--resume` finds it. A session whose fold
 removed worktree) is flagged.
 
 Sub-agents are left out (Codex reviewer and sub-agent rollouts, Claude agent-team workers).
-Scheduled-task runs have their own chip.
+Agent icons identify Claude Code and Codex. Use the agent icons for quick filtering, then narrow by source or folder in the Filter menu. Sort by activity, name, or size.
 
 > [!IMPORTANT]
 > Only the Mac running agentyard can open the Sessions tab. Transcripts include tool output, which can
@@ -133,7 +135,7 @@ every target is thumb-sized.
 <p align="center">
   <img alt="The Worktrees page on a phone: totals as a two-by-two grid and repositories as cards." src="docs/screenshots/phone-worktrees.png" width="260">
   &nbsp;&nbsp;
-  <img alt="The Pull requests page on a phone: org chips and one card per PR with its blocker, checks and review." src="docs/screenshots/phone-prs.png" width="260">
+  <img alt="The Pull requests page on a phone: status quick views, a mobile filter panel, and one card per PR with its blocker, checks and review." src="docs/screenshots/phone-prs.png" width="260">
 </p>
 
 **Sync now** (top right) re-runs the worktree scan, the PR poll and the session index right away and

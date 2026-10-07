@@ -453,8 +453,8 @@ func TestPageDetails(t *testing.T) {
 	pages := map[string]struct{ want, not []string }{
 		// Demo data never gets newer: no freshness clock to go stale.
 		"/":         {[]string{`<span class="sr-only">Not available</span>`}, []string{`id="snapshot-time"`, `aria-label="Not available"`}},
-		"/prs":      {[]string{`kpi-label">Needs action<`, `class="chips" role="group"`}, []string{`id="snapshot-time"`, `kpi-label">Blocked<`}},
-		"/sessions": {[]string{"<noscript>", templateEscape(first.ResumeCmd()), `class="chips" role="group"`}, nil},
+		"/prs":      {[]string{`Needs action</span>`, `data-filter-field="org"`, `data-filter-field="repo"`, `id="filter-menu"`}, []string{`id="snapshot-time"`, `kpi-label">Blocked<`}},
+		"/sessions": {[]string{"<noscript>", templateEscape(first.ResumeCmd()), `data-filter-field="tool"`, `data-filter-field="kind"`, `id="filter-menu"`}, nil},
 	}
 	for path, c := range pages {
 		body := get(t, h, "GET", path, local).Body.String()

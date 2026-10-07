@@ -6,6 +6,30 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
+### Added
+
+- Interactive storage treemap with proportional worktree and repository views, verdict colors,
+  and details that link to the corresponding worktree.
+- Shared multi-select filters with searchable options, contextual counts, removable selections,
+  and browser-session persistence across Worktrees, Pull requests, and Sessions.
+- Sorting by recent or oldest activity and name, plus largest-first sorting for worktrees and sessions.
+- Claude and Codex agent marks, icon-only agent quick views, and colored session-source labels.
+
+### Changed
+
+- More compact navigation, page headers, summaries, and tables in both light and dark themes.
+- Pull request status quick views and combined organization/repository filters.
+- Mobile filter panels with scrollable options and compact pull request cards.
+- Updated README, design documentation, and nine desktop/mobile screenshots using synthetic data.
+
+### Fixed
+
+- Charts, totals, cleanup commands, and rows now follow the same filter selection.
+- Mobile filter panels stay within the viewport; sticky table borders render continuously.
+- Improved light-theme label contrast and wrapping of pull request diff counts.
+
 ## [0.1.0] - 2026-10-07
 
 First public release.
@@ -31,5 +55,6 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.2.0
 [0.1.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.1.0

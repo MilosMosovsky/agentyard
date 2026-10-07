@@ -1,6 +1,6 @@
 # Brand assets
 
-All files live in `assets/`. Geometry comes from the canonical three-track mark in `brief.md` section 1. Text is converted to outlines (Helvetica Neue Bold, no embedded fonts), so every file renders identically everywhere. Demo labels only (`yard-demo`, `agent/parser`, PR #42); no real data.
+All files live in `assets/`. Geometry comes from the canonical three-track mark in `assets/logo-mark.svg`. Text is converted to outlines (Helvetica Neue Bold, no embedded fonts), so every file renders identically everywhere. Demo labels only (`yard-demo`, `agent/parser`, PR #42); no real data.
 
 | File | Use |
 | --- | --- |
@@ -22,3 +22,11 @@ README snippet:
 ```
 
 Regenerating: the files are produced by a deterministic script (fontTools outlines, rsvg-convert), following the brief's rule that generated art is draft-only and exact paths and type are composited afterward. Codex image generation was not used, to keep the mark exact.
+
+## Session agent marks
+
+The inline `page.html` SVG sprite includes the Claude and OpenAI marks from
+[Simple Icons 13.21.0](https://github.com/simple-icons/simple-icons/tree/13.21.0/icons),
+licensed under [CC0-1.0](https://github.com/simple-icons/simple-icons/blob/13.21.0/LICENSE.md).
+Claude uses `claude.svg`; Codex uses `openai.svg`. The shared `tool-icon` template owns
+all instances. Brand marks remain the property of their respective owners.
