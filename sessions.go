@@ -9,11 +9,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"flag"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	flagClaudeDir   = flag.String("claude-dir", envOr("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude")), "Claude Code config folder (holds projects/)")
-	flagCodexDir    = flag.String("codex-dir", envOr("CODEX_HOME", filepath.Join(home, ".codex")), "Codex home folder (holds sessions/)")
-	flagSessionsLAN = flag.Bool("sessions-lan", false, "serve the Sessions tab to other devices too (transcripts can contain secrets)")
+	flagClaudeDir   = serveFlags.String("claude-dir", envOr("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude")), "Claude Code config folder (holds projects/)")
+	flagCodexDir    = serveFlags.String("codex-dir", envOr("CODEX_HOME", filepath.Join(home, ".codex")), "Codex home folder (holds sessions/)")
+	flagSessionsLAN = serveFlags.Bool("sessions-lan", false, "serve the Sessions tab to other devices too (transcripts can contain secrets)")
 )
 
 const (
@@ -75,9 +75,9 @@ func (s *Session) Label() string {
 }
 
 func (s *Session) ResumeCmd() string {
-	cmd := "claude --resume " + s.ID
+	cmd := "claude --resume " + shellQuote(s.ID)
 	if s.Tool == "codex" {
-		cmd = "codex resume " + s.ID
+		cmd = "codex resume " + shellQuote(s.ID)
 	}
 	if s.Cwd == "" {
 		return cmd
@@ -128,6 +128,11 @@ func (x *sessionIndex) publish() {
 		}
 		list = append(list, s)
 	}
+	x.show(list)
+}
+
+// show publishes list as the visible sessions, newest activity first.
+func (x *sessionIndex) show(list []*Session) {
 	sort.Slice(list, func(a, b int) bool { return list[a].Modified.After(list[b].Modified) })
 	x.list.Store(&list)
 }
@@ -287,7 +292,11 @@ func realPrompt(s string) string {
 
 // ---------------------------------------------------------------- Claude Code
 
-var scheduledRe = regexp.MustCompile(`^<scheduled-task name="([^"]+)"`)
+var (
+	scheduledRe = regexp.MustCompile(`^<scheduled-task name="([^"]+)"`)
+	// sessionIDRe is what a session id may be: it goes into a shell command.
+	sessionIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+)
 
 type claudeLine struct {
 	Type        string    `json:"type"`
@@ -349,6 +358,10 @@ func claudeContent(l *claudeLine) (text string, tools int) {
 
 func parseClaude(path string, fi os.FileInfo) *Session {
 	s := &Session{Tool: "claude", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Path: path, Modified: fi.ModTime(), Size: fi.Size()}
+	if !sessionIDRe.MatchString(s.ID) {
+		s.Hidden = true // not a session Claude Code wrote; nothing to resume
+		return s
+	}
 	projectDir, cwdMatched := filepath.Base(filepath.Dir(path)), false
 	customTitled, sawUser := false, false
 	apply := func(l *claudeLine, fromTail bool) {
@@ -483,7 +496,7 @@ func codexContent(l *codexLine) (role, text string, tools int) {
 func parseCodex(path string, fi os.FileInfo) *Session {
 	s := &Session{Tool: "codex", Path: path, Modified: fi.ModTime(), Size: fi.Size()}
 	// The id is the trailing UUID of rollout-<time>-<uuid>.jsonl.
-	if name := strings.TrimSuffix(filepath.Base(path), ".jsonl"); len(name) >= 36 {
+	if name := strings.TrimSuffix(filepath.Base(path), ".jsonl"); len(name) >= 36 && sessionIDRe.MatchString(name[len(name)-36:]) {
 		s.ID = name[len(name)-36:]
 	}
 	f, err := os.Open(path)
@@ -496,7 +509,7 @@ func parseCodex(path string, fi os.FileInfo) *Session {
 	var meta codexLine
 	if json.Unmarshal(first, &meta) == nil && meta.Type == "session_meta" {
 		p := meta.Payload
-		if p.ID != "" {
+		if sessionIDRe.MatchString(p.ID) {
 			s.ID = p.ID
 		}
 		s.Cwd, s.Branch, s.Started = p.Cwd, p.Git.Branch, p.Timestamp
@@ -508,6 +521,10 @@ func parseCodex(path string, fi os.FileInfo) *Session {
 			s.Hidden = true
 			return s
 		}
+	}
+	if s.ID == "" {
+		s.Hidden = true // no usable id, so no resume command
+		return s
 	}
 	eachLine(readHead(path, headWindow), func(b []byte) {
 		var l codexLine
@@ -625,9 +642,8 @@ func sessionsAllowed(r *http.Request) bool {
 	if *flagSessionsLAN {
 		return true
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	ip := net.ParseIP(host)
-	if ip == nil {
+	ip := clientIP(r.RemoteAddr)
+	if !ip.IsValid() {
 		return false
 	}
 	if ip.IsLoopback() {
@@ -635,8 +651,10 @@ func sessionsAllowed(r *http.Request) bool {
 	}
 	addrs, _ := net.InterfaceAddrs()
 	for _, a := range addrs {
-		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
-			return true
+		if n, ok := a.(*net.IPNet); ok {
+			if mine, ok := netip.AddrFromSlice(n.IP); ok && mine.Unmap() == ip {
+				return true
+			}
 		}
 	}
 	return false

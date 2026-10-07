@@ -2,369 +2,1001 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-{{if ne .Tab "sessions"}}<meta http-equiv="refresh" content="{{.RefreshSec}}">{{end}}
-<title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else}}Worktrees{{end}}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else}}Worktrees{{end}} · agentyard</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" type="image/png" href="/favicon.png">
+<noscript><meta http-equiv="refresh" content="{{.RefreshSec}}"></noscript>
+<script>
+(() => {
+  const media = matchMedia("(prefers-color-scheme: dark)");
+  let preference = "system";
+  try { preference = localStorage.getItem("agentyard.theme") || "system"; } catch {}
+  window.applyTheme = function(value = preference) {
+    preference = ["system", "light", "dark"].includes(value) ? value : "system";
+    document.documentElement.dataset.theme = preference === "system" ? (media.matches ? "dark" : "light") : preference;
+    try { localStorage.setItem("agentyard.theme", preference); } catch {}
+    document.querySelectorAll('[name="theme"]').forEach(input => { input.checked = input.value === preference; });
+  };
+  applyTheme();
+  media.addEventListener("change", () => applyTheme());
+})();
+</script>
 <style>
 :root {
-  --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e4e3df; --head: #f2f1ee; --link: #2457c5;
-  --merged: #1f7a3d; --prunable: #6b6b66; --unmerged: #9a6200; --open: #2457c5; --keep: #b3261e;
+  color-scheme: light;
+
+  --bg-canvas: #F7F7F5;
+  --bg-surface: #FFFFFF;
+  --bg-inset: #F0F1F3;
+  --bg-hover: #ECEFF4;
+  --bg-selected: #E9EFFB;
+
+  --text-1: #20242C;
+  --text-2: #4F5663;
+  --text-3: #646C79;
+  --line: #DFE2E7;
+  --line-control: #7B8391;
+
+  --accent: #2F55B7;
+  --on-accent: #FFFFFF;
+  --tone-positive: #246347;
+  --tone-neutral: #596271;
+  --tone-waiting: #79500F;
+  --tone-protect: #9F3442;
+
+  --shadow-popover: 0 4px 16px #20242C14;
+  --shadow-drawer: -8px 0 32px #20242C1F;
+  --backdrop: #1113183D;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #161615; --fg: #e9e8e4; --muted: #9b9a94; --line: #2c2b29; --head: #1f1e1d; --link: #8ab0ff;
-    --merged: #6fcf8e; --prunable: #9b9a94; --unmerged: #e6b04a; --open: #8ab0ff; --keep: #ff8a80;
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-canvas: #111318;
+  --bg-surface: #191C23;
+  --bg-inset: #20242C;
+  --bg-hover: #282D37;
+  --bg-selected: #242F49;
+
+  --text-1: #F2F3F5;
+  --text-2: #D1D5DE;
+  --text-3: #B8C0CE;
+  --line: #333945;
+  --line-control: #778398;
+
+  --accent: #C4D6FF;
+  --on-accent: #111318;
+  --tone-positive: #B2E0C4;
+  --tone-neutral: var(--text-2);
+  --tone-waiting: #EAD0A8;
+  --tone-protect: #FFC1CB;
+
+  --shadow-popover: 0 4px 16px #00000052;
+  --shadow-drawer: -8px 0 32px #00000066;
+  --backdrop: #00000066;
+}
+
+:root {
+  --verdict-safe: var(--tone-positive);
+  --verdict-prunable: var(--tone-neutral);
+  --verdict-not-merged: var(--tone-waiting);
+  --verdict-open-pr: var(--accent);
+  --verdict-keep: var(--tone-protect);
+
+  --pr-checks-passing: var(--tone-positive);
+  --pr-checks-failing: var(--tone-protect);
+  --pr-checks-pending: var(--tone-waiting);
+  --pr-review-required: var(--tone-waiting);
+  --pr-review-approved: var(--tone-positive);
+  --pr-review-changes: var(--tone-protect);
+  --pr-draft: var(--tone-neutral);
+  --pr-conflicts: var(--tone-protect);
+  --pr-ready: var(--tone-positive);
+  --pr-merge-queue: var(--accent);
+  --pr-unknown: var(--tone-neutral);
+
+  --focus-ring: var(--accent);
+  --status-bg: var(--bg-surface);
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-control: 6px;
+  --radius-panel: 10px;
+  --radius-pill: 999px;
+
+  --space-0: 0px;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 32px;
+  --space-9: 40px;
+  --space-10: 48px;
+  --space-11: 64px;
+
+  --border-width: 1px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --shadow-flat: none;
+
+  --duration-hover: 100ms;
+  --duration-feedback: 120ms;
+  --duration-enter: 180ms;
+  --duration-exit: 140ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --copy-feedback-duration: 1600ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-hover: 0ms;
+    --duration-feedback: 0ms;
+    --duration-enter: 0ms;
+    --duration-exit: 0ms;
+  }
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }
-:root[data-theme="dark"] {
-  --bg: #161615; --fg: #e9e8e4; --muted: #9b9a94; --line: #2c2b29; --head: #1f1e1d; --link: #8ab0ff;
-  --merged: #6fcf8e; --prunable: #9b9a94; --unmerged: #e6b04a; --open: #8ab0ff; --keep: #ff8a80;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco,
+    Consolas, "Liberation Mono", monospace;
 }
+body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
+.numeric { font-variant-numeric: tabular-nums lining-nums; }
+code, pre, .path, .branch { font-family: var(--font-mono); font-variant-ligatures: none; }
+/* All state ink resolves here; rows and cards never carry a status fill. */
+.tone-ok { --state-ink: var(--tone-positive); }
+.tone-info { --state-ink: var(--accent); }
+.tone-warn { --state-ink: var(--tone-waiting); }
+.tone-bad { --state-ink: var(--tone-protect); }
+.tone-muted { --state-ink: var(--tone-neutral); }
+.verdict-merged { --state-ink: var(--verdict-safe); }
+.verdict-prunable { --state-ink: var(--verdict-prunable); }
+.verdict-unmerged { --state-ink: var(--verdict-not-merged); }
+.verdict-open { --state-ink: var(--verdict-open-pr); }
+.verdict-keep { --state-ink: var(--verdict-keep); }
+.ink { color: var(--state-ink, var(--text-1)); }
 * { box-sizing: border-box; }
-body { margin: 0; padding: 24px 16px 64px; background: var(--bg); color: var(--fg);
-  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
-main { max-width: 1280px; margin: 0 auto; }
-h1 { font-size: 20px; margin: 0 0 4px; }
-h2 { font-size: 15px; margin: 32px 0 8px; }
-h2 small { font-weight: 400; color: var(--muted); margin-left: 6px; }
-a { color: var(--link); text-decoration: none; }
+[hidden] { display: none !important; }
+body { margin: 0; padding: 32px 24px 64px; background: var(--bg-canvas); color: var(--text-1); }
+.frame { max-width: 1280px; margin: 0 auto; min-width: 0; }
+a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-.meta { color: var(--muted); margin: 0; }
-.kpis { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 16px 0 0; }
-.kpi b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
-.kpi span { color: var(--muted); }
-.scroll { overflow-x: auto; }
-/* One fixed grid per table kind, so every section lines up. */
-table { border-collapse: collapse; width: 100%; min-width: 980px; table-layout: fixed; font-variant-numeric: tabular-nums; }
-th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-th { background: var(--head); font-weight: 600; color: var(--muted); font-size: 12px; }
+p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button, summary, input[type="radio"], input[type="checkbox"] { cursor: pointer; }
+button { font-weight: 600; }
+button, a, summary { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--focus-offset); }
+button:disabled { cursor: default; color: var(--text-3); }
+button, a, summary { transition: background-color var(--duration-hover), color var(--duration-hover); }
+h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 650; letter-spacing: -.5px; }
+h2, h3 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -.1px; }
+svg.icon { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.skip { position: fixed; top: 8px; left: 8px; z-index: 20; padding: 12px; background: var(--bg-surface); transform: translateY(-160%); }
+.skip:focus { transform: none; }
+.brand-header { height: 40px; display: grid; grid-template-columns: 1fr auto 32px; gap: 12px; align-items: center; }
+.brand-area, .wordmark, .sync-cluster, .actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wordmark { gap: 10px; font-size: 20px; line-height: 24px; font-weight: 650; letter-spacing: -.4px; color: var(--text-1); }
+.wordmark:hover { text-decoration: none; }
+.mark { width: 24px; height: 24px; flex-shrink: 0; }
+.neutral-tag { padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 12px; line-height: 16px; color: var(--text-2); font-weight: 500; }
+.sync-cluster { gap: 12px; }
+.meta { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--text-3); }
+.secondary { color: var(--text-2); }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; background: var(--bg-surface); border: 1px solid var(--line-control); border-radius: var(--radius-control); font-size: 14px; line-height: 20px; white-space: nowrap; }
+.button:hover:not(:disabled), .icon-button:hover, .chip:hover .chip-face { background: var(--bg-hover); }
+.sync-button { width: 112px; padding: 0 4px; }
+.icon-button { width: 32px; height: 32px; padding: 8px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 0; border-radius: var(--radius-control); }
+.text-button { padding: 4px; background: none; border: 0; color: var(--accent); text-decoration: underline; font-size: 13px; }
+.settings-wrap { position: relative; }
+.settings { position: absolute; z-index: 10; right: 0; top: calc(100% + 8px); width: 240px; padding: 12px; background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--radius-panel); box-shadow: var(--shadow-popover); }
+.settings fieldset { border: 0; padding: 0; margin: 0; }
+.settings legend { font-weight: 600; padding: 0; margin-bottom: 8px; }
+.theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.theme-options label { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 8px 4px; white-space: nowrap; border-radius: var(--radius-sm); font-size: 12px; }
+.theme-options input { margin: 0; width: 13px; height: 13px; flex: 0 0 13px; }
+.settings input { accent-color: var(--accent); }
+.shortcut-toggle { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.shortcut-hint { margin-top: 12px; line-height: 20px; }
+kbd { font: 500 11px/16px var(--font-sans); color: var(--text-2); border: 1px solid var(--line); background: var(--bg-surface); border-radius: var(--radius-sm); padding: 1px 4px; }
+nav { display: flex; gap: 8px; border-bottom: 1px solid var(--line); margin: 16px 0 24px; }
+nav a { display: flex; height: 44px; align-items: center; gap: 8px; padding: 0 12px; color: var(--text-2); font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+nav a[aria-current="page"] { color: var(--text-1); border-bottom-color: var(--text-1); }
+nav a:hover { text-decoration: none; background: var(--bg-hover); }
+.tab-count { color: var(--text-3); font-size: 12px; font-weight: 500; }
+.scope { margin-top: 4px; color: var(--text-2); }
+.sync-details { margin-top: 12px; font-size: 12px; line-height: 20px; color: var(--text-2); }
+/* Every disclosure shares its chevron, typography, and interaction silhouette. */
+summary { display: flex; align-items: center; gap: 6px; width: fit-content; max-width: 100%; list-style: none; font: 400 13px/20px var(--font-sans); color: var(--text-2); }
+summary::-webkit-details-marker { display: none; }
+summary::marker { content: ""; }
+summary::before { content: ""; flex: 0 0 6px; width: 6px; height: 6px; margin-inline: 1px 3px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
+details[open] > summary::before { transform: rotate(45deg); }
+.sync-details .detail-lines { padding: 8px 0 0 16px; }
+.prose a { text-decoration: underline; }
+.kpi-region { margin: 20px 0; }
+.kpi-context { margin-bottom: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(var(--cells), minmax(0, 1fr)); background: var(--bg-surface); border-block: 1px solid var(--line); padding: 16px 0; }
+.kpi { min-height: 56px; padding: 0 16px; }
+.kpi + .kpi { border-left: 1px solid var(--line); }
+.kpi-value { display: block; font-size: 28px; line-height: 32px; font-weight: 600; letter-spacing: -.5px; }
+.kpi-label { display: block; margin-top: 4px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); }
+.kpi-note { display: block; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--text-2); }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 20px 0 8px; }
+.chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 0; background: none; border: 0; font-size: 12px; line-height: 16px; font-weight: 600; }
+.chip-face { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--line-control); border-radius: var(--radius-pill); background: var(--bg-surface); }
+.chip:focus-visible { outline: none; }
+.chip:focus-visible .chip-face { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--focus-offset); }
+.chip .icon { width: 12px; height: 12px; }
+.chip[aria-pressed="false"] { color: var(--text-2); }
+.chip[aria-pressed="false"] .icon { visibility: hidden; }
+.chip-count { font-weight: 500; color: var(--text-3); }
+.search { margin-left: auto; display: flex; position: relative; align-items: center; width: 320px; max-width: 100%; height: 36px; }
+.search > .icon { position: absolute; left: 12px; pointer-events: none; color: var(--text-3); }
+.search input { width: 100%; min-width: 0; height: 100%; padding: 0 40px 0 36px; background: var(--bg-surface); border: 1px solid var(--line-control); border-radius: var(--radius-control); }
+.search input::placeholder { color: var(--text-2); opacity: 1; }
+.search kbd { position: absolute; right: 12px; width: 20px; height: 20px; text-align: center; pointer-events: none; }
+.results-count { margin: 8px 0 12px; }
+.filters > .results-count { margin: 0; }
+.group, .summary-group { margin-top: 32px; }
+/* The first overview follows the toolbar; subsequent groups keep the 32px cadence. */
+@media (min-width: 640px) { .summary-group[data-project-summary] { margin-top: 24px; } }
+.group-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 8px; }
+.group-heading h2 { overflow-wrap: anywhere; }
+.group-heading .group-count { color: var(--text-3); font-size: 12px; font-weight: 500; }
+.summary-group > summary { font-size: 16px; line-height: 24px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; }
+.summary-group:not([open]) > summary { margin-bottom: 0; }
+.table-region { border: 0; outline: 1px solid var(--line); outline-offset: -1px; border-radius: var(--radius-panel); background: var(--bg-surface); }
+.table-region:focus-visible { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--focus-offset); }
+table { width: 100%; min-width: 1280px; table-layout: fixed; border-spacing: 0; font-variant-numeric: tabular-nums lining-nums; }
+th, td { text-align: left; overflow-wrap: anywhere; }
+th { height: 36px; padding: 8px 12px; background: var(--bg-inset); color: var(--text-2); font-size: 12px; line-height: 16px; font-weight: 600; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th:first-child { border-top-left-radius: 10px; }
+th:last-child { border-top-right-radius: 10px; }
+td { height: 64px; padding: 10px 12px; vertical-align: top; background: var(--bg-surface); }
+tr + tr > td { border-top: 1px solid var(--line); }
+tbody tr:last-child td:first-child { border-bottom-left-radius: 10px; }
+tbody tr:last-child td:last-child { border-bottom-right-radius: 10px; }
+.summary-table td { height: 40px; padding: 8px 12px; vertical-align: middle; }
 .n { text-align: right; }
-td > span { display: block; overflow: hidden; text-overflow: ellipsis; }
-.sub { color: var(--muted); font-size: 12px; }
-.zero { color: var(--muted); opacity: .45; }
-.v { font-weight: 600; }
-.v::before { content: "●"; margin-right: 5px; font-size: 10px; vertical-align: 1px; }
-.v-merged { color: var(--merged); } .v-prunable { color: var(--prunable); }
-.v-unmerged { color: var(--unmerged); } .v-open { color: var(--open); } .v-keep { color: var(--keep); }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.dim { color: var(--muted); }
-details { margin-top: 8px; }
-summary { cursor: pointer; color: var(--muted); }
-pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px 0 0; }
-.errors li { color: var(--keep); }
-.t-ok { color: var(--merged); } .t-info { color: var(--open); } .t-warn { color: var(--unmerged); }
-.t-bad { color: var(--keep); } .t-muted { color: var(--prunable); }
-nav { display: flex; gap: 20px; align-items: flex-end; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
-nav a { color: var(--muted); padding: 0 0 8px; font-weight: 600; font-size: 14px; }
-nav a.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
-nav a:hover { text-decoration: none; color: var(--fg); }
-nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
-.sync { margin-left: auto; display: flex; gap: 10px; align-items: baseline; padding-bottom: 6px; }
-#sync { font: inherit; font-size: 12px; font-weight: 600; color: var(--fg); background: var(--head);
-  border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; min-width: 92px; }
-#sync:disabled { color: var(--muted); cursor: default; }
-#sync:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-.filters { margin: 24px 0 12px; }
-.filter-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.chip { font: inherit; font-size: 12px; color: var(--fg); background: var(--head); border: 1px solid var(--line);
-  border-radius: 999px; padding: 2px 10px; cursor: pointer; }
-.chip b { font-weight: 400; color: var(--muted); margin-left: 2px; }
-.chip[aria-pressed="false"] { background: transparent; color: var(--muted); text-decoration: line-through; opacity: .6; }
-.chip:focus-visible, .reset:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-.reset { margin-left: 6px; font: inherit; font-size: 12px; color: var(--link); background: none; border: 0; padding: 2px 0; cursor: pointer; }
-tr[hidden] { display: none; }
-#q { font: inherit; font-size: 12px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-  padding: 4px 10px; min-width: 260px; flex: 1; max-width: 420px; margin-left: 8px; }
-#q:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-tr.srow { cursor: pointer; }
-tr.srow:hover, tr.srow.open { background: var(--head); }
-button.copy { font: inherit; font-size: 12px; color: var(--fg); background: var(--head); border: 1px solid var(--line);
-  border-radius: 6px; padding: 2px 10px; cursor: pointer; }
-button.copy:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-tr.detail > td { white-space: normal; overflow: visible; padding: 4px 10px 16px; background: var(--bg); }
-.resume { display: flex; gap: 8px; align-items: center; margin: 6px 0 4px; }
-.resume code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; background: var(--head); padding: 5px 8px; border-radius: 6px; }
-.msgs { list-style: none; margin: 10px 0 0; padding: 0; max-height: 60vh; overflow-y: auto; display: grid; gap: 10px; }
-.m .who { font-weight: 600; font-size: 12px; margin-bottom: 2px; }
-.m .text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.m-user { background: var(--head); border-radius: 6px; padding: 8px 10px; }
-.m-assistant { padding: 0 10px; }
-.m-tools { padding: 0 10px; }
+.row-title { font-weight: 600; }
+.cell-stack { display: grid; gap: 4px; }
+.path, .branch { font-size: 12px; line-height: 18px; }
+.field { position: relative; min-width: 0; }
+.clipped { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.two-lines { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+/* One value presentation: native disclosure keeps expansion usable without JS. */
+.value-line { display: flex; align-items: flex-start; min-width: 0; min-height: 18px; padding-inline-end: 24px; }
+.value-line > [data-clip] { min-width: 0; flex: 1; }
+.field:has(> .full-value > [hidden]) > .value-line { padding-inline-end: 0; }
+.full-value { margin: 0; }
+.value-toggle { position: absolute; inset-block-start: 0; inset-inline-end: 0; display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; min-height: 0; max-width: none; padding: 0; gap: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-3); }
+.value-toggle::before { content: none; }
+.value-toggle:hover { color: var(--text-1); }
+.full-value[open] > .value-toggle .icon { transform: rotate(180deg); }
+.full-value .full-text { display: block; margin-top: 4px; font: 400 12px/18px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+  .value-line { padding-inline-end: 36px; }
+  .full-value > .value-toggle { box-sizing: content-box; padding: 12px; margin: -12px; }
+  .card .value-line > a { display: block; min-height: 0; padding: 0; }
+}
+.badge { display: inline-flex; align-items: flex-start; gap: 6px; min-height: 24px; max-width: 100%; padding: 2px 6px; border-radius: var(--radius-sm); background: var(--status-bg); color: var(--state-ink, var(--text-1)); font-size: 14px; line-height: 20px; font-weight: 700; }
+.badge .icon { width: 14px; height: 14px; margin-top: 3px; }
+.badge.status-evidence { gap: 4px; min-height: 20px; padding: 0; font-size: 12px; font-weight: 500; }
+.reason { display: block; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--text-2); margin-top: 4px; }
+.evidence { display: flex; align-items: baseline; gap: 4px; font-size: 12px; line-height: 20px; }
+.evidence .icon { width: 14px; height: 14px; align-self: center; }
+.check-names, .review-names { margin-top: 4px; color: var(--text-2); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.review-names { white-space: normal; }
+.diff { display: inline-flex; justify-content: flex-end; max-inline-size: 100%; gap: 3px; white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums lining-nums; }
+.cleanup { margin-top: 8px; }
+.cleanup .command-notes { margin: 12px 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.command-line { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-inset); border-radius: var(--radius-control); margin-top: 8px; min-width: 0; }
+.command-line code { display: block; min-width: 0; flex: 1; overflow-x: auto; white-space: pre; font-size: 13px; line-height: 20px; padding: 4px 0; }
+.copy { flex-shrink: 0; width: 72px; padding: 0 4px; transition: color var(--duration-feedback), background-color var(--duration-feedback); }
+.copy-resume { width: 120px; }
+.copy .icon { width: 14px; height: 14px; }
+.state-panel { display: flex; align-items: flex-start; gap: 12px; min-height: 120px; padding: 24px; margin-top: 20px; background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--radius-panel); }
+.state-panel > .icon { width: 20px; height: 20px; margin-top: 2px; }
+.state-panel > div { min-width: 0; }
+.state-panel p { color: var(--text-2); margin-top: 8px; }
+.state-panel .actions, .state-panel details { margin-top: 12px; }
+main > .state-panel:not([hidden]) + section[data-repo-group]:not(.group) { margin-block-start: var(--space-5); }
+.error-list { padding-left: 20px; overflow-wrap: anywhere; }
+.update-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 20px; background: var(--bg-surface); border: 1px solid var(--line); border-radius: var(--radius-control); }
+.phone-cards { display: none; }
+.session-row { cursor: pointer; }
+.session-row:hover > td { background: var(--bg-hover); }
+.session-row.selected > td, .session-row.selected.card { background: var(--bg-selected); }
+.session-title { font-size: 14px; line-height: 20px; font-weight: 600; text-align: left; color: var(--text-1); padding: 0; border: 0; background: none; max-width: 100%; }
+.session-title:hover { text-decoration: underline; }
+.session-preview { font-family: var(--font-sans); font-size: 13px; line-height: 20px; font-weight: 400; color: var(--text-2); }
+.folder-warning { margin-top: 4px; font-size: 13px; line-height: 20px; }
+.folder-warning strong { font-weight: 600; color: var(--tone-waiting); }
+.folder-warning p { color: var(--text-2); }
+footer { display: flex; gap: 12px; align-items: center; margin-top: 32px; padding-top: 0; border-top: 0; }
+dialog { color: var(--text-1); background: var(--bg-surface); }
+dialog::backdrop { background: var(--backdrop); }
+.drawer { position: fixed; inset: 0 0 0 auto; width: 600px; max-width: calc(100vw - 48px); height: 100dvh; max-height: 100dvh; margin: 0; padding: 24px; border: 0; border-left: 1px solid var(--line); box-shadow: var(--shadow-drawer); overflow: hidden; }
+.drawer[open] { display: flex; flex-direction: column; animation: drawer-enter var(--duration-enter) var(--ease-enter); }
+.drawer.closing { animation: drawer-exit var(--duration-exit) var(--ease-exit) forwards; }
+@keyframes drawer-enter { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes drawer-exit { to { opacity: 0; transform: translateX(16px); } }
+.drawer-header { display: flex; gap: 16px; align-items: flex-start; flex-shrink: 0; margin-bottom: 16px; }
+.drawer-header > div { flex: 1; min-width: 0; }
+.drawer h2 { font-size: 20px; line-height: 28px; font-weight: 650; letter-spacing: -.3px; overflow-wrap: anywhere; }
+#drawer-title { inline-size: fit-content; max-inline-size: 100%; outline: none; }
+#drawer-title.keyboard-focus:focus { outline: var(--focus-width) solid var(--focus-ring); outline-offset: var(--focus-offset); }
+.drawer-header .meta { margin-top: 4px; }
+.drawer-header .icon-button { flex-shrink: 0; }
+.drawer-body, .session-detail { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.drawer-context { flex-shrink: 0; padding-bottom: 16px; }
+.drawer-context .command-line { margin: 0 0 8px; }
+.drawer-context .context-values { margin-top: 12px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.transcript-heading { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); padding: 12px 0; border-top: 1px solid var(--line); flex-shrink: 0; }
+.transcript { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px; margin: -4px; }
+.messages { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; }
+.message { min-width: 0; }
+.message-user { padding: 12px; border-radius: var(--radius-control); background: var(--bg-inset); }
+.message-role { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; line-height: 16px; color: var(--text-2); margin-bottom: 4px; }
+.message-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 24px; }
+.tool-calls { color: var(--text-2); font-size: 12px; line-height: 20px; }
+.tool-calls .message-text { color: var(--text-1); margin-top: 8px; }
+.copy-panel { width: 560px; max-width: calc(100vw - 32px); padding: 24px; border: 1px solid var(--line); border-radius: var(--radius-panel); box-shadow: var(--shadow-popover); }
+.copy-panel textarea { display: block; width: 100%; height: 144px; margin: 16px 0; padding: 12px; resize: vertical; border: 1px solid var(--line-control); border-radius: var(--radius-control); background: var(--bg-inset); font: 13px/20px var(--font-mono); overflow-wrap: anywhere; }
+@media (min-width: 1328px) {
+  .table-region { overflow: visible; }
+  th { position: sticky; top: 0; z-index: 2; }
+}
+@media (min-width: 640px) and (max-width: 1327px) {
+  .table-region { overflow-x: auto; }
+  th:first-child, td:first-child { position: sticky; left: 0; z-index: 1; border-right: 1px solid var(--line); }
+}
+@media (min-width: 640px) and (max-width: 1023px) { body { padding-inline: 20px; } }
+@media (max-width: 639px) {
+  body { padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+  .brand-header { height: auto; grid-template-columns: 1fr 44px; gap: 8px; }
+  .brand-area { grid-column: 1; grid-row: 1; min-height: 44px; }
+  .settings-wrap { grid-column: 2; grid-row: 1; }
+  .sync-cluster { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; min-height: 44px; }
+  .icon-button { width: 44px; height: 44px; padding: 14px; }
+  .button { min-height: 44px; }
+  .settings { top: calc(100% + 8px); }
+  .theme-options label, .shortcut-toggle { min-height: 44px; }
+  nav { gap: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  nav a { justify-content: center; padding: 0 4px; font-size: 13px; line-height: 20px; white-space: nowrap; }
+  .tab-count { display: none; }
+  .scope { overflow-wrap: anywhere; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; padding: 4px 0; }
+  .kpi { padding: 12px; }
+  .kpi + .kpi { border-left: 0; }
+  .kpi:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .filters { flex-direction: column; align-items: stretch; gap: 8px; }
+  .search { order: -1; width: 100%; height: 44px; margin: 0; }
+  .search input { font-size: 16px; line-height: 24px; padding-right: 12px; }
+  .search kbd { display: none; }
+  .chips { gap: 8px; }
+  .chip { min-height: 44px; }
+  .text-button { min-height: 44px; padding: 8px; }
+  .chips > .text-button { padding-inline: 0; }
+  .table-region { display: none; }
+  .phone-cards { display: grid; gap: 12px; }
+  .card { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--bg-surface); min-width: 0; display: grid; gap: 8px; font-size: 15px; line-height: 22px; overflow-wrap: anywhere; }
+  .card .meta { font-size: 13px; line-height: 20px; }
+  .card .reason { margin-top: 4px; }
+  .card .two-lines { display: block; overflow: visible; white-space: normal; -webkit-line-clamp: unset; }
+  .card .path, .card .branch { white-space: normal; overflow-wrap: anywhere; }
+  .card .field:is(.path, .branch) .clipped { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; }
+  .metric-grid > div { min-width: 0; }
+  .metric-grid dt { color: var(--text-2); font-size: 12px; line-height: 16px; margin-bottom: 4px; }
+  .metric-grid dd { margin: 0; }
+  .metric-grid .wide { grid-column: 1 / -1; }
+  .card .copy-resume { width: 100%; }
+  .session-title { min-height: 44px; font-size: 15px; line-height: 22px; }
+  .card a { display: inline-block; padding-block: 10px; min-height: 44px; }
+  .session-tool-values { display: inline-flex; align-items: baseline; gap: 8px; }
+  .session-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .pr-card .pr-card-title { font-size: 15px; line-height: 22px; font-weight: 600; text-wrap: balance; }
+  .pr-card-title .meta { font-weight: 500; }
+  .pr-card a { min-height: 0; padding: 0; margin: 0; }
+  .pr-card-title > a { display: flex; align-items: center; min-height: 44px; padding: 0; }
+  .pr-card-meta > a, .pr-card-meta .value-line > a { display: flex; align-items: center; min-height: 44px; padding: 0; }
+  .pr-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; line-height: 20px; }
+  .pr-card-meta > .field { flex: 1; min-width: 120px; }
+  .pr-card-blocker { display: grid; justify-items: start; gap: 8px; }
+  .pr-card .reason { margin: 0; }
+  .pr-card .metric-grid { gap: 8px; }
+  .summary-card { gap: 8px; }
+  .summary-card-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+  .summary-card-header h3 { min-width: 0; flex: 1; }
+  .summary-card-header > .numeric { flex-shrink: 0; }
+  .summary-card-header a { position: relative; display: inline; min-height: 0; padding: 0; }
+  .summary-card-header a::after { content: ""; position: absolute; inset: -10px 0; }
+  .summary-card-stats { font-size: 13px; line-height: 20px; }
+  .summary-card > details { margin-block: -12px; }
+  .summary-card > details > summary { padding-block: 12px; }
+  .summary-card > details[open] { margin-block-end: 0; }
+  summary { min-height: 44px; padding-block: 10px; }
+  .group-heading { gap: 8px; }
+  .group-heading a { display: inline-block; padding-block: 10px; min-height: 44px; }
+  .state-panel { padding: 24px; }
+  .command-line { gap: 8px; }
+  .drawer { width: 100vw; max-width: 100vw; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); border: 0; box-shadow: none; }
+  .drawer .copy-resume { width: 100%; }
+  .drawer-context .context-values { font-size: 12px; line-height: 18px; }
+  .drawer-context .path, .drawer-context .branch { max-height: 54px; overflow-y: auto; }
+  .drawer-header { gap: 8px; }
+  .drawer-header h2 { max-height: 112px; overflow-y: auto; }
+  .copy-panel { padding: 16px; }
+}
 </style>
 </head>
-<body>
-<main>
-<nav>
-  <a href="/" {{if eq .Tab "worktrees"}}class="on"{{end}}>Worktrees{{with .WT}}<b>{{.Total.Count}}</b>{{end}}</a>
-  <a href="/prs" {{if eq .Tab "prs"}}class="on"{{end}}>Pull requests{{with .PR}}<b>{{len .PRs}}</b>{{end}}</a>
-  <a href="/sessions" {{if eq .Tab "sessions"}}class="on"{{end}}>Sessions{{if .Sessions}}<b>{{len .Sessions}}</b>{{end}}</a>
-  <span class="sync">{{with .WT}}<span class="sub" id="synced" title="worktrees scanned {{.At.Format "15:04:05"}}">synced {{ago .At}}</span>{{end}}<button type="button" id="sync">Sync now</button></span>
-</nav>
-<script>
-// Sync now: start an on-demand scan + PR poll, then reload once both are done.
-(() => {
-  const btn = document.getElementById("sync");
-  let started = 0, timer = 0;
-  const label = () => { btn.textContent = `Syncing… ${Math.round((Date.now() - started) / 1000)}s`; };
-  const watch = () => {
-    btn.disabled = true; started = started || Date.now(); label();
-    clearInterval(timer);
-    timer = setInterval(async () => {
-      label();
-      try {
-        const st = await (await fetch("/api/status", { cache: "no-store" })).json();
-        if (!st.syncing) location.reload();
-      } catch {}
-    }, 2000);
-  };
-  btn.addEventListener("click", async () => {
-    btn.disabled = true;
-    try {
-      const { state } = await (await fetch("/sync", { method: "POST" })).json();
-      if (state === "recent") { btn.textContent = "Synced moments ago"; setTimeout(() => { btn.textContent = "Sync now"; btn.disabled = false; }, 3000); return; }
-      started = Date.now(); watch();
-    } catch { btn.textContent = "Sync failed"; btn.disabled = false; }
-  });
-  // Pick up a sync started from another tab or device.
-  fetch("/api/status", { cache: "no-store" }).then(r => r.json()).then(st => { if (st.syncing) watch(); }).catch(() => {});
-})();
-</script>
+<body data-tab="{{.Tab}}" data-refresh="{{.RefreshSec}}">
+{{template "icons"}}
+<a class="skip" href="#content">Skip to content</a>
+<div class="frame" id="app">
+<header class="brand-header">
+  <div class="brand-area"><a class="wordmark" href="/"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 2H8V5H6V4H2Z M2 7H11V10H9V9H2Z M2 12H14V15H12V14H2Z"/></svg><span>agentyard</span></a>{{if .Demo}}<span class="neutral-tag">Demo</span>{{end}}</div>
+  <div class="sync-cluster"><span class="meta numeric">{{if eq .Tab "prs"}}{{with .PR}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{else}}{{with .WT}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{end}}</span><button type="button" id="sync" class="button sync-button" data-sync>Sync now</button></div>
+  <div class="settings-wrap"><button type="button" class="icon-button" id="settings-toggle" aria-label="Settings" aria-expanded="false" aria-controls="settings">{{template "icon" "gear"}}</button>
+    <div id="settings" class="settings" hidden><fieldset><legend>Theme</legend><div class="theme-options"><label><input type="radio" name="theme" value="system" checked> System</label><label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></div></fieldset><label class="shortcut-toggle"><input type="checkbox" id="shortcuts" checked> Keyboard shortcuts</label><p class="meta shortcut-hint"><kbd>/</kbd> Search · <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> Navigate<br><kbd>g</kbd> then <kbd>s</kbd> Sync now</p></div>
+  </div>
+</header>
+<nav aria-label="Main"><a href="/" {{if eq .Tab "worktrees"}}aria-current="page"{{end}}>Worktrees{{with .WT}}{{with .Total}}<span class="tab-count numeric">{{.Count}}</span>{{end}}{{end}}</a><a href="/prs" {{if eq .Tab "prs"}}aria-current="page"{{end}}>Pull requests{{with .PR}}{{if not .At.IsZero}}<span class="tab-count numeric">{{len .PRs}}</span>{{end}}{{end}}</a><a href="/sessions" {{if eq .Tab "sessions"}}aria-current="page"{{end}}>Sessions{{if .Local}}{{if .Sessions}}<span class="tab-count numeric">{{len .Sessions}}</span>{{end}}{{end}}</a></nav>
+<main id="content" tabindex="-1">
+<div id="update-ready" class="update-banner" hidden><span>Updated results ready</span><button type="button" class="button" id="apply-update">Apply update</button></div>
+<div id="sync-error" class="update-banner" hidden><span>Sync failed</span><button type="button" class="button" data-sync>Retry</button></div>
 {{end}}
 
-{{define "foot"}}</main>
-</body>
-</html>{{end}}
+{{define "icon"}}<svg class="icon" aria-hidden="true"><use href="#i-{{.}}"/></svg>{{end}}
+{{define "icons"}}<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-check-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="m5 8 2 2 4-4"/></symbol>
+<symbol id="i-dashed-square" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="1" stroke-dasharray="2 3"/></symbol>
+<symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="4" r="1.5"/><path d="M4 4.5v7M12 5.5v1a3 3 0 0 1-3 3H4"/></symbol>
+<symbol id="i-pull-request" viewBox="0 0 16 16"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="13" r="1.5"/><path d="M4 4.5v7M12 11.5V6a3 3 0 0 0-3-3H8m2-2L8 3l2 2"/></symbol>
+<symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2M8 10v1"/></symbol>
+<symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></symbol>
+<symbol id="i-x-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="m6 6 4 4m0-4-4 4"/></symbol>
+<symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></symbol>
+<symbol id="i-person-clock" viewBox="0 0 16 16"><circle cx="6" cy="4" r="2"/><path d="M1.5 13v-1a4.5 4.5 0 0 1 5-4.5"/><circle cx="11.5" cy="11" r="3.5"/><path d="M11.5 9v2l1 1"/></symbol>
+<symbol id="i-comment-minus" viewBox="0 0 16 16"><path d="M3 2h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6l-4 2V3a1 1 0 0 1 1-1Z M5 7h6"/></symbol>
+<symbol id="i-dotted-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke-dasharray="1 3"/></symbol>
+<symbol id="i-crossed-branches" viewBox="0 0 16 16"><circle cx="3" cy="13" r="1.5"/><circle cx="13" cy="13" r="1.5"/><path d="M3 11.5V10c0-4 10-2 10-6V2m-2 2 2-2 2 2M13 11.5V10c0-4-10-2-10-6V2M1 4l2-2 2 2"/></symbol>
+<symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></symbol>
+<symbol id="i-gear" viewBox="0 0 16 16"><path d="m6.5 1-.5 2-1 .6-2-.5L1.5 5.5 3 7v2l-1.5 1.5L3 13l2-.5 1 .5.5 2h3l.5-2 1-.5 2 .5 1.5-2.5L13 9V7l1.5-1.5L13 3l-2 .5-1-.5-.5-2Z"/><circle cx="8" cy="8" r="2.5"/></symbol>
+<symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 5.5v-3h-8v8h3"/></symbol>
+<symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></symbol>
+<symbol id="i-close" viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 6a5.5 5.5 0 0 0-9-3L2 5m0-3v3h3M3 10a5.5 5.5 0 0 0 9 3l2-2m-3 0h3v3"/></symbol>
+</defs></svg>{{end}}
+
+{{define "status"}}
+{{$icon := "dotted-circle"}}{{$text := .State}}{{$class := printf "tone-%s" .Tone}}
+{{if .Verdict}}{{$text = label .Verdict}}{{$class = printf "verdict-%s" .Verdict}}{{if eq .Verdict "merged"}}{{$icon = "check-circle"}}{{else if eq .Verdict "prunable"}}{{$icon = "dashed-square"}}{{else if eq .Verdict "unmerged"}}{{$icon = "branch"}}{{else if eq .Verdict "open"}}{{$icon = "pull-request"}}{{else if eq .Verdict "keep"}}{{$icon = "lock"}}{{end}}
+{{else}}{{if eq .State "Ready to merge" "Checks passing" "Approved"}}{{$icon = "check"}}{{$class = "tone-ok"}}{{else if eq .State "Checks failing"}}{{$icon = "x-circle"}}{{else if eq .State "Conflicts"}}{{$icon = "crossed-branches"}}{{else if eq .State "Changes requested"}}{{$icon = "comment-minus"}}{{$class = "tone-bad"}}{{else if eq .State "Awaiting review" "Review required"}}{{$icon = "person-clock"}}{{$class = "tone-warn"}}{{else if eq .State "Checks running" "Checks pending"}}{{$icon = "clock"}}{{$text = "Checks pending"}}{{else if eq .State "Behind base"}}{{$icon = "branch"}}{{else if eq .State "Blocked"}}{{$icon = "lock"}}{{else if eq .State "In merge queue"}}{{$icon = "pull-request"}}{{else if eq .State "No review rule"}}{{$class = "tone-muted"}}{{end}}{{end}}
+<span class="badge {{$class}}{{if .Compact}} status-evidence{{end}}">{{template "icon" $icon}}<span>{{$text}}</span></span>
+{{end}}
+{{define "missing"}}<span class="meta"><span aria-hidden="true">—</span><span class="sr-only">Not available</span></span>{{end}}
+{{define "time"}}{{if .IsZero}}{{template "missing"}}{{else}}<time class="numeric" datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.Format "2006-01-02 15:04:05 MST"}}">{{ago .}}</time>{{end}}{{end}}
+{{define "exact-time"}}{{if .IsZero}}{{template "missing"}}{{else}}<time class="numeric" data-exact datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}">{{.Format "2006-01-02 15:04:05 MST"}}</time>{{end}}{{end}}
+{{define "value"}}<div class="field {{.Class}}">{{if .Text}}<div class="value-line">{{if .OpenSession}}<button type="button" class="session-title two-lines" data-open-session data-clip>{{.Text}}</button>{{else if .Href}}<a class="{{if .Lines}}two-lines{{else}}clipped{{end}}" data-clip href="{{.Href}}">{{if .Display}}{{.Display}}{{else}}{{.Text}}{{end}}</a>{{else}}<span class="{{if .Lines}}two-lines{{else}}clipped{{end}}" data-clip>{{if .Display}}{{.Display}}{{else}}{{.Text}}{{end}}</span>{{end}}</div><details class="full-value"><summary class="value-toggle" role="button" aria-label="Show full value">{{template "icon" "chevron-down"}}</summary><span class="full-text">{{.Text}}</span></details>{{else}}{{template "missing"}}{{end}}</div>{{end}}
+{{define "copy"}}<button type="button" class="button copy{{if .Resume}} copy-resume{{end}}" data-copy="{{.Command}}" data-copy-kind="{{if .Resume}}resume{{else}}command{{end}}">{{template "icon" "copy"}}<span>{{if .Resume}}Copy resume{{else}}Copy{{end}}</span></button>{{end}}
+{{define "search"}}<label class="search">{{template "icon" "search"}}<span class="sr-only">Search {{.}}</span><input id="search" type="search" placeholder="Search {{.}}" aria-label="Search {{.}}" autocomplete="off" spellcheck="false"><kbd aria-hidden="true">/</kbd></label>{{end}}
+{{define "no-matches"}}<div id="no-matches" class="state-panel" hidden>{{template "icon" "search"}}<div><h2>No matches.</h2><p>Try another search or show all items.</p><div class="actions"><button type="button" class="button" data-clear>Clear filters</button></div></div></div>{{end}}
+{{define "stale"}}<div id="stale" class="state-panel" hidden>{{template "icon" "clock"}}<div><h2 id="stale-title">Results are out of date.</h2><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}
+{{define "snapshot-time"}}{{if not .IsZero}}<time id="snapshot-time" datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" hidden></time>{{end}}{{end}}
 
 {{define "stats"}}
-<div class="scroll"><table>
-<colgroup><col style="width:32%">{{range $i := seq 8}}<col style="width:8.5%">{{end}}</colgroup>
-<tr><th>{{.Title}}</th><th class="n">Worktrees</th><th class="n">Size</th><th class="n">Reclaimable</th>{{range verdicts}}<th class="n">{{.Label}}</th>{{end}}</tr>
-{{range .Groups}}<tr>
-  <td title="{{.Name}}">{{if .Anchor}}<a href="#{{.Anchor}}">{{.Name}}</a>{{else}}<span class="mono">{{.Name}}</span>{{end}}</td>
-  <td class="n">{{.Count}}</td><td class="n">{{size .SizeKB}}</td><td class="n v-merged">{{if .ReclaimKB}}{{size .ReclaimKB}}{{else}}<span class="zero">—</span>{{end}}</td>
-  {{range .Verdicts}}<td class="n">{{if .}}{{.}}{{else}}<span class="zero">·</span>{{end}}</td>{{end}}
-</tr>{{end}}
-</table></div>
+<div class="table-region" tabindex="0" role="region" aria-label="{{.Title}} summary table, scroll horizontally for all columns"><table class="summary-table"><caption class="sr-only">Worktrees by {{.Kind}}</caption><colgroup><col style="width:288px"><col style="width:88px"><col style="width:112px"><col style="width:144px"><col style="width:160px"><col style="width:112px"><col style="width:136px"><col style="width:128px"><col style="width:112px"></colgroup><thead><tr><th scope="col">{{.Title}}</th><th scope="col" class="n">Worktrees</th><th scope="col" class="n">Size</th><th scope="col" class="n">Safe-to-delete size</th>{{range verdicts}}<th scope="col" class="n">{{.Label}}</th>{{end}}</tr></thead><tbody>
+{{range .Groups}}<tr data-summary="{{$.Kind}}" data-group-key="{{if .Anchor}}{{.Anchor}}{{else}}{{.Name}}{{end}}"><td>{{if .Anchor}}{{template "value" (dict "Text" .Name "Href" (printf "#%s" .Anchor))}}{{else}}{{template "value" (dict "Text" .Name "Class" "path")}}{{end}}</td><td class="n" data-summary-value="count">{{.Count}}</td><td class="n" data-summary-value="size">{{size .SizeKB}}</td><td class="n" data-summary-value="safe">{{size .ReclaimKB}}</td>{{range $i, $n := .Verdicts}}<td class="n" data-summary-verdict="{{(index (verdicts) $i).Key}}">{{$n}}</td>{{end}}</tr>{{end}}
+</tbody></table></div>
+<div class="phone-cards">{{range .Groups}}<article class="card summary-card" data-summary="{{$.Kind}}" data-group-key="{{if .Anchor}}{{.Anchor}}{{else}}{{.Name}}{{end}}"><header class="summary-card-header"><h3>{{if .Anchor}}{{template "value" (dict "Text" .Name "Href" (printf "#%s" .Anchor))}}{{else}}{{template "value" (dict "Text" .Name "Class" "path")}}{{end}}</h3><span class="numeric" data-summary-value="size" aria-label="Total size">{{size .SizeKB}}</span></header><p class="summary-card-stats numeric"><span data-summary-value="count" data-noun="worktree worktrees">{{counted .Count "worktree" "worktrees"}}</span> · Safe-to-delete size: <span data-summary-value="safe">{{size .ReclaimKB}}</span></p><details><summary>Verdict counts</summary><dl class="metric-grid numeric">{{range $i, $n := .Verdicts}}<div><dt>{{(index (verdicts) $i).Label}}</dt><dd data-summary-verdict="{{(index (verdicts) $i).Key}}">{{$n}}</dd></div>{{end}}</dl></details></article>{{end}}</div>
 {{end}}
+
+{{define "wt-identity"}}<div class="cell-stack">{{template "value" (dict "Text" .Path "Display" (base .Path) "Class" "path row-title")}}{{template "value" (dict "Text" .Folder "Display" (tilde .Folder) "Class" "path secondary")}}</div>{{end}}
+{{define "wt-branch"}}{{template "value" (dict "Text" .Branch "Href" .BranchURL "Class" "branch")}}{{if not .BranchURL}}<span class="meta">Local only</span>{{end}}{{end}}
+{{define "wt-pr"}}{{with .PR}}<div class="cell-stack"><span><a href="{{.URL}}">#{{.Number}}</a> <span class="meta">{{.State}}{{if .IsDraft}} · draft{{end}}</span></span>{{template "value" (dict "Text" .Title "Href" .URL "Lines" true)}}</div>{{else}}{{template "missing"}}{{end}}{{end}}
+{{define "wt-verdict"}}{{template "status" (dict "Verdict" .Verdict)}}<span class="reason">{{.Reason}}</span>{{end}}
+{{define "wt-changes"}}{{if or .Modified .Untracked}}<div>{{.Modified}} mod</div><div>{{.Untracked}} new</div>{{else}}0{{end}}{{end}}
+{{define "wt-activity"}}<div class="cell-stack">{{template "time" .LastActive}}<span class="meta">Commit {{template "time" .LastCommit}}</span></div>{{end}}
+{{define "wt-data"}}data-item data-key="{{.W.Path}}" data-repo="{{anchorOf .Repo}}" data-folder="{{tilde .W.Folder}}" data-size="{{.W.SizeKB}}" data-verdict="{{.W.Verdict}}" data-search="{{lowerAll (base .W.Path) .W.Path .W.Folder .W.Branch (label .W.Verdict) .W.Reason}}{{with .W.PR}} {{lower .Title}}{{end}}"{{end}}
+{{define "wt-row"}}<tr {{template "wt-data" .}}>{{with .W}}<td>{{template "wt-identity" .}}</td><td>{{template "wt-branch" .}}</td><td>{{template "wt-pr" .}}</td><td>{{template "wt-verdict" .}}</td><td class="n">{{template "wt-changes" .}}</td><td class="n">{{.Unpushed}}</td><td>{{template "wt-activity" .}}</td><td class="n">{{size .SizeKB}}</td>{{end}}</tr>{{end}}
+{{define "wt-card"}}<article class="card" {{template "wt-data" .}}>{{with .W}}<h3 class="path">{{base .Path}}</h3><div>{{template "wt-verdict" .}}</div><div class="path secondary">{{.Path}}</div><div>{{template "wt-branch" .}}</div><div>{{template "wt-pr" .}}</div><dl class="metric-grid numeric"><div><dt>Changes</dt><dd>{{template "wt-changes" .}}</dd></div><div><dt>Unpushed</dt><dd>{{.Unpushed}}</dd></div><div><dt>Last active</dt><dd>{{template "wt-activity" .}}</dd></div><div><dt>Size</dt><dd>{{size .SizeKB}}</dd></div></dl>{{end}}</article>{{end}}
 
 {{define "worktrees"}}{{template "head" .}}
+<h1>Worktrees</h1><p class="scope">Linked worktrees on this Mac</p>
+<details class="sync-details"><summary>Sync details</summary><div class="detail-lines">{{with .WT}}<p>Scanned {{template "exact-time" .At}} · scan took {{.Took}}</p>{{end}}<p>Next scan {{template "exact-time" .Next}} · sizes refresh every 30 min</p><p>Logical size; space freed can be smaller.</p></div></details>
+{{if not .Demo}}{{with .WT}}{{template "snapshot-time" .At}}{{end}}{{end}}
+<section class="kpi-region" aria-label="Worktree totals"><p class="meta kpi-context" id="filtered-label" hidden>Filtered results</p><div class="kpis" style="--cells:4">
+<div class="kpi"><span class="kpi-value numeric" data-kpi="all">{{with .WT}}{{with .Total}}{{.Count}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Worktrees</span></div>
+<div class="kpi"><span class="kpi-value numeric" data-kpi="size">{{with .WT}}{{with .Total}}{{size .SizeKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">On disk</span></div>
+<div class="kpi"><span class="kpi-value numeric" data-kpi="safe">{{with .WT}}{{with .Total}}{{size .ReclaimKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Safe-to-delete size</span><span class="kpi-note">Logical size; space freed can be smaller.</span></div>
+<div class="kpi"><span class="kpi-value numeric">{{with .WT}}{{bytes .DiskFree}}{{else}}—{{end}}</span><span class="kpi-label">Free on this Mac</span>{{with .WT}}<span class="kpi-note numeric">of {{bytes .DiskTotal}} · {{pct .DiskFree .DiskTotal}}% used</span>{{end}}</div>
+</div>{{if not .WT}}<p class="meta kpi-context">Waiting for first sync</p>{{end}}</section>
+<div class="filters"><p id="shown" class="meta numeric results-count">{{with .WT}}{{with .Total}}{{.Count}} of {{.Count}} shown{{end}}{{end}}</p><button type="button" class="text-button" data-clear hidden>Clear filters</button>{{template "search" "worktrees"}}</div>
+{{template "no-matches"}}{{template "stale"}}
 {{with .WT}}
-<p class="meta">Scanned {{.At.Format "15:04:05"}} in {{.Took}} · next scan ~{{$.Next.Format "15:04"}} · sizes refresh every 30 min · read-only, nothing is deleted from here</p>
+{{if .Errors}}<div class="state-panel">{{template "icon" "x-circle"}}<div>{{if .Repos}}<h2>Couldn't refresh {{counted (len .Errors) "repository" "repositories"}}.</h2><p>Showing their last successful results.</p>{{else}}<h2>Couldn't load results.</h2><p>No successful sync is available yet.</p>{{end}}<div class="actions"><button type="button" class="button" data-sync>{{if .Repos}}Sync now{{else}}Retry sync{{end}}</button></div><details><summary>Error details</summary><ul class="error-list path">{{range .Errors}}<li>{{.}}</li>{{end}}</ul></details></div></div>{{end}}
+{{if .Repos}}
+<details class="summary-group" open data-summary-section data-default-open data-project-summary><summary>By project</summary>{{template "stats" (dict "Title" "Repository" "Kind" "project" "Groups" .ByRepo)}}</details>
+<details class="summary-group" data-summary-section><summary>By folder</summary>{{template "stats" (dict "Title" "Folder" "Kind" "folder" "Groups" .ByFolder)}}</details>
+{{range .Repos}}{{$repo := .}}<section class="group" id="{{anchorOf .}}" data-repo-group><div class="group-heading"><h2>{{rel .Path}}</h2><span class="group-count numeric" data-group-count data-noun="worktree worktrees">{{counted (len .Worktrees) "worktree" "worktrees"}}</span>{{if .Slug}}<span class="meta"><a href="https://github.com/{{.Slug}}">{{.Slug}}</a>{{if .Default}}{{$default := .Default}}{{if gt (len $default) 6}}{{if eq (slice $default 0 7) "origin/"}}{{$default = slice $default 7}}{{end}}{{end}} · <a class="branch" href="{{branchLink .Slug $default}}">{{.Default}}</a>{{end}}</span>{{end}}</div>
+{{if .Errors}}<p class="reason">Last successful sync · cached repository results</p><details class="sync-details"><summary>Error details</summary><ul class="error-list path">{{range .Errors}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+<div class="table-region" tabindex="0" role="region" aria-label="{{rel .Path}} worktrees, scroll horizontally for all columns"><table><caption class="sr-only">Worktrees in {{rel .Path}}</caption><colgroup><col style="width:208px"><col style="width:184px"><col style="width:248px"><col style="width:192px"><col style="width:80px"><col style="width:88px"><col style="width:144px"><col style="width:136px"></colgroup><thead><tr><th scope="col">Worktree</th><th scope="col">Branch</th><th scope="col">Pull request</th><th scope="col">Verdict</th><th scope="col" class="n">Changes</th><th scope="col" class="n">Unpushed</th><th scope="col">Last active</th><th scope="col" class="n">Size</th></tr></thead><tbody>{{range .Worktrees}}{{template "wt-row" (dict "W" . "Repo" $repo)}}{{end}}</tbody></table></div>
+<div class="phone-cards">{{range .Worktrees}}{{template "wt-card" (dict "W" . "Repo" $repo)}}{{end}}</div>
+{{with reclaimCount .}}<details class="cleanup"><summary>Commands for <span data-cleanup-count data-noun="worktree worktrees">{{counted . "worktree" "worktrees"}}</span> you can remove</summary><p class="command-notes">Commands are copied, never run here.<br>Logical size; space freed can be smaller.</p>{{range $repo.Worktrees}}{{if .RemoveCmd}}<div class="command-line" data-item data-key="{{.Path}}"><code tabindex="0">{{.RemoveCmd}}</code>{{template "copy" (dict "Command" .RemoveCmd)}}</div>{{end}}{{end}}</details>{{end}}
+</section>{{end}}
+{{else if not .Errors}}<div class="state-panel">{{template "icon" "branch"}}<div><h2>No linked worktrees found.</h2><p>Create a worktree in the scanned folders, then sync again.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}
+{{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Scanning worktrees…</h2><p>Results appear when the first scan finishes.</p></div></div>{{end}}
+{{template "foot" .}}{{end}}
 
-<div class="kpis">
-  <div class="kpi"><b>{{.Total.Count}}</b><span>worktrees</span></div>
-  <div class="kpi"><b>{{size .Total.SizeKB}}</b><span>on disk</span></div>
-  <div class="kpi"><b class="v-merged">{{size .Total.ReclaimKB}}</b><span>safe to delete (merged)</span></div>
-  <div class="kpi"><b>{{bytes .DiskFree}}</b><span>free of {{bytes .DiskTotal}} ({{pct .DiskFree .DiskTotal}}% used)</span></div>
-</div>
+{{define "pr-repo"}}<div class="cell-stack">{{template "value" (dict "Text" .Repo "Display" (repoShort .Repo) "Href" (printf "https://github.com/%s/pulls" .Repo))}}<span class="meta">{{org .Repo}}</span></div>{{end}}
+{{define "pr-title"}}<div class="cell-stack">{{template "value" (dict "Text" .Title "Href" .URL "Lines" true "Class" "row-title")}}<span class="meta numeric">#{{.Number}}</span></div>{{end}}
+{{define "pr-branch-value"}}{{template "value" (dict "Text" .Branch "Href" (branchLink .Repo .Branch) "Class" "branch")}}{{end}}
+{{define "pr-worktree"}}{{if .Worktree}}{{template "value" (dict "Text" .Worktree "Display" (tilde .Worktree) "Class" "path secondary")}}{{else}}<span class="meta">No local worktree</span>{{end}}{{end}}
+{{define "pr-branch"}}<div class="cell-stack">{{template "pr-branch-value" .}}{{template "pr-worktree" .}}</div>{{end}}
+{{define "pr-blocker"}}{{template "status" (dict "State" .State "Tone" .Tone)}}<span class="reason">{{.Why}}</span>{{end}}
+{{define "checks"}}{{with .Checks}}{{if or .Passed .Failed .Pending}}{{if .Failed}}<div class="evidence ink tone-bad">{{template "icon" "x-circle"}}<span>{{.Failed}} failed</span></div>{{end}}{{if .Pending}}<div class="evidence ink tone-warn">{{template "icon" "clock"}}<span>{{.Pending}} pending</span></div>{{end}}<div class="evidence ink tone-ok">{{template "icon" "check"}}<span>{{.Passed}} passed</span></div>{{else}}<span class="meta">No checks reported</span>{{end}}{{if ne $.State "Checks failing"}}{{with .Failing}}<div class="check-names">{{range .}}<div>{{.}}</div>{{end}}</div>{{end}}{{end}}{{end}}{{end}}
+{{define "review"}}{{template "status" (dict "State" (reviewLabel .ReviewDecision) "Compact" true)}}{{with .Approvers}}<div class="review-names"><span class="sr-only">Approved by </span>{{join . ", "}}</div>{{end}}{{with .ChangesBy}}<div class="review-names"><span class="sr-only">Changes by </span>{{join . ", "}}</div>{{end}}{{with .Waiting}}<div class="review-names"><span class="sr-only">Waiting on </span>{{join . ", "}}</div>{{end}}{{end}}
+{{define "diff"}}<span class="diff"><span class="ink tone-ok">+{{.Additions}}</span><span class="ink tone-bad">−{{.Deletions}}</span></span>{{end}}
+{{define "pr-data"}}data-item data-key="{{.Repo}}/{{.Number}}" data-org="{{org .Repo}}" data-tone="{{.Tone}}" data-state="{{.State}}" data-search="{{lowerAll .Repo .Title .Branch .Worktree .State .Why (join .Approvers " ") (join .Waiting " ") (join .ChangesBy " ") (join .Checks.Failing " ")}} {{.Number}}"{{end}}
+{{define "pr-row"}}<tr {{template "pr-data" .}}><td>{{template "pr-repo" .}}</td><td>{{template "pr-title" .}}</td><td>{{template "pr-branch" .}}</td><td>{{template "pr-blocker" .}}</td><td>{{template "checks" .}}</td><td>{{template "review" .}}</td><td>{{template "time" .LastCommit}}</td><td>{{template "time" .CreatedAt}}</td><td class="n">{{template "diff" .}}</td></tr>{{end}}
+{{define "pr-card"}}<article class="card pr-card" {{template "pr-data" .}}><h3 class="pr-card-title"><a href="{{.URL}}"><span>{{.Title}} <span class="meta numeric">#{{.Number}}</span></span></a></h3><div class="pr-card-blocker">{{template "pr-blocker" .}}</div><div class="pr-card-meta"><a href="https://github.com/{{.Repo}}/pulls">{{.Repo}}</a>{{template "pr-branch-value" .}}</div>{{template "pr-worktree" .}}<dl class="metric-grid"><div><dt>Checks</dt><dd>{{template "checks" .}}</dd></div><div><dt>Review</dt><dd>{{template "review" .}}</dd></div><div><dt>Last commit</dt><dd>{{template "time" .LastCommit}}</dd></div><div><dt>Opened</dt><dd>{{template "time" .CreatedAt}}</dd></div><div><dt>Diff</dt><dd class="numeric">{{template "diff" .}}</dd></div></dl></article>{{end}}
 
-{{if .Errors}}<h2>Couldn’t refresh</h2><p class="meta">Retried 3 times. These repos show the state from the last successful fetch; the next scan tries again.</p><ul class="errors">{{range .Errors}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+{{define "prs"}}{{template "head" .}}{{$synced := false}}{{with .PR}}{{$synced = not .At.IsZero}}{{end}}
+<h1>Pull requests</h1><p class="scope">Open PRs authored by you</p>
+<details class="sync-details"><summary>Sync details</summary><div class="detail-lines">{{with .PR}}<p>Fetched {{template "exact-time" .At}} · scan took {{.Took}}</p><p class="numeric">GraphQL cost {{.Cost}} · {{.RateRemaining}} points remaining{{if not .RateReset.IsZero}} · resets {{template "exact-time" .RateReset}}{{end}}</p>{{end}}<p>Sorted by last commit · refresh every {{.RefreshSec}} seconds</p></div></details>
+{{if not .Demo}}{{with .PR}}{{template "snapshot-time" .At}}{{end}}{{end}}
+<section class="kpi-region" aria-label="Pull request totals"><p class="meta kpi-context" id="filtered-label" hidden>Filtered results</p><div class="kpis" style="--cells:5">
+<div class="kpi"><span class="kpi-value numeric" data-kpi="all">{{if $synced}}{{len .PRs}}{{else}}—{{end}}</span><span class="kpi-label">Open</span></div>
+<div class="kpi"><span class="kpi-value numeric ink tone-ok" data-kpi="Ready to merge">{{if $synced}}{{countState .PRs "Ready to merge"}}{{else}}—{{end}}</span><span class="kpi-label">Ready to merge</span></div>
+<div class="kpi"><span class="kpi-value numeric ink tone-bad" data-kpi="bad">{{if $synced}}{{countTone .PRs "bad"}}{{else}}—{{end}}</span><span class="kpi-label">Needs action</span></div>
+<div class="kpi"><span class="kpi-value numeric ink tone-warn" data-kpi="warn">{{if $synced}}{{countTone .PRs "warn"}}{{else}}—{{end}}</span><span class="kpi-label">Waiting</span></div>
+<div class="kpi"><span class="kpi-value numeric" data-kpi="Draft">{{if $synced}}{{countState .PRs "Draft"}}{{else}}—{{end}}</span><span class="kpi-label">Drafts</span></div>
+</div>{{if not $synced}}<p class="meta kpi-context">Waiting for first sync</p>{{end}}</section>
+<div class="filters"><div class="chips" role="group" aria-label="Filter organizations">{{range prOrgs .PRs}}<button type="button" class="chip" data-filter="{{.Name}}" aria-pressed="true"><span class="chip-face">{{template "icon" "check"}}{{.Name}} <span class="chip-count numeric">{{.Count}}</span></span></button>{{end}}<button type="button" class="text-button" data-show-all>Show all</button><button type="button" class="text-button" data-clear hidden>Clear filters</button></div>{{template "search" "pull requests"}}</div><p id="shown" class="meta numeric results-count">{{if $synced}}{{len .PRs}} of {{len .PRs}} shown{{end}}</p>
+{{template "no-matches"}}{{template "stale"}}
+{{with .PR}}{{if .Error}}<div class="state-panel">{{template "icon" "x-circle"}}<div>{{if .At.IsZero}}<h2>Couldn't load results.</h2><p>No successful sync is available yet.</p>{{else if and (eq .RateRemaining 0) (not .RateReset.IsZero)}}<h2>GitHub refresh paused.</h2><p>Showing the last successful results.</p><p>Resets {{template "exact-time" .RateReset}}</p>{{else}}<h2>Couldn't refresh pull requests.</h2><p>Showing results from {{template "exact-time" .At}}.</p>{{end}}<div class="actions"><button type="button" class="button" data-sync>{{if .At.IsZero}}Retry sync{{else}}Sync now{{end}}</button></div><details><summary>Error details</summary><p class="path">{{.Error}}</p></details></div></div>{{end}}{{end}}
+{{if .PRs}}<section data-repo-group><div class="table-region" tabindex="0" role="region" aria-label="Pull requests, scroll horizontally for all columns"><table><caption class="sr-only">Open pull requests, sorted by last commit</caption><colgroup><col style="width:136px"><col style="width:280px"><col style="width:192px"><col style="width:200px"><col style="width:104px"><col style="width:104px"><col style="width:88px"><col style="width:80px"><col style="width:96px"></colgroup><thead><tr><th scope="col">Repository</th><th scope="col">Pull request</th><th scope="col">Branch · local worktree</th><th scope="col">Blocker</th><th scope="col">Checks</th><th scope="col">Review</th><th scope="col">Last commit</th><th scope="col">Opened</th><th scope="col" class="n">Diff</th></tr></thead><tbody>{{range .PRs}}{{template "pr-row" .}}{{end}}</tbody></table></div><div class="phone-cards">{{range .PRs}}{{template "pr-card" .}}{{end}}</div></section>
+{{else}}{{with .PR}}{{if not .Error}}<div class="state-panel">{{template "icon" "pull-request"}}<div><h2>No open pull requests.</h2><p>You're viewing open PRs authored by the signed-in GitHub account.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}{{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Fetching pull requests…</h2><p>Results appear when the first sync finishes.</p></div></div>{{end}}{{end}}
+{{template "foot" .}}{{end}}
 
-
-<h2>By project</h2>
-{{template "stats" (dict "Title" "Repository" "Groups" .ByRepo)}}
-
-<h2>By folder</h2>
-{{template "stats" (dict "Title" "Folder" "Groups" .ByFolder)}}
-
-{{range .Repos}}{{$repo := .}}
-<h2 id="{{anchorOf .}}">{{rel .Path}}{{if .Slug}} <small><a href="https://github.com/{{.Slug}}">{{.Slug}}</a> · {{.Default}}</small>{{end}}</h2>
-{{range .Errors}}<p class="errors mono">{{.}}</p>{{end}}
-<div class="scroll"><table>
-<colgroup><col style="width:20%"><col style="width:18%"><col style="width:21%"><col style="width:15%"><col style="width:5%"><col style="width:7%"><col style="width:8%"><col style="width:6%"></colgroup>
-<tr><th>Worktree</th><th>Branch</th><th>Pull request</th><th>Status</th><th class="n">Changes</th><th class="n">Unpushed</th><th>Last active</th><th class="n">Size</th></tr>
-{{range .Worktrees}}<tr>
-  <td title="{{.Path}}"><span class="mono">{{base .Path}}</span><span class="sub">{{tilde .Folder}}</span></td>
-  <td title="{{.Branch}}">{{if .BranchURL}}<span class="mono"><a href="{{.BranchURL}}">{{.Branch}}</a></span>{{else}}<span class="mono">{{.Branch}}</span><span class="sub">local only</span>{{end}}</td>
-  <td title="{{with .PR}}{{.Title}}{{end}}">{{with .PR}}<span><a href="{{.URL}}">#{{.Number}}</a> <span class="sub" style="display:inline">{{.State}}{{if .IsDraft}} · draft{{end}}</span></span><span class="sub">{{.Title}}</span>{{else}}<span class="zero">—</span>{{end}}</td>
-  <td title="{{.Reason}}"><span class="v v-{{.Verdict}}">{{label .Verdict}}</span><span class="sub">{{.Reason}}</span></td>
-  <td class="n">{{if or .Modified .Untracked}}{{if .Modified}}<span>{{.Modified}} mod</span>{{end}}{{if .Untracked}}<span>{{.Untracked}} new</span>{{end}}{{else}}<span class="zero">·</span>{{end}}</td>
-  <td class="n">{{if .Unpushed}}{{.Unpushed}}{{else}}<span class="zero">·</span>{{end}}</td>
-  <td title="last commit {{.LastCommit.Format "2006-01-02 15:04"}} · {{.Sha}}"><span>{{ago .LastActive}}</span><span class="sub">commit {{ago .LastCommit}}</span></td>
-  <td class="n">{{size .SizeKB}}</td>
-</tr>{{end}}
-</table></div>
-{{with reclaimCount .}}<details><summary>Commands to remove the {{.}} safe-to-delete worktree(s)</summary><pre class="mono">{{range $repo.Worktrees}}{{if .RemoveCmd}}{{.RemoveCmd}}
-{{end}}{{end}}</pre></details>{{end}}
-{{end}}
-{{else}}<p class="meta">First scan in progress — this page reloads by itself.</p>{{end}}
-{{template "foot"}}{{end}}
-
-{{define "prs"}}{{template "head" .}}
-{{with .PR}}
-<p class="meta">Open PRs authored by you · fetched {{.At.Format "15:04:05"}} in {{.Took}} · cost {{.Cost}} GraphQL points, {{.RateRemaining}} left this hour · sorted by last commit</p>
-{{if .Error}}<ul class="errors"><li class="mono">last poll failed, showing the previous list: {{.Error}}</li></ul>{{end}}
-<div class="kpis">
-  <div class="kpi"><b data-kpi="all">{{len .PRs}}</b><span>open</span></div>
-  <div class="kpi"><b class="t-ok" data-kpi="Ready to merge">{{countState .PRs "Ready to merge"}}</b><span>ready to merge</span></div>
-  <div class="kpi"><b class="t-bad" data-kpi="bad">{{countTone .PRs "bad"}}</b><span>failing · conflicts · changes requested</span></div>
-  <div class="kpi"><b class="t-warn" data-kpi="warn">{{countTone .PRs "warn"}}</b><span>waiting (review · checks · branch)</span></div>
-  <div class="kpi"><b class="t-muted" data-kpi="Draft">{{countState .PRs "Draft"}}</b><span>drafts</span></div>
-</div>
-{{end}}
-{{if .PRs}}
-<div class="filters">
-  <div class="filter-row">
-    {{range prOrgs .PRs}}<button type="button" class="chip" data-filter="{{.Name}}" aria-pressed="true" title="{{range $i, $r := .Repos}}{{if $i}}, {{end}}{{.Short}} ({{.Count}}){{end}}">{{.Name}} <b>{{.Count}}</b></button>{{end}}
-    <button type="button" class="reset" id="reset" hidden>Show all</button>
-  </div>
-</div>
-<div class="scroll"><table>
-<colgroup><col style="width:11%"><col style="width:22%"><col style="width:15%"><col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:7%"><col style="width:7%"><col style="width:6%"></colgroup>
-<tr><th>Repository</th><th>Pull request</th><th>Branch · local worktree</th><th>Status</th><th>Checks</th><th>Review</th><th>Last commit</th><th>Opened</th><th class="n">Diff</th></tr>
-{{range .PRs}}<tr data-org="{{org .Repo}}" data-repo="{{.Repo}}" data-tone="{{.Tone}}" data-state="{{.State}}">
-  <td title="{{.Repo}}"><span><a href="https://github.com/{{.Repo}}/pulls">{{repoShort .Repo}}</a></span><span class="sub">{{org .Repo}}</span></td>
-  <td title="{{.Title}}"><span><a href="{{.URL}}">{{.Title}}</a></span><span class="sub">#{{.Number}}</span></td>
-  <td title="{{.Branch}}{{with .Worktree}} · {{.}}{{end}}"><span class="mono"><a href="{{branchLink .Repo .Branch}}">{{.Branch}}</a></span><span class="sub">{{with .Worktree}}{{tilde .}}{{else}}no local worktree{{end}}</span></td>
-  <td title="{{.Why}}"><span class="v t-{{.Tone}}">{{.State}}</span><span class="sub">{{.Why}}</span></td>
-  <td title="{{join .Checks.Failing ", "}}">{{if or .Checks.Passed .Checks.Failed .Checks.Pending}}<span>{{if .Checks.Failed}}<span class="t-bad" style="display:inline">✗ {{.Checks.Failed}}</span> {{end}}{{if .Checks.Pending}}<span class="t-warn" style="display:inline">◷ {{.Checks.Pending}}</span> {{end}}<span class="t-ok" style="display:inline">✓ {{.Checks.Passed}}</span></span><span class="sub">{{lower .Checks.State}}</span>{{else}}<span class="zero">no checks</span>{{end}}</td>
-  <td title="{{with .Approvers}}approved by {{join . ", "}}{{end}}{{with .Waiting}} · waiting on {{join . ", "}}{{end}}"><span>{{reviewLabel .ReviewDecision}}</span><span class="sub">{{with .Approvers}}{{join . ", "}}{{else}}{{with .Waiting}}{{join . ", "}}{{end}}{{end}}</span></td>
-  <td title="{{.LastCommit.Format "2006-01-02 15:04"}}">{{ago .LastCommit}}</td>
-  <td title="{{.CreatedAt.Format "2006-01-02"}}">{{ago .CreatedAt}}</td>
-  <td class="n"><span class="t-ok">+{{.Additions}}</span><span class="t-bad">−{{.Deletions}}</span></td>
-</tr>{{end}}
-</table></div>
-<script>
-// Org toggles. Hidden orgs persist per browser so the 5-minute reload keeps them.
-(() => {
-  const KEY = "prs-hidden";
-  let hidden;
-  try { hidden = new Set(JSON.parse(localStorage.getItem(KEY) || "[]")); } catch { hidden = new Set(); }
-  const rows = [...document.querySelectorAll("tr[data-org]")];
-  const chips = [...document.querySelectorAll("[data-filter]")];
-  // Forget saved keys with no chip (an org with no open PRs left), or they'd hide rows for good.
-  const known = new Set(chips.map(c => c.dataset.filter));
-  hidden = new Set([...hidden].filter(k => known.has(k)));
-  const reset = document.getElementById("reset");
-  const apply = () => {
-    for (const r of rows) r.hidden = hidden.has(r.dataset.org);
-    for (const c of chips) c.setAttribute("aria-pressed", String(!hidden.has(c.dataset.filter)));
-    const shown = rows.filter(r => !r.hidden);
-    for (const el of document.querySelectorAll("[data-kpi]")) {
-      const k = el.dataset.kpi;
-      el.textContent = shown.filter(r => k === "all" || r.dataset.tone === k || r.dataset.state === k).length;
-    }
-    reset.hidden = hidden.size === 0;
-    try { localStorage.setItem(KEY, JSON.stringify([...hidden])); } catch {}
-  };
-  for (const c of chips) c.addEventListener("click", () => {
-    const k = c.dataset.filter;
-    hidden.has(k) ? hidden.delete(k) : hidden.add(k);
-    apply();
-  });
-  reset.addEventListener("click", () => { hidden.clear(); apply(); });
-  apply();
-})();
-</script>
-{{else}}{{if not .PR}}<p class="meta">Fetching your open PRs — this page reloads by itself.</p>{{end}}{{end}}
-{{template "foot"}}{{end}}
+{{define "tool-name"}}{{if eq . "claude"}}Claude Code{{else}}Codex{{end}}{{end}}
+{{define "session-meta"}}{{template "tool-name" .Tool}} · {{.Kind}} · Last active {{template "time" .Modified}} · {{fsize .Size}}{{end}}
+{{define "session-tool"}}<div class="cell-stack session-tool-values"><span>{{template "tool-name" .Tool}}</span><span class="meta">{{.Kind}}</span></div><template data-session-meta>{{template "session-meta" .}}</template>{{end}}
+{{define "session-title"}}{{template "value" (dict "Text" .Label "OpenSession" true)}}{{end}}
+{{define "session-pr"}}{{if .PRURL}}<a class="meta" href="{{.PRURL}}">PR #{{.PRNumber}}</a>{{end}}{{end}}
+{{define "session-preview"}}{{$preview := .LastPrompt}}{{if not $preview}}{{$preview = .FirstPrompt}}{{end}}{{if and $preview (not (eq $preview .Label))}}{{template "value" (dict "Text" $preview "Class" "session-preview" "Lines" true)}}{{end}}{{end}}
+{{define "folder-warning"}}{{if .FolderGone}}<div class="folder-warning"><strong>Folder deleted.</strong><p>Recreate <span class="path">{{.Cwd}}</span> before resuming this session.</p></div>{{end}}{{end}}
+{{define "session-folder"}}<div class="cell-stack">{{template "value" (dict "Text" .Cwd "Display" (tilde .Cwd) "Class" "path")}}{{template "value" (dict "Text" .Branch "Class" "branch secondary")}}</div>{{template "folder-warning" .}}{{end}}
+{{define "session-activity"}}<div class="cell-stack">{{template "time" .Modified}}<span class="meta">Started {{template "time" .Started}}</span></div>{{end}}
+{{define "session-data"}}data-item data-key="{{.Tool}}/{{.ID}}" data-tool="{{.Tool}}" data-kind="{{.Kind}}" data-id="{{.ID}}" data-title="{{.Label}}" data-search="{{lowerAll .Label .LastPrompt .FirstPrompt .Cwd .Branch .Kind}}"{{end}}
+{{define "resume-noscript"}}<noscript><div class="command-line"><code tabindex="0">{{.ResumeCmd}}</code></div></noscript>{{end}}
+{{define "session-row"}}<tr class="session-row" {{template "session-data" .}}><td>{{template "session-tool" .}}</td><td><div class="cell-stack">{{template "session-title" .}}{{template "session-pr" .}}{{template "session-preview" .}}</div></td><td>{{template "session-folder" .}}</td><td>{{template "session-activity" .}}</td><td class="n">{{fsize .Size}}</td><td>{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}{{template "resume-noscript" .}}</td></tr>{{end}}
+{{define "session-card"}}<article class="card session-row" {{template "session-data" .}}><div>{{template "session-title" .}}</div><div class="session-card-meta">{{template "session-tool" .}}{{template "session-pr" .}}</div>{{template "session-preview" .}}<div>{{template "session-folder" .}}</div><dl class="metric-grid"><div><dt>Last active</dt><dd>{{template "session-activity" .}}</dd></div><div><dt>Size</dt><dd class="numeric">{{fsize .Size}}</dd></div></dl>{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}{{template "resume-noscript" .}}</article>{{end}}
 
 {{define "sessions"}}{{template "head" .}}
-{{if not .Local}}
-<p class="meta">Sessions are only viewable on the Mac that runs this dashboard: transcripts include tool output, which can contain tokens and customer data.</p>
-{{else}}
-<p class="meta"><span id="shown">{{len .Sessions}}</span> of {{len .Sessions}} sessions on this Mac · newest activity first · click a row for its latest messages</p>
-<div class="filters"><div class="filter-row">
-  <button type="button" class="chip" data-tool-filter="claude" aria-pressed="true">Claude Code <b>{{count .Sessions "claude"}}</b></button>
-  <button type="button" class="chip" data-tool-filter="codex" aria-pressed="true">Codex <b>{{count .Sessions "codex"}}</b></button>
-  <button type="button" class="chip" data-tool-filter="scheduled" aria-pressed="true">Scheduled tasks <b>{{countKind .Sessions "scheduled"}}</b></button>
-  <input type="search" id="q" placeholder="Filter by title, prompt, folder or branch" autocomplete="off" aria-label="Filter sessions">
-</div></div>
-<div class="scroll"><table id="sessions" data-refresh="{{.RefreshSec}}">
-<colgroup><col style="width:9%"><col style="width:42%"><col style="width:19%"><col style="width:10%"><col style="width:7%"><col style="width:13%"></colgroup>
-<tr><th>Tool</th><th>Session</th><th>Folder · branch</th><th>Last active</th><th class="n">Size</th><th>Resume</th></tr>
-{{range .Sessions}}<tr class="srow" data-tool="{{.Tool}}" data-kind="{{.Kind}}" data-id="{{.ID}}" data-search="{{lowerAll .Label .LastPrompt .FirstPrompt .Cwd .Branch .Kind}}">
-  <td><span>{{if eq .Tool "claude"}}Claude Code{{else}}Codex{{end}}</span><span class="sub">{{.Kind}}</span></td>
-  <td title="{{.Label}}"><span>{{.Label}}</span><span class="sub">{{if .PRURL}}<a href="{{.PRURL}}">PR #{{.PRNumber}}</a> · {{end}}{{if .Title}}{{.LastPrompt}}{{else}}{{.FirstPrompt}}{{end}}</span></td>
-  <td title="{{.Cwd}}"><span class="mono">{{base .Cwd}}</span><span class="sub">{{if .FolderGone}}<span class="t-warn" style="display:inline">folder deleted</span>{{else if .Branch}}{{.Branch}}{{else}}{{tilde .Cwd}}{{end}}</span></td>
-  <td title="started {{.Started.Format "2006-01-02 15:04"}}"><span>{{ago .Modified}}</span><span class="sub">started {{ago .Started}}</span></td>
-  <td class="n">{{fsize .Size}}</td>
-  <td><button type="button" class="copy" data-copy="{{.ResumeCmd}}">Copy resume</button></td>
-</tr>{{end}}
-</table></div>
+<h1>Sessions</h1>
+{{if .Local}}
+<p class="scope">Claude Code and Codex sessions on this Mac</p><details class="sync-details"><summary>Sync details</summary><div class="detail-lines"><p>Newest activity first · refresh every {{.RefreshSec}} seconds</p><p>Recent activity does not indicate a running process.</p></div></details>
+<section class="kpi-region" aria-label="Session totals"><p class="meta kpi-context" id="filtered-label" hidden>Filtered results</p><div class="kpis" style="--cells:3"><div class="kpi"><span class="kpi-value numeric" data-kpi="all">{{len .Sessions}}</span><span class="kpi-label">Sessions</span></div><div class="kpi"><span class="kpi-value numeric" data-kpi="claude">{{count .Sessions "claude"}}</span><span class="kpi-label">Claude Code</span></div><div class="kpi"><span class="kpi-value numeric" data-kpi="codex">{{count .Sessions "codex"}}</span><span class="kpi-label">Codex</span></div></div></section>
+<div class="filters"><div class="chips" role="group" aria-label="Filter session tools"><button type="button" class="chip" data-filter="claude" aria-pressed="true"><span class="chip-face">{{template "icon" "check"}}Claude Code <span class="chip-count numeric">{{count .Sessions "claude"}}</span></span></button><button type="button" class="chip" data-filter="codex" aria-pressed="true"><span class="chip-face">{{template "icon" "check"}}Codex <span class="chip-count numeric">{{count .Sessions "codex"}}</span></span></button><button type="button" class="chip" data-filter="scheduled" aria-pressed="true"><span class="chip-face">{{template "icon" "check"}}Scheduled tasks <span class="chip-count numeric">{{countKind .Sessions "scheduled"}}</span></span></button><button type="button" class="text-button" data-show-all>Show all</button><button type="button" class="text-button" data-clear hidden>Clear filters</button></div>{{template "search" "sessions"}}</div><p id="shown" class="meta numeric results-count">{{len .Sessions}} of {{len .Sessions}} shown</p>
+{{template "no-matches"}}
+{{if .Sessions}}<section data-repo-group><div class="table-region" tabindex="0" role="region" aria-label="Sessions, scroll horizontally for all columns"><table><caption class="sr-only">Claude Code and Codex sessions, newest activity first</caption><colgroup><col style="width:112px"><col style="width:464px"><col style="width:272px"><col style="width:128px"><col style="width:120px"><col style="width:184px"></colgroup><thead><tr><th scope="col">Tool</th><th scope="col">Session</th><th scope="col">Folder · branch</th><th scope="col">Last active</th><th scope="col" class="n">Size</th><th scope="col">Resume</th></tr></thead><tbody>{{range .Sessions}}{{template "session-row" .}}{{end}}</tbody></table></div><div class="phone-cards">{{range .Sessions}}{{template "session-card" .}}{{end}}</div></section>
+{{else}}<div class="state-panel">{{template "icon" "comment-minus"}}<div><h2>No sessions found.</h2><p>Claude Code and Codex sessions will appear after you use them on this Mac.</p></div></div>{{end}}
+{{else}}<div class="state-panel">{{template "icon" "lock"}}<div><h2>Sessions are available on this Mac only.</h2><p>Open agentyard on the Mac that runs it to view transcripts and resume commands.</p></div></div>{{end}}
+{{template "foot" .}}{{end}}
+
+{{define "session-detail"}}{{$s := .S}}{{$messages := .Msgs}}{{range $i, $_ := .Msgs}}{{if eq (len (slice $.Msgs $i)) 40}}{{$messages = slice $.Msgs $i}}{{end}}{{end}}{{with .S}}<section class="session-detail"><div class="drawer-context"><div class="command-line"><code tabindex="0">{{.ResumeCmd}}</code></div>{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}<div class="context-values"><p class="path">{{if .Cwd}}{{.Cwd}}{{else}}{{template "missing"}}{{end}}</p>{{if .Branch}}<p class="branch secondary">{{.Branch}}</p>{{end}}{{if .PRURL}}<p><a href="{{.PRURL}}">PR #{{.PRNumber}}</a></p>{{end}}</div>{{template "folder-warning" .}}</div><h3 class="transcript-heading">Latest {{counted (len $messages) "message" "messages"}}</h3><div class="transcript" tabindex="0" aria-label="Latest session messages">{{if $messages}}<ol class="messages">{{range $messages}}<li class="message message-{{.Role}}">{{if eq .Role "tools"}}<details class="tool-calls"><summary>{{counted .Tools "tool call" "tool calls"}}</summary><div class="message-role">{{template "time" .At}}</div>{{if .Text}}<div class="message-text">{{.Text}}</div>{{else}}<p>Tool output is not included in this transcript window.</p>{{end}}</details>{{else}}<div class="message-role"><strong>{{if eq .Role "user"}}You{{else if eq $s.Tool "claude"}}Claude{{else}}Codex{{end}}</strong>{{template "time" .At}}</div><div class="message-text">{{.Text}}</div>{{end}}</li>{{end}}</ol>{{else}}<p class="secondary">No readable messages near the end of this transcript.</p>{{end}}</div></section>{{end}}{{end}}
+
+{{define "foot"}}
+</main><footer class="meta"><span>agentyard {{.Version}}</span>{{if .Demo}}<span class="neutral-tag">Demo data</span>{{end}}</footer>
+</div>
+{{if and .Local (eq .Tab "sessions")}}<dialog id="session-drawer" class="drawer" aria-labelledby="drawer-title"><header class="drawer-header"><div><h2 id="drawer-title" tabindex="-1">Session</h2><p id="drawer-meta" class="meta numeric"></p></div><button type="button" class="icon-button" id="drawer-close" aria-label="Close session">{{template "icon" "close"}}</button></header><div id="drawer-body" class="drawer-body"></div></dialog>{{end}}
+<dialog id="copy-panel" class="copy-panel" aria-labelledby="copy-heading"><h2 id="copy-heading">Select and copy this command.</h2><textarea id="copy-text" readonly aria-label="Command to copy" spellcheck="false"></textarea><button type="button" class="button" id="copy-close">Close</button></dialog>
+<div id="announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <script>
 (() => {
-  const table = document.getElementById("sessions");
-  const rows = [...table.querySelectorAll("tr.srow")];
-  const q = document.getElementById("q");
-  const chips = [...document.querySelectorAll("[data-tool-filter]")];
-  let off;
-  try { off = new Set(JSON.parse(localStorage.getItem("sessions-off") || "[]")); } catch { off = new Set(); }
-  try { q.value = sessionStorage.getItem("sessions-q") || ""; } catch {}
-  const apply = () => {
-    const terms = q.value.toLowerCase().split(/\s+/).filter(Boolean);
-    let shown = 0;
-    for (const r of rows) {
-      const hide = off.has(r.dataset.tool) || off.has(r.dataset.kind) || !terms.every(t => r.dataset.search.includes(t));
-      r.hidden = hide;
-      if (!hide) shown++;
-      const d = r.nextElementSibling;
-      if (d && d.classList.contains("detail")) d.hidden = hide;
-    }
-    for (const c of chips) c.setAttribute("aria-pressed", String(!off.has(c.dataset.toolFilter)));
-    document.getElementById("shown").textContent = shown;
-    try { localStorage.setItem("sessions-off", JSON.stringify([...off])); sessionStorage.setItem("sessions-q", q.value); } catch {}
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const storage = {
+    read(area, key, fallback) { try { return JSON.parse(window[area].getItem(key)) ?? fallback; } catch { return fallback; } },
+    write(area, key, value) { try { window[area].setItem(key, JSON.stringify(value)); } catch {} }
   };
-  for (const c of chips) c.addEventListener("click", () => {
-    const k = c.dataset.toolFilter;
-    off.has(k) ? off.delete(k) : off.add(k);
-    apply();
-  });
-  q.addEventListener("input", apply);
+  const tab = document.body.dataset.tab;
+  const app = $("#app"), search = $("#search"), live = $("#announcements");
+  function announce(text) { live.textContent = ""; requestAnimationFrame(() => { live.textContent = text; }); }
 
-  // navigator.clipboard needs https or localhost; http://<name>.local gets the textarea fallback.
-  const copy = async (text, btn) => {
-    let ok = false;
-    try { if (window.isSecureContext && navigator.clipboard) { await navigator.clipboard.writeText(text); ok = true; } } catch {}
-    if (!ok) {
-      const ta = document.createElement("textarea");
-      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.append(ta); ta.select();
-      try { ok = document.execCommand("copy"); } catch {}
-      ta.remove();
+  // Settings and the head's applyTheme are the only preference owners.
+  const settings = $("#settings"), settingsButton = $("#settings-toggle"), shortcuts = $("#shortcuts");
+  function setSettings(open, restore = false) {
+    settings.hidden = !open;
+    settingsButton.setAttribute("aria-expanded", String(open));
+    if (open) $('input:checked', settings).focus();
+    else if (restore) settingsButton.focus();
+  }
+  settingsButton.addEventListener("click", () => setSettings(settings.hidden));
+  document.addEventListener("click", event => { if (!event.target.closest(".settings-wrap")) setSettings(false); });
+  document.addEventListener("focusin", event => { if (!event.target.closest(".settings-wrap")) setSettings(false); });
+  $$('[name="theme"]').forEach(input => input.addEventListener("change", () => applyTheme(input.value)));
+  applyTheme();
+  shortcuts.checked = storage.read("localStorage", "agentyard.shortcuts", true) !== false;
+  shortcuts.addEventListener("change", () => storage.write("localStorage", "agentyard.shortcuts", shortcuts.checked));
+
+  function localDates(root = document) {
+    $$("time[datetime]", root).forEach(time => {
+      const date = new Date(time.dateTime);
+      if (!Number.isNaN(date.getTime())) {
+        time.title = date.toLocaleString();
+        if (time.hasAttribute("data-exact")) time.textContent = date.toLocaleString();
+      }
+    });
+  }
+  localDates();
+  // One owner measures and synchronizes every native full-value disclosure.
+  const values = (() => {
+    let fieldsID = 0;
+    const fields = $$(".field").flatMap(field => {
+      const text = $("[data-clip]", field), detail = $(".full-value", field);
+      if (!text || !detail) return [];
+      const toggle = $(".value-toggle", detail), full = $(".full-text", detail);
+      full.id = "full-value-" + fieldsID++;
+      toggle.setAttribute("aria-controls", full.id);
+      toggle.setAttribute("aria-expanded", String(detail.open));
+      detail.addEventListener("toggle", () => {
+        toggle.setAttribute("aria-expanded", String(detail.open));
+        toggle.setAttribute("aria-label", detail.open ? "Hide full value" : "Show full value");
+      });
+      return [{ field, text, detail, toggle }];
+    });
+    let resizeTimer = 0, frame = 0;
+    function measure() {
+      frame = 0;
+      const visible = fields.filter(({ text }) => text.getClientRects().length);
+      // Measure without reserved icon space, so hiding a toggle cannot oscillate.
+      visible.forEach(({ toggle }) => { toggle.hidden = true; });
+      const clipped = visible.map(({ text }) => text.scrollWidth > text.clientWidth || (text.matches(".two-lines") && text.scrollHeight > text.clientHeight));
+      visible.forEach(({ detail, toggle }, index) => {
+        toggle.hidden = !clipped[index];
+        if (toggle.hidden) detail.open = false;
+      });
     }
-    const label = btn.textContent;
-    btn.textContent = ok ? "Copied" : "Copy failed";
-    setTimeout(() => { btn.textContent = label; }, 1500);
-  };
+    function schedule() { cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); }
+    window.addEventListener("load", schedule);
+    window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(schedule, 100); });
+    document.addEventListener("toggle", event => { if (!event.target.matches(".full-value")) schedule(); }, true);
+    schedule();
+    return {
+      schedule,
+      collapse(target) {
+        const item = fields.find(({ field, detail }) => detail.open && field.contains(target));
+        if (!item) return false;
+        item.detail.open = false;
+        item.toggle.focus({ preventScroll: true });
+        return true;
+      }
+    };
+  })();
 
-  table.addEventListener("click", async e => {
-    const btn = e.target.closest("button.copy");
-    if (btn) { copy(btn.dataset.copy, btn); return; }
-    if (e.target.closest("a")) return;
-    const row = e.target.closest("tr.srow");
-    if (!row) return;
-    const next = row.nextElementSibling;
-    if (next && next.classList.contains("detail")) { next.remove(); row.classList.remove("open"); return; }
-    const tr = document.createElement("tr");
-    tr.className = "detail";
-    const td = document.createElement("td");
-    td.colSpan = 6;
-    td.textContent = "Loading…";
-    tr.append(td);
-    row.after(tr);
-    row.classList.add("open");
+  // One visibility pass handles both presentations; only canonical table rows count.
+  if (search) {
+    const items = $$("[data-item]"), rows = items.filter(item => item.tagName === "TR");
+    const chips = $$("[data-filter]"), known = new Set(chips.map(chip => chip.dataset.filter));
+    const prefix = "agentyard." + tab;
+    const saved = storage.read("localStorage", prefix + ".filters", []);
+    const off = new Set((Array.isArray(saved) ? saved : []).filter(key => known.has(key)));
+    const query = storage.read("sessionStorage", prefix + ".search", "");
+    search.value = typeof query === "string" ? query : "";
+    function size(kb) {
+      const bytes = kb * 1024;
+      if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
+      if (bytes >= 1048576) return Math.floor(bytes / 1048576) + " MB";
+      return bytes ? Math.floor(bytes / 1024) + " KB" : "0";
+    }
+    // "3 worktrees" for labels that carry data-noun="worktree worktrees", else just the number.
+    const nouned = (el, n) => { el.textContent = el.dataset.noun ? n + " " + el.dataset.noun.split(" ")[n === 1 ? 0 : 1] : n; };
+    const total = (list, safe = false) => list.reduce((sum, row) => sum + ((!safe || row.dataset.verdict === "merged") ? Number(row.dataset.size || 0) : 0), 0);
+    const originals = new Map($$("[data-kpi], [data-summary-value], [data-summary-verdict]").map(el => [el, el.textContent]));
+    function applyVisibility() {
+      const terms = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const filtered = terms.length > 0 || off.size > 0;
+      const visible = rows.filter(row => !off.has(row.dataset.org) && !off.has(row.dataset.tool) && !off.has(row.dataset.kind) && terms.every(term => row.dataset.search.includes(term)));
+      const keys = new Set(visible.map(row => row.dataset.key));
+      items.forEach(item => { item.hidden = !keys.has(item.dataset.key); });
+      chips.forEach(chip => chip.setAttribute("aria-pressed", String(!off.has(chip.dataset.filter))));
+      $("#shown").textContent = rows.length || filtered || originals.get($("[data-kpi]")) !== "—" ? `${visible.length} of ${rows.length} shown` : "";
+      $("#filtered-label").hidden = !filtered;
+      $$("[data-clear]").forEach(button => { button.hidden = !filtered; });
+      $("#no-matches").hidden = !filtered || visible.length > 0;
+      $$("[data-kpi]").forEach(el => {
+        if (!filtered || originals.get(el) === "—") { el.textContent = originals.get(el); return; }
+        const key = el.dataset.kpi;
+        el.textContent = key === "size" ? size(total(visible)) : key === "safe" ? size(total(visible, true)) : visible.filter(row => key === "all" || row.dataset.tone === key || row.dataset.state === key || row.dataset.tool === key).length;
+      });
+      $$("[data-repo-group]").forEach(group => {
+        const count = $$("tr[data-item]", group).filter(row => !row.hidden).length;
+        group.hidden = count === 0;
+        const label = $("[data-group-count]", group);
+        if (label) nouned(label, count);
+        // Cleanup commands follow their rows: hidden rows' commands are hidden too.
+        const cleanup = $("details.cleanup", group);
+        if (cleanup) {
+          const commands = $$(".command-line[data-item]", cleanup).filter(line => !line.hidden).length;
+          cleanup.hidden = commands === 0;
+          nouned($("[data-cleanup-count]", cleanup), commands);
+        }
+      });
+      $$("[data-summary]").forEach(group => {
+        const subset = visible.filter(row => (group.dataset.summary === "project" ? row.dataset.repo : row.dataset.folder) === group.dataset.groupKey);
+        group.hidden = filtered && subset.length === 0;
+        $$("[data-summary-value], [data-summary-verdict]", group).forEach(el => {
+          if (!filtered) { el.textContent = originals.get(el); return; }
+          const key = el.dataset.summaryValue;
+          if (key === "count") { nouned(el, subset.length); return; }
+          el.textContent = key === "size" ? size(total(subset)) : key === "safe" ? size(total(subset, true)) : subset.filter(row => row.dataset.verdict === el.dataset.summaryVerdict).length;
+        });
+      });
+      $$("[data-summary-section]").forEach(group => { group.hidden = filtered && !visible.length; });
+      storage.write("localStorage", prefix + ".filters", [...off]);
+      storage.write("sessionStorage", prefix + ".search", search.value);
+      values.schedule();
+    }
+    chips.forEach(chip => chip.addEventListener("click", () => {
+      const key = chip.dataset.filter;
+      off.has(key) ? off.delete(key) : off.add(key);
+      applyVisibility();
+    }));
+    $$("[data-show-all]").forEach(button => button.addEventListener("click", () => { off.clear(); applyVisibility(); }));
+    $$("[data-clear]").forEach(button => button.addEventListener("click", () => { off.clear(); search.value = ""; applyVisibility(); search.focus(); }));
+    search.addEventListener("input", applyVisibility);
+    applyVisibility();
+  }
+
+  // One refresh coordinator owns every reload and retains the user's place.
+  const refresh = (() => {
+    let pending = false;
+    const scrollKey = "agentyard." + tab + ".scroll";
+    const position = storage.read("sessionStorage", scrollKey, null);
+    if (position !== null) {
+      requestAnimationFrame(() => window.scrollTo(0, Number(position) || 0));
+      storage.write("sessionStorage", scrollKey, null);
+    }
+    // The initially open project overview is presentation, not an active disclosure.
+    const defaultOverview = $("[data-default-open]");
+    defaultOverview?.addEventListener("click", event => {
+      if (event.target.closest("summary")?.parentElement === defaultOverview) defaultOverview.removeAttribute("data-default-open");
+    });
+    const interacting = () => document.activeElement === search || !!$("dialog[open]") || !settings.hidden || $$("details[open]:not([data-default-open])").some(detail => detail.getClientRects().length) || !!window.getSelection()?.toString();
+    function apply() {
+      storage.write("sessionStorage", scrollKey, window.scrollY);
+      location.reload();
+    }
+    function ready() {
+      if (!interacting()) { apply(); return; }
+      $("#update-ready").hidden = false;
+      if (!pending) announce("Updated results ready");
+      pending = true;
+    }
+    $("#apply-update").addEventListener("click", apply);
+    const seconds = Number(document.body.dataset.refresh);
+    if (seconds > 0) setInterval(ready, seconds * 1000);
+    return { ready };
+  })();
+
+  // POST/status sync flow, shared by every Sync and Retry control.
+  const syncButton = $("#sync");
+  let syncStarted = 0, syncTimer = 0, pollTimer = 0, recentTimer = 0, polling = false;
+  function syncState(label, busy) {
+    $$('[data-sync]').forEach(button => { button.disabled = busy; button.setAttribute("aria-busy", String(busy)); });
+    syncButton.textContent = label;
+  }
+  function stopSync() { clearInterval(syncTimer); clearTimeout(pollTimer); syncStarted = 0; }
+  function syncFailed() {
+    stopSync(); syncState("Sync failed", false); $("#sync-error").hidden = false; announce("Sync failed. Retry is available.");
+  }
+  async function json(url, options) {
+    const response = await fetch(url, { cache: "no-store", ...options });
+    if (!response.ok) throw new Error("Request failed");
+    return response.json();
+  }
+  async function pollSync() {
+    if (polling) return;
+    polling = true;
     try {
-      const res = await fetch(`/sessions/view?tool=${encodeURIComponent(row.dataset.tool)}&id=${encodeURIComponent(row.dataset.id)}`);
-      td.innerHTML = res.ok ? await res.text() : "Could not load this session.";
-      const list = td.querySelector(".msgs");
-      if (list) list.scrollTop = list.scrollHeight;
-    } catch { td.textContent = "Could not load this session."; }
-  });
+      const status = await json("/api/status");
+      if (typeof status.syncing !== "boolean") throw new Error("Invalid status");
+      if (!status.syncing) { stopSync(); syncState("Sync now", false); refresh.ready(); }
+      else pollTimer = setTimeout(pollSync, 2000);
+    } catch { syncFailed(); }
+    finally { polling = false; }
+  }
+  function watchSync() {
+    stopSync(); syncStarted = Date.now();
+    const label = () => syncState(`Syncing… ${Math.floor((Date.now() - syncStarted) / 1000)}s`, true);
+    label(); syncTimer = setInterval(label, 1000); pollTimer = setTimeout(pollSync, 2000);
+  }
+  async function sync() {
+    if (syncButton.disabled) return;
+    clearTimeout(recentTimer); $("#sync-error").hidden = true; syncState("Syncing… 0s", true);
+    try {
+      const result = await json("/sync", { method: "POST" });
+      if (result.state === "recent") {
+        syncState("Just synced", false);
+        recentTimer = setTimeout(() => syncState("Sync now", false), 3000);
+      } else if (["started", "running"].includes(result.state)) watchSync();
+      else throw new Error("Invalid sync result");
+    } catch { syncFailed(); }
+  }
+  $$('[data-sync]').forEach(button => button.addEventListener("click", sync));
+  json("/api/status").then(status => { if (status.syncing && !syncButton.disabled) watchSync(); }).catch(() => {});
+  const snapshot = $("#snapshot-time");
+  if (snapshot && $("#stale")) {
+    // Out of date means a scan is overdue: two intervals, and never under 10 minutes.
+    const limit = Math.max(600000, 2 * (Number(document.body.dataset.refresh) || 0) * 1000);
+    function freshness() {
+      const age = Date.now() - new Date(snapshot.dateTime).getTime();
+      const minutes = Math.floor(age / 60000);
+      $("#stale").hidden = !(age > limit);
+      if (age > limit) $("#stale-title").textContent = `Results are ${minutes < 120 ? minutes + " min" : Math.floor(minutes / 60) + " hr"} old.`;
+    }
+    freshness(); setInterval(freshness, 60000);
+  }
 
-  // Reload on the usual cadence, but never while a session is open or the filter has focus.
-  setInterval(() => {
-    if (!document.querySelector("tr.detail") && document.activeElement !== q) location.reload();
-  }, Number(table.dataset.refresh) * 1000);
-  apply();
+  // Shared clipboard handling, including plain HTTP and a visible manual fallback.
+  const copyPanel = $("#copy-panel"), copyText = $("#copy-text");
+  let copyReturn = null;
+  const copyTimers = new WeakMap();
+  function modalBackground() {
+    const modals = $$("dialog[open]");
+    app.inert = modals.length > 0;
+    (modals[modals.length - 1] || document.body).append(live);
+  }
+  copyPanel.addEventListener("close", () => { modalBackground(); copyReturn?.focus(); });
+  $("#copy-close").addEventListener("click", () => copyPanel.close());
+  async function copy(button) {
+    const command = button.dataset.copy;
+    let copied = false;
+    try { if (isSecureContext && navigator.clipboard) { await navigator.clipboard.writeText(command); copied = true; } } catch {}
+    if (!copied) {
+      const textarea = document.createElement("textarea");
+      textarea.value = command; textarea.readOnly = true;
+      textarea.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0";
+      (button.closest("dialog") || document.body).append(textarea);
+      textarea.select();
+      try { copied = document.execCommand("copy"); } catch {}
+      textarea.remove(); button.focus({ preventScroll: true });
+    }
+    if (!copied) {
+      copyReturn = button; copyText.value = command; copyPanel.showModal(); modalBackground(); copyText.focus(); copyText.select(); return;
+    }
+    clearTimeout(copyTimers.get(button));
+    const use = $("use", button), label = $("span", button), resume = button.dataset.copyKind === "resume";
+    use.setAttribute("href", "#i-check"); label.textContent = "Copied";
+    announce(resume ? "Resume command copied" : "Command copied");
+    copyTimers.set(button, setTimeout(() => { use.setAttribute("href", "#i-copy"); label.textContent = resume ? "Copy resume" : "Copy"; }, 1600));
+  }
+  document.addEventListener("click", event => { const button = event.target.closest("[data-copy]"); if (button) copy(button); });
+
+  // Modal session lifecycle; content comes only from the escaped server fragment.
+  const drawer = $("#session-drawer");
+  let closeDrawer = () => {};
+  if (drawer) {
+    const heading = $("#drawer-title"), body = $("#drawer-body");
+    let selected = null, returnFocus = null, request = null, generation = 0, closing = false;
+    function sessionHash(key) { history.replaceState(null, "", location.pathname + location.search + (key ? "#session=" + key.split("/").map(encodeURIComponent).join("/") : "")); }
+    async function loadSession() {
+      const current = ++generation;
+      request?.abort(); request = new AbortController();
+      body.replaceChildren();
+      const loading = document.createElement("p"); loading.className = "secondary"; loading.textContent = "Loading messages…"; body.append(loading); body.setAttribute("aria-busy", "true");
+      try {
+        const url = "/sessions/view?" + new URLSearchParams({ tool: selected.dataset.tool, id: selected.dataset.id });
+        const response = await fetch(url, { cache: "no-store", signal: request.signal });
+        if (!response.ok) throw new Error("Could not load session");
+        const fragment = await response.text();
+        if (current !== generation || !drawer.open) return;
+        body.innerHTML = fragment;
+        localDates(body);
+        const transcript = $(".transcript", body);
+        if (transcript) requestAnimationFrame(() => { transcript.scrollTop = transcript.scrollHeight; });
+      } catch (error) {
+        if (error.name === "AbortError" || current !== generation) return;
+        body.replaceChildren();
+        const message = document.createElement("p"), retry = document.createElement("button");
+        message.textContent = "Couldn't load this session.";
+        retry.type = "button"; retry.className = "button"; retry.textContent = "Retry"; retry.style.alignSelf = "flex-start"; retry.style.marginTop = "12px";
+        retry.addEventListener("click", loadSession); body.append(message, retry); announce(message.textContent);
+      } finally { if (current === generation) body.removeAttribute("aria-busy"); }
+    }
+    function openSession(row, keyboard = false) {
+      if (closing) return;
+      selected = row; returnFocus = $("[data-open-session]", row);
+      $$(".session-row").forEach(item => item.classList.toggle("selected", item.dataset.key === row.dataset.key));
+      heading.textContent = row.dataset.title;
+      heading.classList.toggle("keyboard-focus", keyboard);
+      // Clone the server-owned metadata presentation in either row layout.
+      $("#drawer-meta").replaceChildren($("template[data-session-meta]", row).content.cloneNode(true));
+      localDates($("#drawer-meta"));
+      if (!drawer.open) drawer.showModal();
+      modalBackground(); heading.focus({ preventScroll: true }); sessionHash(row.dataset.key); loadSession();
+    }
+    closeDrawer = function() {
+      if (!drawer.open || closing) return;
+      closing = true; request?.abort(); generation++;
+      drawer.classList.add("closing");
+      const duration = parseFloat(getComputedStyle(drawer).getPropertyValue("--duration-exit")) || 0;
+      setTimeout(() => { drawer.close(); drawer.classList.remove("closing"); closing = false; }, duration);
+    };
+    $("#drawer-close").addEventListener("click", closeDrawer);
+    drawer.addEventListener("cancel", event => { event.preventDefault(); closeDrawer(); });
+    drawer.addEventListener("close", () => {
+      sessionHash(""); body.replaceChildren(); $$(".selected.session-row").forEach(row => row.classList.remove("selected"));
+      modalBackground();
+      const same = $$(".session-row").find(row => row.dataset.key === selected?.dataset.key && row.getClientRects().length && !row.hidden);
+      const target = same ? $("[data-open-session]", same) : returnFocus;
+      if (target?.getClientRects().length) target.focus({ preventScroll: true }); else search?.focus();
+    });
+    document.addEventListener("click", event => {
+      const row = event.target.closest(".session-row");
+      if (!row || window.getSelection()?.toString()) return;
+      const action = event.target.closest("a, button, details, input, textarea");
+      if (action && !action.hasAttribute("data-open-session")) return;
+      // Native keyboard and assistive-technology activation have no pointer clicks.
+      openSession(row, event.detail === 0);
+    });
+    function fromHash() {
+      if (!location.hash.startsWith("#session=")) { if (drawer.open) closeDrawer(); return; }
+      let key;
+      try { key = location.hash.slice(9).split("/").map(decodeURIComponent).join("/"); } catch { return; }
+      const matches = $$(".session-row").filter(row => row.dataset.key === key);
+      const row = matches.find(item => item.getClientRects().length) || matches[0];
+      if (row) openSession(row);
+    }
+    window.addEventListener("hashchange", fromHash); fromHash();
+  }
+
+  // A single keyboard handler owns all character shortcuts and Escape behavior.
+  let sequence = 0, sequenceTimer = 0;
+  function cancelSequence() { sequence = 0; clearTimeout(sequenceTimer); }
+  window.addEventListener("blur", cancelSequence);
+  document.addEventListener("focusin", cancelSequence);
+  document.addEventListener("keydown", event => {
+    if (event.isComposing || event.repeat || event.ctrlKey || event.altKey || event.metaKey) { cancelSequence(); return; }
+    if (event.key === "Escape") {
+      cancelSequence();
+      if (values.collapse(event.target)) { event.preventDefault(); return; }
+      if (copyPanel.open) return;
+      if (drawer?.open) return;
+      if (!settings.hidden) { event.preventDefault(); setSettings(false, true); return; }
+      if (document.activeElement === search) { event.preventDefault(); search.value = ""; search.dispatchEvent(new Event("input")); }
+      return;
+    }
+    if (!shortcuts.checked || $("dialog[open]") || event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) { cancelSequence(); return; }
+    const wasSequence = sequence && Date.now() - sequence < 800;
+    cancelSequence();
+    if (event.key === "/" && search) { event.preventDefault(); search.focus(); search.select(); }
+    else if (["1", "2", "3"].includes(event.key)) { event.preventDefault(); $$("nav a")[Number(event.key) - 1].click(); }
+    else if (event.key === "s" && wasSequence && !syncButton.disabled) { event.preventDefault(); sync(); }
+    else if (event.key === "g") { sequence = Date.now(); sequenceTimer = setTimeout(cancelSequence, 800); }
+  });
 })();
 </script>
+</body></html>
 {{end}}
-{{template "foot"}}{{end}}
-
-{{define "session-detail"}}<div class="resume"><code class="mono">{{.S.ResumeCmd}}</code><button type="button" class="copy" data-copy="{{.S.ResumeCmd}}">Copy</button></div>
-{{if .S.FolderGone}}<p class="sub t-warn">{{tilde .S.Cwd}} no longer exists — recreate it (e.g. the worktree) before resuming.</p>{{end}}
-<p class="sub">{{tilde .S.Path}} · {{fsize .S.Size}}{{with .S.PRURL}} · <a href="{{.}}">PR #{{$.S.PRNumber}}</a>{{end}}</p>
-{{if .Msgs}}<ol class="msgs">{{range .Msgs}}<li class="m m-{{.Role}}">{{if eq .Role "tools"}}<span class="sub">· {{.Tools}} tool call{{if gt .Tools 1}}s{{end}}</span>{{else}}<div class="who">{{if eq .Role "user"}}You{{else if eq $.S.Tool "claude"}}Claude{{else}}Codex{{end}} <span class="sub" style="display:inline;font-weight:400">{{ago .At}}</span></div><div class="text">{{.Text}}</div>{{end}}</li>{{end}}</ol>
-{{else}}<p class="meta">No readable messages near the end of this transcript.</p>{{end}}{{end}}

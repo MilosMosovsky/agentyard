@@ -161,6 +161,9 @@ var (
 	pendingStates = map[string]bool{"IN_PROGRESS": true, "PENDING": true, "QUEUED": true, "WAITING": true, "EXPECTED": true, "REQUESTED": true}
 )
 
+// graphQL is how polls reach GitHub; tests swap it out.
+var graphQL = ghGraphQL
+
 // ghGraphQL runs a query through gh; vars are gh -f fields ("q=…", "ids[]=…").
 func ghGraphQL(query string, vars []string, out any) error {
 	args := []string{"api", "graphql", "-f", "query=" + query}
@@ -196,7 +199,7 @@ func (t *prTracker) poll() {
 			vars = append(vars, "after="+after)
 		}
 		var p searchPage
-		if err := ghGraphQL(prSearchQuery, vars, &p); err != nil {
+		if err := graphQL(prSearchQuery, vars, &p); err != nil {
 			snap.Error = err.Error()
 			break
 		}
@@ -257,11 +260,16 @@ func (t *prTracker) poll() {
 		log.Printf("prs: poll failed, keeping list from %s: %s", prev.At.Format("15:04"), snap.Error)
 		return
 	}
-	t.fillFailing(snap)
-	for _, pr := range snap.PRs {
-		deriveState(pr)
+	if snap.Error != "" {
+		// No sync has ever succeeded: leave At zero so the page says so, and
+		// cache nothing, or a restart would serve the failure as results.
+		snap.PRs = nil
+		t.snap.Store(snap)
+		log.Printf("prs: poll failed, nothing to show yet: %s", snap.Error)
+		return
 	}
-	sort.SliceStable(snap.PRs, func(a, b int) bool { return snap.PRs[a].LastCommit.After(snap.PRs[b].LastCommit) })
+	t.fillFailing(snap)
+	settle(snap.PRs)
 	snap.At, snap.Took = time.Now(), time.Since(start).Round(time.Second)
 	t.snap.Store(snap)
 	saveCache("prs.json", snap)
@@ -303,7 +311,7 @@ func (t *prTracker) fillFailing(snap *PRSnapshot) {
 		for _, id := range batch {
 			vars = append(vars, "ids[]="+id)
 		}
-		if ghGraphQL(prFailingQuery, vars, &resp) != nil {
+		if graphQL(prFailingQuery, vars, &resp) != nil {
 			continue
 		}
 		for _, n := range resp.Data.Nodes {
@@ -318,6 +326,14 @@ func (t *prTracker) fillFailing(snap *PRSnapshot) {
 			}
 		}
 	}
+}
+
+// settle derives every PR's state and sorts the list by last commit, newest first.
+func settle(prs []*TrackedPR) {
+	for _, pr := range prs {
+		deriveState(pr)
+	}
+	sort.SliceStable(prs, func(a, b int) bool { return prs[a].LastCommit.After(prs[b].LastCommit) })
 }
 
 // deriveState reduces a PR to the one thing that decides what happens next.

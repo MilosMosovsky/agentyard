@@ -1,3 +1,3 @@
-module worktreesd
+module github.com/MilosMosovsky/agentyard
 
 go 1.25

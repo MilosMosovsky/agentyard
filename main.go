@@ -1,6 +1,8 @@
-// worktreesd scans every git worktree under a root folder, classifies each one
-// (merged / open PR / safe to delete / keep) and serves the result as a single
-// HTML page, advertised on the LAN over mDNS.
+// agentyard scans every git worktree under a root folder, classifies each one
+// (merged / open PR / safe to delete / keep), tracks the open PRs you authored
+// and your Claude Code / Codex sessions, and serves it all as one HTML page —
+// on this Mac, or on the LAN over mDNS. cli.go holds the commands; this file
+// is the scanner and the web server.
 package main
 
 import (
@@ -11,11 +13,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"io/fs"
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -32,15 +36,23 @@ import (
 	"time"
 )
 
+// Serve flags live on their own FlagSet so every subcommand can parse its own;
+// the pointers keep their defaults when nothing is parsed (tests, demo).
 var (
 	home, _      = os.UserHomeDir()
-	flagRoot     = flag.String("root", filepath.Join(home, "Projects"), "folder to search for repositories")
-	flagDepth    = flag.Int("depth", 5, "max folder depth below -root to look for repositories")
-	flagListen   = flag.String("listen", ":80", "HTTP listen address (use 127.0.0.1:80 to keep it off the LAN)")
-	flagInterval = flag.Duration("interval", 5*time.Minute, "rescan interval")
-	flagSizeTTL  = flag.Duration("size-ttl", 30*time.Minute, "how long a measured worktree size is reused")
-	flagMDNS     = flag.String("mdns", "worktrees", "mDNS host name to publish as <name>.local (empty disables)")
-	flagOnce     = flag.Bool("once", false, "scan once, print JSON to stdout and exit")
+	serveFlags   = flag.NewFlagSet("serve", flag.ContinueOnError)
+	flagRoot     = serveFlags.String("root", filepath.Join(home, "Projects"), "folder to search for repositories")
+	flagDepth    = serveFlags.Int("depth", 5, "max folder depth below -root to look for repositories")
+	flagListen   = serveFlags.String("listen", defaultListen, "HTTP listen address (\":80\" serves the whole LAN)")
+	flagInterval = serveFlags.Duration("interval", 5*time.Minute, "rescan interval")
+	flagSizeTTL  = serveFlags.Duration("size-ttl", 30*time.Minute, "how long a measured worktree size is reused")
+	flagMDNS     = serveFlags.String("mdns", "", "publish as http://<name>.local over mDNS (empty: off; ignored on loopback)")
+	flagOnce     = serveFlags.Bool("once", false, "scan once, print the worktree JSON to stdout and exit")
+)
+
+const (
+	defaultPort   = 4777
+	defaultListen = "127.0.0.1:4777"
 )
 
 // ---------------------------------------------------------------- model
@@ -425,9 +437,6 @@ func scanRepo(path string, sizes *sizeCache) *Repo {
 		}()
 	}
 	wg.Wait()
-	sort.SliceStable(r.Worktrees, func(a, b int) bool {
-		return r.Worktrees[a].LastActive.After(r.Worktrees[b].LastActive)
-	})
 	return r
 }
 
@@ -469,8 +478,7 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		w.Prunable = true
 	}
 	if w.Prunable {
-		w.Verdict, w.Reason = "prunable", "folder is gone; registration is stale"
-		w.RemoveCmd = "git -C " + shellQuote(r.Path) + " worktree prune"
+		judge(r.Path, w)
 		return w
 	}
 
@@ -524,11 +532,22 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 	} else {
 		w.SizeKB = sizes.measure(e.path)
 	}
+	judge(r.Path, w)
+	return w
+}
+
+// judge gives a scanned worktree its verdict and, when it can go, the command
+// that removes it.
+func judge(repo string, w *Worktree) {
+	if w.Prunable {
+		w.Verdict, w.Reason = "prunable", "folder is gone; registration is stale"
+		w.RemoveCmd = "git -C " + shellQuote(repo) + " worktree prune"
+		return
+	}
 	classify(w)
 	if reclaimable(w.Verdict) {
-		w.RemoveCmd = "git -C " + shellQuote(r.Path) + " worktree remove " + shellQuote(e.path)
+		w.RemoveCmd = "git -C " + shellQuote(repo) + " worktree remove " + shellQuote(w.Path)
 	}
-	return w
 }
 
 // classify decides whether the worktree can go. Only merged work is reclaimable.
@@ -548,7 +567,7 @@ func classify(w *Worktree) {
 		}
 		w.Verdict, w.Reason = "keep", "uncommitted: "+strings.Join(parts, ", ")
 	case unpushed:
-		w.Verdict, w.Reason = "keep", fmt.Sprintf("%d commit(s) exist only locally", w.Unpushed)
+		w.Verdict, w.Reason = "keep", counted(w.Unpushed, "commit exists", "commits exist")+" only locally"
 	case w.PR != nil && w.PR.State == "OPEN":
 		w.Verdict, w.Reason = "open", "PR in review; fully pushed"
 		if w.PR.IsDraft {
@@ -611,10 +630,31 @@ func (s *scanner) scan() *Snapshot {
 	}
 	wg.Wait()
 
-	snap := &Snapshot{At: time.Now(), Took: time.Since(start).Round(time.Second), Total: &Group{Name: "All", Verdicts: make([]int, len(verdicts))}}
+	snap, live := summarize(results, time.Now(), time.Since(start).Round(time.Second))
+	s.sizes.retain(live)
+	var st syscall.Statfs_t
+	if syscall.Statfs(home, &st) == nil {
+		snap.DiskFree, snap.DiskTotal = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
+	}
+	s.snap.Store(snap)
+	saveCache("worktrees.json", snap)
+	debug.FreeOSMemory()
+	log.Printf("scan: %d repos, %d worktrees, %s reclaimable, took %s, %d errors",
+		len(snap.Repos), snap.Total.Count, kbSize(snap.Total.ReclaimKB), snap.Took, len(snap.Errors))
+	return snap
+}
+
+// summarize turns scanned repos into a snapshot: repos with worktrees, newest
+// activity first, plus the per-repo, per-folder and overall totals. It also
+// returns the set of worktree paths seen.
+func summarize(results []*Repo, at time.Time, took time.Duration) (*Snapshot, map[string]bool) {
+	snap := &Snapshot{At: at, Took: took, Total: &Group{Name: "All", Verdicts: make([]int, len(verdicts))}}
 	live := map[string]bool{}
 	folders := map[string]*Group{}
 	for _, r := range results {
+		sort.SliceStable(r.Worktrees, func(a, b int) bool {
+			return r.Worktrees[a].LastActive.After(r.Worktrees[b].LastActive)
+		})
 		for _, e := range r.Errors {
 			snap.Errors = append(snap.Errors, tilde(r.Path)+": "+e)
 		}
@@ -652,18 +692,7 @@ func (s *scanner) scan() *Snapshot {
 	bySize(snap.ByRepo)
 	bySize(snap.ByFolder)
 	sort.SliceStable(snap.Repos, func(a, b int) bool { return repoActive(snap.Repos[a]).After(repoActive(snap.Repos[b])) })
-	s.sizes.retain(live)
-
-	var st syscall.Statfs_t
-	if syscall.Statfs(home, &st) == nil {
-		snap.DiskFree, snap.DiskTotal = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
-	}
-	s.snap.Store(snap)
-	saveCache("worktrees.json", snap)
-	debug.FreeOSMemory()
-	log.Printf("scan: %d repos, %d worktrees, %s reclaimable, took %s, %d errors",
-		len(snap.Repos), snap.Total.Count, kbSize(snap.Total.ReclaimKB), snap.Took, len(snap.Errors))
-	return snap
+	return snap, live
 }
 
 func repoName(r *Repo) string {
@@ -673,7 +702,21 @@ func repoName(r *Repo) string {
 	return tilde(r.Path)
 }
 
-func anchor(p string) string { return "r-" + nonAlnumRe.ReplaceAllString(tilde(p), "-") }
+// anchor is a repository's id in the page (section id, data-repo, summary key).
+// The hash keeps paths that differ only in punctuation (api.v2, api-v2) apart.
+func anchor(p string) string {
+	h := fnv.New32a()
+	h.Write([]byte(p))
+	return fmt.Sprintf("r-%s-%08x", strings.Trim(nonAlnumRe.ReplaceAllString(tilde(p), "-"), "-"), h.Sum32())
+}
+
+// counted is "1 worktree" or "3 worktrees".
+func counted(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
+}
 
 func tilde(p string) string {
 	if strings.HasPrefix(p, home) {
@@ -858,6 +901,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return
 	},
+	"counted": counted,
 	"pct": func(a, b uint64) int {
 		if b == 0 {
 			return 0
@@ -866,10 +910,48 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	},
 }).Parse(pageHTML))
 
+// clientIP is the one reading of a request's peer address: zone dropped
+// (fe80::1%en0) and IPv4-mapped IPv6 unwrapped. Invalid if it can't be parsed.
+func clientIP(remote string) netip.Addr {
+	ap, err := netip.ParseAddrPort(remote)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ap.Addr().WithZone("").Unmap()
+}
+
 func isPrivate(remote string) bool {
-	host, _, _ := net.SplitHostPort(remote)
-	ip := net.ParseIP(host)
-	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+	ip := clientIP(remote)
+	return ip.IsValid() && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+// hostAllowed checks the Host header against the names this server answers
+// to. Without it, DNS rebinding (attacker.example re-pointed at 127.0.0.1)
+// would let any web page read the dashboard as same-origin. An IP literal is
+// always fine: a browser only sends one when the page itself came from that IP.
+func hostAllowed(hostport string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		host = hostport
+	}
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	if host == "" || host == "localhost" {
+		return true
+	}
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true
+	}
+	if *flagMDNS != "" && host == strings.ToLower(*flagMDNS)+".local" {
+		return true
+	}
+	// This Mac's own name, e.g. ada-mbp.local over Bonjour.
+	if h, err := os.Hostname(); err == nil {
+		h = strings.TrimSuffix(strings.ToLower(h), ".")
+		if host == h || host == strings.TrimSuffix(h, ".local")+".local" {
+			return true
+		}
+	}
+	return false
 }
 
 // syncer runs an on-demand worktree scan and PR poll. Clicks while one is
@@ -879,6 +961,7 @@ type syncer struct {
 	s       *scanner
 	t       *prTracker
 	x       *sessionIndex
+	demo    bool // nothing to sync: report a sync that finished at once
 	running atomic.Bool
 	mu      sync.Mutex
 	last    time.Time
@@ -889,6 +972,9 @@ const syncCooldown = 30 * time.Second
 func (y *syncer) start() string {
 	y.mu.Lock()
 	defer y.mu.Unlock()
+	if y.demo {
+		return "started" // the page polls /api/status, sees it done and reloads
+	}
 	if y.running.Load() {
 		return "running"
 	}
@@ -913,8 +999,16 @@ func (y *syncer) start() string {
 	return "started"
 }
 
-func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
-	y := &syncer{s: s, t: t, x: x}
+// demoWorld switches serve to synthetic data: nothing on disk is read, the
+// Sessions tab is open to any viewer and Sync does nothing. See demo.go.
+type demoWorld struct {
+	messages map[string][]Message // keyed by tool + "/" + session id
+}
+
+// serve builds every route of the dashboard. demo is nil in production.
+func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Handler {
+	y := &syncer{s: s, t: t, x: x, demo: demo != nil}
+	canSeeSessions := func(r *http.Request) bool { return demo != nil || sessionsAllowed(r) }
 	mux := http.NewServeMux()
 	render := func(w http.ResponseWriter, name string, data any) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -931,17 +1025,25 @@ func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
 		PRs        []*TrackedPR
 		Sessions   []*Session
 		Local      bool // viewer is on this Mac; gates the Sessions tab
+		Demo       bool // synthetic data from "agentyard demo"
+		Version    string
 	}
-	newView := func(tab string) view {
-		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load(), Local: true}
+	newView := func(tab string, r *http.Request) view {
+		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load(), Local: canSeeSessions(r),
+			Demo: demo != nil, Version: appVersion()}
 		if v.WT != nil {
 			v.Next = v.WT.At.Add(*flagInterval)
 		}
+		if l := x.list.Load(); v.Local && l != nil {
+			v.Sessions = *l // every tab's nav shows the count
+		}
 		return v
 	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { render(w, "worktrees", newView("worktrees")) })
+	mux.HandleFunc("GET /favicon.svg", staticAsset("image/svg+xml", faviconSVG))
+	mux.HandleFunc("GET /favicon.png", staticAsset("image/png", faviconPNG))
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { render(w, "worktrees", newView("worktrees", r)) })
 	mux.HandleFunc("GET /prs", func(w http.ResponseWriter, r *http.Request) {
-		v := newView("prs")
+		v := newView("prs", r)
 		if v.PR != nil {
 			// Point each PR at its local worktree, if one has that branch checked out.
 			local := map[string]string{}
@@ -961,17 +1063,13 @@ func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
 		render(w, "prs", v)
 	})
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
-		v := newView("sessions")
-		if v.Local = sessionsAllowed(r); v.Local {
+		if demo == nil && canSeeSessions(r) {
 			x.refresh(20 * time.Second) // cheap: only changed files are re-read
-			if l := x.list.Load(); l != nil {
-				v.Sessions = *l
-			}
 		}
-		render(w, "sessions", v)
+		render(w, "sessions", newView("sessions", r))
 	})
 	mux.HandleFunc("GET /sessions/view", func(w http.ResponseWriter, r *http.Request) {
-		if !sessionsAllowed(r) {
+		if !canSeeSessions(r) {
 			http.Error(w, "sessions are only viewable on the Mac that runs this", http.StatusForbidden)
 			return
 		}
@@ -981,7 +1079,13 @@ func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
 			http.Error(w, "unknown session", http.StatusNotFound)
 			return
 		}
-		render(w, "session-detail", map[string]any{"S": sess, "Msgs": latestMessages(sess, 40)})
+		var msgs []Message
+		if demo != nil {
+			msgs = demo.messages[sess.Tool+"/"+sess.ID]
+		} else {
+			msgs = latestMessages(sess, 40)
+		}
+		render(w, "session-detail", map[string]any{"S": sess, "Msgs": msgs})
 	})
 	mux.HandleFunc("GET /api.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1003,7 +1107,7 @@ func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
 		json.NewEncoder(w).Encode(map[string]string{"state": y.start()})
 	})
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
-		st := map[string]any{"syncing": y.running.Load()}
+		st := map[string]any{"syncing": y.running.Load(), "version": appVersion(), "demo": demo != nil}
 		if wt := s.snap.Load(); wt != nil {
 			st["worktreesAt"] = wt.At
 		}
@@ -1016,6 +1120,10 @@ func serve(s *scanner, t *prTracker, x *sessionIndex) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isPrivate(r.RemoteAddr) {
 			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if !hostAllowed(r.Host) {
+			http.Error(w, "forbidden: unknown host name "+strconv.Quote(r.Host), http.StatusForbidden)
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -1031,7 +1139,7 @@ func cachePath(name string) string {
 	if err != nil {
 		dir = os.TempDir()
 	}
-	return filepath.Join(dir, "worktreesd", name)
+	return filepath.Join(dir, "agentyard", name)
 }
 
 func saveCache(name string, v any) {
@@ -1054,10 +1162,14 @@ func loadCache(name string, v any) bool {
 	return err == nil && json.Unmarshal(b, v) == nil
 }
 
-// ---------------------------------------------------------------- main
+// ---------------------------------------------------------------- serve
 
-func main() {
-	flag.Parse()
+// runServe is "agentyard serve": scan, poll and serve until SIGINT/SIGTERM.
+// The LaunchAgent written by "agentyard install" runs exactly this.
+func runServe(args []string) error {
+	if err := parse(serveFlags, args); err != nil {
+		return err
+	}
 	log.SetFlags(log.LstdFlags)
 	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
 	t := &prTracker{}
@@ -1077,8 +1189,7 @@ func main() {
 	}
 
 	if *flagOnce {
-		json.NewEncoder(os.Stdout).Encode(s.scan())
-		return
+		return json.NewEncoder(os.Stdout).Encode(s.scan())
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -1086,18 +1197,21 @@ func main() {
 
 	ln, err := net.Listen("tcp", *flagListen)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	srv := &http.Server{Handler: serve(s, t, x), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: serve(s, t, x, nil), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
 	}()
-	log.Printf("listening on %s", ln.Addr())
-
-	if *flagMDNS != "" && !ln.Addr().(*net.TCPAddr).IP.IsLoopback() {
-		go advertise(ctx, *flagMDNS, ln.Addr().(*net.TCPAddr).Port)
+	mdns := *flagMDNS
+	if ln.Addr().(*net.TCPAddr).IP.IsLoopback() {
+		mdns = "" // nobody else could reach the name
+	}
+	log.Printf("agentyard %s: serving %s on %s (root %s)", appVersion(), serviceURL(ln.Addr().String(), mdns), ln.Addr(), tilde(*flagRoot))
+	if mdns != "" {
+		go advertise(ctx, mdns, ln.Addr().(*net.TCPAddr).Port)
 	}
 
 	every := func(fn func(), fresh time.Time) {
@@ -1124,4 +1238,5 @@ func main() {
 	defer done()
 	srv.Shutdown(shutdown)
 	time.Sleep(200 * time.Millisecond) // let advertise() kill dns-sd
+	return nil
 }
