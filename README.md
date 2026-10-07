@@ -14,7 +14,20 @@ classifies every worktree:
 | Keep | Uncommitted changes, or commits that exist only on this machine |
 
 The page groups totals by repository and by folder and lists the `git worktree remove` commands for
-the merged rows. It never deletes anything itself. JSON at `/api.json`.
+the merged rows. Rows and repo sections are sorted by last activity: the newest of the last commit, the
+worktree's index and any uncommitted file. It never deletes anything itself. JSON at `/api.json`.
+
+## Pull requests tab
+
+`/prs` lists every open PR you authored (`is:pr is:open author:@me`), sorted by last commit: one status
+that says what blocks it (conflicts, failing checks with their names, changes requested, awaiting review,
+ready to merge, in merge queue), check counts, review state, and the local worktree that has the branch
+checked out. JSON at `/api/prs.json`.
+
+It costs ~1 GraphQL point per 20 PRs per poll (≈7 points every 5 minutes for 120 PRs, out of 5,000/hour);
+failing check names are fetched only for PRs that have failures. Polling pauses when fewer than 300
+points remain. Both tabs' last results are cached in `~/Library/Caches/worktreesd/`, so a restart serves
+the page immediately without re-querying GitHub or re-measuring disk.
 
 ## Install
 

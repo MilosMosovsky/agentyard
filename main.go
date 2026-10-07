@@ -69,6 +69,7 @@ type Worktree struct {
 	PR           *PR       `json:"pr,omitempty"`
 	PRRel        string    `json:"prRel,omitempty"` // same | behind | diverged | unknown
 	LastCommit   time.Time `json:"lastCommit"`
+	LastActive   time.Time `json:"lastActive"` // newest of commit, index and changed-file mtimes
 	Prunable     bool      `json:"prunable"`
 	Verdict      string    `json:"verdict"`
 	Reason       string    `json:"reason"`
@@ -416,13 +417,41 @@ func scanRepo(path string, sizes *sizeCache) *Repo {
 	}
 	wg.Wait()
 	sort.SliceStable(r.Worktrees, func(a, b int) bool {
-		wa, wb := r.Worktrees[a], r.Worktrees[b]
-		if va, vb := verdictIndex(wa.Verdict), verdictIndex(wb.Verdict); va != vb {
-			return va < vb
-		}
-		return wa.SizeKB > wb.SizeKB
+		return r.Worktrees[a].LastActive.After(r.Worktrees[b].LastActive)
 	})
 	return r
+}
+
+// lastActive is when the worktree was last touched: its newest commit, the
+// index (rewritten by checkout, add and commit) or an uncommitted file.
+func lastActive(wt string, commit time.Time, changed []string) time.Time {
+	t := commit
+	newer := func(p string) {
+		if fi, err := os.Stat(p); err == nil && fi.ModTime().After(t) {
+			t = fi.ModTime()
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(wt, ".git")); err == nil {
+		if dir, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: "); ok {
+			newer(filepath.Join(dir, "index"))
+		}
+	}
+	for i, p := range changed {
+		if i == 300 {
+			break
+		}
+		newer(filepath.Join(wt, p))
+	}
+	return t
+}
+
+func repoActive(r *Repo) (t time.Time) {
+	for _, w := range r.Worktrees {
+		if w.LastActive.After(t) {
+			t = w.LastActive
+		}
+	}
+	return
 }
 
 func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR, sizes *sizeCache) *Worktree {
@@ -436,15 +465,21 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		return w
 	}
 
+	var changed []string
 	if out, err := git(e.path, "status", "--porcelain"); err == nil {
 		for _, line := range strings.Split(out, "\n") {
 			switch {
-			case line == "":
+			case len(line) < 4:
+				continue
 			case strings.HasPrefix(line, "??"):
 				w.Untracked++
 			default:
 				w.Modified++
 			}
+			if _, to, ok := strings.Cut(line[3:], " -> "); ok {
+				line = "   " + to
+			}
+			changed = append(changed, strings.Trim(line[3:], `"`))
 		}
 	}
 	if out, err := git(e.path, "log", "-1", "--format=%ct", e.sha); err == nil {
@@ -452,6 +487,7 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 			w.LastCommit = time.Unix(ts, 0)
 		}
 	}
+	w.LastActive = lastActive(e.path, w.LastCommit, changed)
 	if out, err := git(e.path, "rev-list", "--count", e.sha, "--not", "--remotes"); err == nil {
 		w.Unpushed, _ = strconv.Atoi(strings.TrimSpace(out))
 	}
@@ -606,7 +642,7 @@ func (s *scanner) scan() *Snapshot {
 	}
 	bySize(snap.ByRepo)
 	bySize(snap.ByFolder)
-	sort.SliceStable(snap.Repos, func(a, b int) bool { return repoSize(snap.Repos[a]) > repoSize(snap.Repos[b]) })
+	sort.SliceStable(snap.Repos, func(a, b int) bool { return repoActive(snap.Repos[a]).After(repoActive(snap.Repos[b])) })
 	s.sizes.retain(live)
 
 	var st syscall.Statfs_t
@@ -614,17 +650,11 @@ func (s *scanner) scan() *Snapshot {
 		snap.DiskFree, snap.DiskTotal = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
 	}
 	s.snap.Store(snap)
+	saveCache("worktrees.json", snap)
 	debug.FreeOSMemory()
 	log.Printf("scan: %d repos, %d worktrees, %s reclaimable, took %s, %d errors",
 		len(snap.Repos), snap.Total.Count, kbSize(snap.Total.ReclaimKB), snap.Took, len(snap.Errors))
 	return snap
-}
-
-func repoSize(r *Repo) (kb int64) {
-	for _, w := range r.Worktrees {
-		kb += w.SizeKB
-	}
-	return
 }
 
 func repoName(r *Repo) string {
@@ -737,13 +767,43 @@ func ago(t time.Time) string {
 var pageHTML string
 
 var page = template.Must(template.New("page").Funcs(template.FuncMap{
-	"size":     kbSize,
-	"bytes":    byteSize,
-	"ago":      ago,
-	"tilde":    tilde,
-	"anchorOf": func(r *Repo) string { return anchor(r.Path) },
-	"base":     filepath.Base,
-	"seq":      func(n int) []int { return make([]int, n) },
+	"size":       kbSize,
+	"bytes":      byteSize,
+	"ago":        ago,
+	"tilde":      tilde,
+	"anchorOf":   func(r *Repo) string { return anchor(r.Path) },
+	"base":       filepath.Base,
+	"seq":        func(n int) []int { return make([]int, n) },
+	"join":       strings.Join,
+	"lower":      strings.ToLower,
+	"branchLink": func(slug, branch string) string { return branchURL(slug, branch) },
+	"countState": func(prs []*TrackedPR, state string) (n int) {
+		for _, p := range prs {
+			if p.State == state {
+				n++
+			}
+		}
+		return
+	},
+	"countTone": func(prs []*TrackedPR, tone string) (n int) {
+		for _, p := range prs {
+			if p.Tone == tone {
+				n++
+			}
+		}
+		return
+	},
+	"reviewLabel": func(d string) string {
+		switch d {
+		case "APPROVED":
+			return "Approved"
+		case "CHANGES_REQUESTED":
+			return "Changes requested"
+		case "REVIEW_REQUIRED":
+			return "Review required"
+		}
+		return "No review rule"
+	},
 	"dict": func(kv ...any) map[string]any {
 		m := map[string]any{}
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -782,27 +842,57 @@ func isPrivate(remote string) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
 
-func serve(s *scanner) http.Handler {
+func serve(s *scanner, t *prTracker) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+	render := func(w http.ResponseWriter, name string, data any) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		snap := s.snap.Load()
-		if snap == nil {
-			fmt.Fprint(w, `<!doctype html><meta http-equiv="refresh" content="10"><title>Worktrees</title><p style="font:16px system-ui;padding:24px">First scan in progress — this page reloads in 10s.</p>`)
-			return
+		if err := page.ExecuteTemplate(w, name, data); err != nil {
+			log.Printf("render %s: %v", name, err)
 		}
-		data := struct {
-			*Snapshot
-			RefreshSec int
-			Next       time.Time
-		}{snap, int(flagInterval.Seconds()), snap.At.Add(*flagInterval)}
-		if err := page.Execute(w, data); err != nil {
-			log.Printf("render: %v", err)
+	}
+	type view struct {
+		Tab        string
+		RefreshSec int
+		Next       time.Time
+		WT         *Snapshot
+		PR         *PRSnapshot
+		PRs        []*TrackedPR
+	}
+	newView := func(tab string) view {
+		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load()}
+		if v.WT != nil {
+			v.Next = v.WT.At.Add(*flagInterval)
 		}
+		return v
+	}
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { render(w, "worktrees", newView("worktrees")) })
+	mux.HandleFunc("GET /prs", func(w http.ResponseWriter, r *http.Request) {
+		v := newView("prs")
+		if v.PR != nil {
+			// Point each PR at its local worktree, if one has that branch checked out.
+			local := map[string]string{}
+			if v.WT != nil {
+				for _, repo := range v.WT.Repos {
+					for _, wt := range repo.Worktrees {
+						local[repo.Slug+"\x00"+wt.Branch] = wt.Path
+					}
+				}
+			}
+			for _, pr := range v.PR.PRs {
+				row := *pr
+				row.Worktree = local[pr.Repo+"\x00"+pr.Branch]
+				v.PRs = append(v.PRs, &row)
+			}
+		}
+		render(w, "prs", v)
 	})
 	mux.HandleFunc("GET /api.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(s.snap.Load())
+	})
+	mux.HandleFunc("GET /api/prs.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(t.snap.Load())
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isPrivate(r.RemoteAddr) {
@@ -813,12 +903,58 @@ func serve(s *scanner) http.Handler {
 	})
 }
 
+// ---------------------------------------------------------------- disk cache
+
+// Last results live on disk so a restart (or reboot) serves the page at once
+// and does not re-measure 100 GB of worktrees or re-query GitHub.
+func cachePath(name string) string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "worktreesd", name)
+}
+
+func saveCache(name string, v any) {
+	p := cachePath(name)
+	os.MkdirAll(filepath.Dir(p), 0o700)
+	b, err := json.Marshal(v)
+	if err == nil {
+		err = os.WriteFile(p+".tmp", b, 0o600)
+	}
+	if err == nil {
+		err = os.Rename(p+".tmp", p)
+	}
+	if err != nil {
+		log.Printf("cache %s: %v", name, err)
+	}
+}
+
+func loadCache(name string, v any) bool {
+	b, err := os.ReadFile(cachePath(name))
+	return err == nil && json.Unmarshal(b, v) == nil
+}
+
 // ---------------------------------------------------------------- main
 
 func main() {
 	flag.Parse()
 	log.SetFlags(log.LstdFlags)
 	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
+	t := &prTracker{}
+	var cachedWT Snapshot
+	if loadCache("worktrees.json", &cachedWT) {
+		s.snap.Store(&cachedWT)
+		for _, r := range cachedWT.Repos {
+			for _, w := range r.Worktrees {
+				s.sizes.m[w.Path] = sizeEntry{w.SizeKB, cachedWT.At}
+			}
+		}
+	}
+	var cachedPR PRSnapshot
+	if loadCache("prs.json", &cachedPR) {
+		t.snap.Store(&cachedPR)
+	}
 
 	if *flagOnce {
 		json.NewEncoder(os.Stdout).Encode(s.scan())
@@ -832,7 +968,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv := &http.Server{Handler: serve(s), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: serve(s, t), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
@@ -844,19 +980,23 @@ func main() {
 		go advertise(ctx, *flagMDNS, ln.Addr().(*net.TCPAddr).Port)
 	}
 
-	go func() {
-		s.scan()
-		t := time.NewTicker(*flagInterval)
-		defer t.Stop()
+	every := func(fn func(), fresh time.Time) {
+		if time.Since(fresh) > *flagInterval { // a recent cache is good enough for the first tick
+			fn()
+		}
+		tick := time.NewTicker(*flagInterval)
+		defer tick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				s.scan()
+			case <-tick.C:
+				fn()
 			}
 		}
-	}()
+	}
+	go every(func() { s.scan() }, cachedWT.At)
+	go every(t.poll, cachedPR.At)
 
 	<-ctx.Done()
 	shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)

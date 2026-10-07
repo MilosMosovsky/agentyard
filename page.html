@@ -1,10 +1,10 @@
-<!doctype html>
+{{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="{{.RefreshSec}}">
-<title>Worktrees</title>
+<title>{{if eq .Tab "prs"}}Pull requests{{else}}Worktrees{{end}}</title>
 <style>
 :root {
   --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #e4e3df; --head: #f2f1ee; --link: #2457c5;
@@ -53,21 +53,26 @@ details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--muted); }
 pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px 0 0; }
 .errors li { color: var(--keep); }
+.t-ok { color: var(--merged); } .t-info { color: var(--open); } .t-warn { color: var(--unmerged); }
+.t-bad { color: var(--keep); } .t-muted { color: var(--prunable); }
+nav { display: flex; gap: 20px; margin: 0 0 18px; border-bottom: 1px solid var(--line); }
+nav a { color: var(--muted); padding: 0 0 8px; font-weight: 600; font-size: 14px; }
+nav a.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+nav a:hover { text-decoration: none; color: var(--fg); }
+nav b { font-weight: 400; color: var(--muted); margin-left: 4px; }
 </style>
 </head>
 <body>
 <main>
-<h1>Worktrees</h1>
-<p class="meta">Scanned {{.At.Format "15:04:05"}} in {{.Took}} · next scan ~{{.Next.Format "15:04"}} · sizes refresh every 30 min · read-only, nothing is deleted from here</p>
+<nav>
+  <a href="/" {{if eq .Tab "worktrees"}}class="on"{{end}}>Worktrees{{with .WT}}<b>{{.Total.Count}}</b>{{end}}</a>
+  <a href="/prs" {{if eq .Tab "prs"}}class="on"{{end}}>Pull requests{{with .PR}}<b>{{len .PRs}}</b>{{end}}</a>
+</nav>
+{{end}}
 
-<div class="kpis">
-  <div class="kpi"><b>{{.Total.Count}}</b><span>worktrees</span></div>
-  <div class="kpi"><b>{{size .Total.SizeKB}}</b><span>on disk</span></div>
-  <div class="kpi"><b class="v-merged">{{size .Total.ReclaimKB}}</b><span>safe to delete (merged)</span></div>
-  <div class="kpi"><b>{{bytes .DiskFree}}</b><span>free of {{bytes .DiskTotal}} ({{pct .DiskFree .DiskTotal}}% used)</span></div>
-</div>
-
-{{if .Errors}}<h2>Scan errors</h2><ul class="errors">{{range .Errors}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+{{define "foot"}}</main>
+</body>
+</html>{{end}}
 
 {{define "stats"}}
 <div class="scroll"><table>
@@ -81,6 +86,20 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
 </table></div>
 {{end}}
 
+{{define "worktrees"}}{{template "head" .}}
+{{with .WT}}
+<p class="meta">Scanned {{.At.Format "15:04:05"}} in {{.Took}} · next scan ~{{$.Next.Format "15:04"}} · sizes refresh every 30 min · read-only, nothing is deleted from here</p>
+
+<div class="kpis">
+  <div class="kpi"><b>{{.Total.Count}}</b><span>worktrees</span></div>
+  <div class="kpi"><b>{{size .Total.SizeKB}}</b><span>on disk</span></div>
+  <div class="kpi"><b class="v-merged">{{size .Total.ReclaimKB}}</b><span>safe to delete (merged)</span></div>
+  <div class="kpi"><b>{{bytes .DiskFree}}</b><span>free of {{bytes .DiskTotal}} ({{pct .DiskFree .DiskTotal}}% used)</span></div>
+</div>
+
+{{if .Errors}}<h2>Scan errors</h2><ul class="errors">{{range .Errors}}<li class="mono">{{.}}</li>{{end}}</ul>{{end}}
+
+
 <h2>By project</h2>
 {{template "stats" (dict "Title" "Repository" "Groups" .ByRepo)}}
 
@@ -92,7 +111,7 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
 {{range .Errors}}<p class="errors mono">{{.}}</p>{{end}}
 <div class="scroll"><table>
 <colgroup><col style="width:20%"><col style="width:18%"><col style="width:21%"><col style="width:15%"><col style="width:5%"><col style="width:7%"><col style="width:8%"><col style="width:6%"></colgroup>
-<tr><th>Worktree</th><th>Branch</th><th>Pull request</th><th>Status</th><th class="n">Changes</th><th class="n">Unpushed</th><th>Last commit</th><th class="n">Size</th></tr>
+<tr><th>Worktree</th><th>Branch</th><th>Pull request</th><th>Status</th><th class="n">Changes</th><th class="n">Unpushed</th><th>Last active</th><th class="n">Size</th></tr>
 {{range .Worktrees}}<tr>
   <td title="{{.Path}}"><span class="mono">{{base .Path}}</span><span class="sub">{{tilde .Folder}}</span></td>
   <td title="{{.Branch}}">{{if .BranchURL}}<span class="mono"><a href="{{.BranchURL}}">{{.Branch}}</a></span>{{else}}<span class="mono">{{.Branch}}</span><span class="sub">local only</span>{{end}}</td>
@@ -100,13 +119,43 @@ pre { background: var(--head); padding: 10px 12px; overflow-x: auto; margin: 6px
   <td title="{{.Reason}}"><span class="v v-{{.Verdict}}">{{label .Verdict}}</span><span class="sub">{{.Reason}}</span></td>
   <td class="n">{{if or .Modified .Untracked}}{{if .Modified}}<span>{{.Modified}} mod</span>{{end}}{{if .Untracked}}<span>{{.Untracked}} new</span>{{end}}{{else}}<span class="zero">·</span>{{end}}</td>
   <td class="n">{{if .Unpushed}}{{.Unpushed}}{{else}}<span class="zero">·</span>{{end}}</td>
-  <td title="{{.Sha}}"><span>{{ago .LastCommit}}</span><span class="sub mono">{{short .Sha}}</span></td>
+  <td title="last commit {{.LastCommit.Format "2006-01-02 15:04"}} · {{.Sha}}"><span>{{ago .LastActive}}</span><span class="sub">commit {{ago .LastCommit}}</span></td>
   <td class="n">{{size .SizeKB}}</td>
 </tr>{{end}}
 </table></div>
 {{with reclaimCount .}}<details><summary>Commands to remove the {{.}} safe-to-delete worktree(s)</summary><pre class="mono">{{range $repo.Worktrees}}{{if .RemoveCmd}}{{.RemoveCmd}}
 {{end}}{{end}}</pre></details>{{end}}
 {{end}}
-</main>
-</body>
-</html>
+{{else}}<p class="meta">First scan in progress — this page reloads by itself.</p>{{end}}
+{{template "foot"}}{{end}}
+
+{{define "prs"}}{{template "head" .}}
+{{with .PR}}
+<p class="meta">Open PRs authored by you · fetched {{.At.Format "15:04:05"}} in {{.Took}} · cost {{.Cost}} GraphQL points, {{.RateRemaining}} left this hour · sorted by last commit</p>
+{{if .Error}}<ul class="errors"><li class="mono">last poll failed, showing the previous list: {{.Error}}</li></ul>{{end}}
+<div class="kpis">
+  <div class="kpi"><b>{{len .PRs}}</b><span>open</span></div>
+  <div class="kpi"><b class="t-ok">{{countState .PRs "Ready to merge"}}</b><span>ready to merge</span></div>
+  <div class="kpi"><b class="t-bad">{{countTone .PRs "bad"}}</b><span>failing · conflicts · changes requested</span></div>
+  <div class="kpi"><b class="t-warn">{{countTone .PRs "warn"}}</b><span>waiting (review · checks · branch)</span></div>
+  <div class="kpi"><b class="t-muted">{{countState .PRs "Draft"}}</b><span>drafts</span></div>
+</div>
+{{end}}
+{{if .PRs}}
+<h2>Open pull requests</h2>
+<div class="scroll"><table>
+<colgroup><col style="width:26%"><col style="width:17%"><col style="width:17%"><col style="width:9%"><col style="width:10%"><col style="width:8%"><col style="width:7%"><col style="width:6%"></colgroup>
+<tr><th>Pull request</th><th>Branch · local worktree</th><th>Status</th><th>Checks</th><th>Review</th><th>Last commit</th><th>Opened</th><th class="n">Diff</th></tr>
+{{range .PRs}}<tr>
+  <td title="{{.Title}}"><span><a href="{{.URL}}">{{.Title}}</a></span><span class="sub">{{.Repo}} #{{.Number}}</span></td>
+  <td title="{{.Branch}}{{with .Worktree}} · {{.}}{{end}}"><span class="mono"><a href="{{branchLink .Repo .Branch}}">{{.Branch}}</a></span><span class="sub">{{with .Worktree}}{{tilde .}}{{else}}no local worktree{{end}}</span></td>
+  <td title="{{.Why}}"><span class="v t-{{.Tone}}">{{.State}}</span><span class="sub">{{.Why}}</span></td>
+  <td title="{{join .Checks.Failing ", "}}">{{if or .Checks.Passed .Checks.Failed .Checks.Pending}}<span>{{if .Checks.Failed}}<span class="t-bad" style="display:inline">✗ {{.Checks.Failed}}</span> {{end}}{{if .Checks.Pending}}<span class="t-warn" style="display:inline">◷ {{.Checks.Pending}}</span> {{end}}<span class="t-ok" style="display:inline">✓ {{.Checks.Passed}}</span></span><span class="sub">{{lower .Checks.State}}</span>{{else}}<span class="zero">no checks</span>{{end}}</td>
+  <td title="{{with .Approvers}}approved by {{join . ", "}}{{end}}{{with .Waiting}} · waiting on {{join . ", "}}{{end}}"><span>{{reviewLabel .ReviewDecision}}</span><span class="sub">{{with .Approvers}}{{join . ", "}}{{else}}{{with .Waiting}}{{join . ", "}}{{end}}{{end}}</span></td>
+  <td title="{{.LastCommit.Format "2006-01-02 15:04"}}">{{ago .LastCommit}}</td>
+  <td title="{{.CreatedAt.Format "2006-01-02"}}">{{ago .CreatedAt}}</td>
+  <td class="n"><span class="t-ok">+{{.Additions}}</span><span class="t-bad">−{{.Deletions}}</span></td>
+</tr>{{end}}
+</table></div>
+{{else}}{{if not .PR}}<p class="meta">Fetching your open PRs — this page reloads by itself.</p>{{end}}{{end}}
+{{template "foot"}}{{end}}
