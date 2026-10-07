@@ -287,7 +287,7 @@ func fetch(repo, slug string) error {
 	} else {
 		args = append(args, "fetch", "--prune", "--quiet", "--no-write-fetch-head", "origin")
 	}
-	// Retry: a DNS blip (e.g. Cloudflare WARP re-establishing its tunnel) fails a
+	// Retry: a DNS blip (e.g. a VPN re-establishing its tunnel) fails a
 	// fetch for a few seconds and would otherwise leave the repo stale for a cycle.
 	var err error
 	for attempt, wait := range []time.Duration{0, 10 * time.Second, 30 * time.Second} {
