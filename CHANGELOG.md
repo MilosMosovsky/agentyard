@@ -6,6 +6,12 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-08
+
+### Added
+
+- Compact added/deleted line counts on pull request cards, with a second metadata line on narrow layouts.
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
@@ -100,7 +106,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.1
 [0.4.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.2.0

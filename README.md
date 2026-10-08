@@ -112,6 +112,8 @@ this order:
 The overview groups PRs under compact `organization / repository` headings. Counts, attention
 indicators, and the latest commit time remain visible when a repository is collapsed. Groups follow
 your activity or name sort. Expanded repositories preview two PRs; **Show more** opens the rest.
+Each PR card shows green added-line and red deleted-line counts; narrow cards place them on a second
+metadata line to keep the status readable.
 
 Select a PR to read its description, changed files, checks, reviews, branch, and linked local worktree
 in the sticky reader. The list scrolls with the page. **GitHub** links on each row and in the reader
