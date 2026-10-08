@@ -76,6 +76,7 @@ func newDemo(now time.Time) (*scanner, *prTracker, *sessionIndex, *demoWorld) {
 	settle(prs)
 	t.snap.Store(&PRSnapshot{At: now.Add(-3 * time.Minute), Took: 4 * time.Second, Query: flagPRQuery, PRs: prs,
 		Cost: 1, RateRemaining: 4986, RateReset: now.Add(41 * time.Minute)})
+	t.history.Store(demoPRHistory(now, prs))
 
 	sessions, messages := demoSessions(now)
 	x.show(sessions)
@@ -247,6 +248,32 @@ func demoPRs(now time.Time) []*TrackedPR {
 		p.URL = fmt.Sprintf("https://github.com/%s/pull/%d", p.Repo, p.Number)
 	}
 	return prs
+}
+
+func demoPRHistory(now time.Time, open []*TrackedPR) *PRHistorySnapshot {
+	snap := &PRHistorySnapshot{At: now.Add(-3 * time.Minute), Since: historySince(now)}
+	for _, pr := range open {
+		snap.PRs = append(snap.PRs, &PRHistoryItem{ID: pr.ID, Repo: pr.Repo, Number: pr.Number,
+			Title: pr.Title, URL: pr.URL, CreatedAt: pr.CreatedAt, Author: "ada",
+			Additions: pr.Additions, Deletions: pr.Deletions, ChangedFiles: 3})
+	}
+	merged := []struct {
+		repo, title, who string
+		number, add, del int
+		opened, merged   time.Duration
+	}{
+		{"acme/api", "Return field-level errors from account validation", "priya-r", 475, 63, 18, 28 * time.Hour, 20 * time.Minute},
+		{"acme/web", "Keep checkout form values after a payment retry", "sam", 1280, 156, 42, 52 * time.Hour, 25 * time.Hour},
+		{"acme-labs/tinyhttp", "Normalize repeated response headers", "sam", 85, 64, 21, 40 * 24 * time.Hour, 49 * time.Hour},
+	}
+	for _, item := range merged {
+		at := now.Add(-item.merged)
+		snap.PRs = append(snap.PRs, &PRHistoryItem{ID: "PR_" + demoHash(item.repo + fmt.Sprint(item.number))[:16],
+			Repo: item.repo, Number: item.number, Title: item.title, URL: fmt.Sprintf("https://github.com/%s/pull/%d", item.repo, item.number),
+			CreatedAt: now.Add(-item.opened), MergedAt: &at, Author: "ada", MergedBy: item.who,
+			Additions: item.add, Deletions: item.del, ChangedFiles: 4})
+	}
+	return snap
 }
 
 // Descriptions and file paths are synthetic, just like the rest of the demo.

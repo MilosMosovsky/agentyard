@@ -107,8 +107,10 @@ func (pr *TrackedPR) Facets() []string {
 }
 
 type prTracker struct {
-	mu   sync.Mutex
-	snap atomic.Pointer[PRSnapshot]
+	mu        sync.Mutex
+	snap      atomic.Pointer[PRSnapshot]
+	historyMu sync.Mutex
+	history   atomic.Pointer[PRHistorySnapshot]
 }
 
 const prSearchQuery = `query($q:String!,$after:String){
@@ -230,8 +232,8 @@ func (t *prTracker) poll() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	prev := t.snap.Load()
-	if prev != nil && prev.RateRemaining > 0 && prev.RateRemaining < 300 && time.Now().Before(prev.RateReset) {
-		log.Printf("prs: skipping poll, %d GraphQL points left until %s", prev.RateRemaining, prev.RateReset.Format("15:04"))
+	if t.shouldPauseGitHub() {
+		log.Printf("prs: skipping poll, GitHub API budget is low")
 		return
 	}
 	start := time.Now()

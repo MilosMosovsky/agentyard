@@ -131,6 +131,27 @@ becomes repository cards with labeled counts. The reader's arrows and **‚Üê / ‚Ü
 the filtered results in list order, reveal the selected PR, and show your position. Arrow shortcuts
 leave typing and open dialogs alone and respect the Keyboard shortcuts setting.
 
+**History** shows PRs you authored that were opened or merged in the last 30 days, including PRs
+opened earlier and merged recently. Switch between **Timeline** and **Ledger**; your view preference
+is remembered. Both share search, repository and event filters. Days follow your browser's timezone,
+with opened/merged counts retained when collapsed. Select an event for lifecycle timestamps, actors,
+and change size, or use its GitHub link. The Open inbox remains the default.
+
+History syncs in the background and survives restarts. Failed syncs retain the last good snapshot
+with a notice. Each opened/merged search is limited to 1,000 PRs; a notice appears if results are partial.
+
+<details>
+<summary>PR history: timeline and ledger</summary>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-history-timeline-dark.jpg">
+  <img alt="PR history grouped by day, with opened and merged events, repository context and line counts." src="docs/screenshots/prs-history-timeline-light.jpg" width="100%">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-history-ledger-dark.jpg">
+  <img alt="The same PR history in a compact daily ledger with time, event, pull request and changes columns." src="docs/screenshots/prs-history-ledger-light.jpg" width="100%">
+</picture>
+</details>
+
 <details>
 <summary>Repository overview</summary>
 <picture>
@@ -418,6 +439,7 @@ manager.
 #### JSON
 
 The page's data is also served as JSON: `/api.json` (worktrees), `/api/prs.json` (pull requests),
+`/api/pr-history.json` (cached 30-day opened/merged PR history),
 `/api/pr-detail?repo=OWNER/REPO&number=123` (description and changed files for a tracked PR), and
 `/api/status` (version, last scan times, whether a sync is running). PR details include up to the first
 100 changed files and the total changed-file count.

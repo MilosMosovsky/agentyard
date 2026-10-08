@@ -34,6 +34,15 @@ The overview follows normal document scrolling. A separate sticky reader shows t
 
 Selected, hovered, and keyboard-focused rows have quiet rounded surfaces. A single boundary renderer suppresses separators on both sides of those surfaces, using the actually visible rows so filtering and previews do not leave orphan dividers. Long titles wrap; metadata stays aligned. Descriptions render a small Markdown subset as text and safe elements, never raw HTML.
 
+## PR History
+
+PR History is a secondary view within Pull requests, so the Open inbox stays the default. Timeline
+and Ledger consume one event list derived from canonical cached PR lifecycle records. They share
+search, repository and opened/merged filters and remember the layout preference. Days use local
+calendar dates; collapsed groups keep their counts. Timeline markers have equal padding inside
+32px circles and a centered neutral connector. Each event offers lifecycle details and a GitHub
+action. History follows normal page scrolling and reflows on phones; no nested scroll region.
+
 ## Sessions
 
 The collection opens directly onto the session list. Claude uses its sunburst mark in terracotta; Codex uses the OpenAI mark in mint. One `tool-icon` template supplies filters, rows, and drawer metadata. Agent cells use the icon with an accessible name and hover title. Session source and linked PR remain visible alongside the title and prompt preview.

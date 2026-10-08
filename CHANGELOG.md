@@ -6,6 +6,17 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-08
+
+### Added
+
+- Pull request History with Timeline and Ledger views, shared search/repository/event filters,
+  local calendar-day groups, collapsible daily totals, direct GitHub links and lifecycle details.
+- Remembered History view preference. Open remains the default PR inbox.
+- Cached 30-day history of authored PRs opened or merged, including older PRs merged recently.
+  Sync errors retain the last good data, and capped search results are explicitly marked partial.
+- Synthetic history fixtures and screenshots of both views in light, dark and phone layouts.
+
 ## [0.4.1] - 2026-10-08
 
 ### Added
@@ -106,7 +117,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.5.0
 [0.4.1]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.1
 [0.4.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.3.0

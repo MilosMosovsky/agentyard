@@ -457,7 +457,7 @@ body[data-tab="sessions"] th:first-child { text-align: center; border-right: 0; 
 }
 @media (min-width: 640px) {
   .table-region { overflow-x: auto; }
-  th:first-child, td:first-child { position: sticky; left: 0; z-index: 1; border-right: 1px solid var(--line); }
+  .table-region th:first-child, .table-region td:first-child { position: sticky; left: 0; z-index: 1; border-right: 1px solid var(--line); }
 }
 @media (min-width: 640px) and (max-width: 1100px) { .frame { margin-left: 190px; padding-inline: 24px; } .sidebar { width: 190px; padding-inline: 14px; } .kpi { padding: 16px; } }
 @media (max-width: 639px) {
@@ -910,6 +910,133 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
  .pr-file .diff { display:none; }
 }
 
+.pr-subviews { display:flex; gap:24px; margin:-12px 0 24px; border-bottom:1px solid var(--line); }
+.pr-subview { display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:8px 0; border:0; border-radius:0; background:transparent; color:var(--text-3); font-size:12px; font-weight:500; }
+.pr-subview[aria-pressed="true"] { color:var(--accent); box-shadow:0 1px 0 var(--accent); }
+.pr-subview .icon { width:14px; height:14px; }
+.pr-history { --history-mark:32px; --history-row-space:17px; }
+.pr-history-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:24px; }
+.pr-history-heading h2 { font-size:32px; line-height:39px; font-weight:550; letter-spacing:-1px; overflow-wrap:anywhere; }
+.pr-history-period { display:flex; align-items:center; gap:7px; color:var(--text-3); font-size:12px; white-space:nowrap; padding-bottom:4px; }
+.pr-history-controls { display:grid; grid-template-columns:minmax(0,1fr) minmax(170px,240px); gap:12px; }
+.pr-history-controls .search { width:auto; margin:0; }
+.pr-history-repo { width:100%; height:36px; min-width:0; padding:0 12px; border:1px solid var(--line-control); border-radius:var(--radius-control); background:var(--bg-surface); color:var(--text-2); font-size:12px; }
+.pr-history-views { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; padding-bottom:17px; border-bottom:1px solid var(--line); }
+.pr-history-filters,.pr-history-modes { display:flex; align-items:center; gap:4px; }
+.pr-history-choice { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:34px; padding:6px 10px; border:1px solid transparent; border-radius:var(--radius-control); background:transparent; color:var(--text-2); font-size:12px; font-weight:400; white-space:nowrap; }
+.pr-history-choice:hover { background:var(--bg-hover); }
+.pr-history-choice[aria-pressed="true"] { background:var(--bg-selected); color:var(--accent); }
+.pr-history-choice .icon { width:14px; height:14px; }
+.pr-history-choice .numeric { color:var(--text-3); font-size:11px; }
+:is(.pr-history-kind,.pr-history-mark)[data-kind="opened"] { color:var(--tone-positive); }
+:is(.pr-history-kind,.pr-history-mark)[data-kind="merged"] { color:var(--accent); }
+.pr-history-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0 0; color:var(--text-3); font-size:11px; }
+.pr-history-summary .text-button { color:var(--text-3); font-size:11px; font-weight:400; text-decoration:none; }
+.pr-history-state { display:flex; align-items:flex-start; gap:12px; padding:20px 0; color:var(--text-2); font-size:12px; }
+.pr-history-state h3 { font-size:13px; margin-bottom:3px; }
+.pr-history-state details { margin-top:8px; }
+.pr-history-state .actions { margin-top:10px; }
+.pr-history-state .button { font-size:12px; height:32px; }
+.pr-history-days { margin-top:5px; }
+.pr-history-day { display:grid; grid-template-columns:140px minmax(0,1fr); gap:16px; padding:26px 0 4px; }
+.pr-history-day-heading { padding:10px 0; }
+.pr-history-day-toggle { display:flex; align-items:flex-start; gap:7px; width:100%; padding:0; border:0; background:transparent; color:var(--text-1); text-align:left; }
+.pr-history-day-toggle > .icon { width:12px; height:12px; margin-top:5px; color:var(--text-3); }
+.pr-history-day-toggle[aria-expanded="false"] > .icon { transform:rotate(-90deg); }
+.pr-history-day-title { display:block; font-size:13px; line-height:21px; font-weight:550; }
+.pr-history-day-date { display:block; color:var(--text-3); font-size:11px; line-height:19px; font-weight:400; margin-top:2px; }
+.pr-history-day-counts { display:flex; flex-direction:column; gap:4px; margin:11px 0 0 19px; color:var(--text-3); font-size:11px; }
+.pr-history-day-counts > span { display:flex; align-items:center; gap:6px; }
+.pr-history-day-counts .icon { width:12px; height:12px; }
+.pr-history-events { list-style:none; margin:0; padding:0; min-width:0; }
+.pr-history-event { position:relative; padding-left:calc(var(--history-mark) + 10px); }
+.pr-history-event:not(:last-child)::before { content:""; position:absolute; top:var(--history-row-space); bottom:calc(-1 * var(--history-row-space)); left:calc(var(--history-mark) / 2 - .5px); width:1px; background:var(--line); }
+.pr-history-mark { position:absolute; z-index:1; left:0; top:calc(var(--history-row-space) - 8px); display:grid; place-items:center; width:var(--history-mark); height:var(--history-mark); border-radius:var(--radius-pill); background:var(--bg-canvas); box-shadow:inset 0 0 0 1px var(--line); }
+.pr-history-mark .icon { width:16px; height:16px; }
+.pr-history-event-content { padding:var(--history-row-space) 14px; border-radius:var(--radius-control); }
+.pr-history-event-content:hover { background:var(--bg-hover); }
+.pr-history-event[data-selected="true"] .pr-history-event-content { background:var(--bg-selected); }
+.pr-history-event-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px; font-size:11px; line-height:16px; }
+.pr-history-kind { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.pr-history-event time,.pr-history-ledger time { color:var(--text-3); font-size:11px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.pr-history-title-line { display:flex; align-items:flex-start; gap:16px; min-width:0; }
+.pr-history-event-title { flex:1; min-width:0; padding:0; border:0; background:transparent; color:var(--text-1); text-align:left; font-size:14px; line-height:22px; font-weight:500; overflow-wrap:anywhere; }
+.pr-history-github { display:inline-flex; justify-content:center; align-items:center; flex-shrink:0; width:30px; min-height:30px; margin-top:-4px; border-radius:var(--radius-sm); color:var(--text-3); }
+.pr-history-github .icon { width:14px; height:14px; }
+.pr-history-github:hover { background:var(--bg-inset); color:var(--accent); }
+.pr-history-event-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:7px; color:var(--text-3); font-size:11px; }
+.pr-history-repository { color:var(--text-2); overflow-wrap:anywhere; }
+.pr-history-repository > span { color:var(--text-3); }
+.pr-history-event-meta .diff { margin-left:auto; font-size:11px; }
+.pr-history-lifecycle { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px 24px; margin:17px 0 0; padding-top:15px; border-top:1px solid var(--line); font-size:12px; }
+.pr-history-lifecycle dt { margin-bottom:5px; color:var(--text-3); font-size:11px; }
+.pr-history-lifecycle dd { margin:0; color:var(--text-2); line-height:20px; overflow-wrap:anywhere; }
+.pr-history-lifecycle time { white-space:normal; font-size:12px; color:var(--text-2); }
+.pr-history-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; margin-top:30px; padding-top:16px; border-top:1px solid var(--line); color:var(--text-3); font-size:11px; }
+.pr-history[data-mode="ledger"] .pr-history-footer { border-top:0; }
+.pr-history[data-mode="ledger"] .pr-history-day { display:block; padding-top:26px; }
+.pr-history[data-mode="ledger"] .pr-history-day-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; padding:0 0 13px; }
+.pr-history[data-mode="ledger"] .pr-history-day-toggle { align-items:center; width:auto; }
+.pr-history[data-mode="ledger"] .pr-history-day-toggle > .icon { margin-top:0; }
+.pr-history[data-mode="ledger"] .pr-history-day-title,.pr-history[data-mode="ledger"] .pr-history-day-date { display:inline; }
+.pr-history[data-mode="ledger"] .pr-history-day-date { margin-left:9px; }
+.pr-history[data-mode="ledger"] .pr-history-day-counts { flex-direction:row; gap:15px; margin:0; }
+.pr-history-ledger { width:100%; min-width:0; table-layout:fixed; border-collapse:collapse; }
+.pr-history-ledger :is(th,td) { height:auto; background:transparent; text-align:left; white-space:normal; border-bottom:1px solid var(--line); }
+.pr-history-ledger th { padding:9px 10px; border-top:1px solid var(--line); color:var(--text-3); font-size:11px; font-weight:400; }
+.pr-history-ledger th:first-child { width:72px; }
+.pr-history-ledger th:nth-child(2) { width:100px; }
+.pr-history-ledger th:last-child { width:100px; text-align:right; }
+.pr-history-ledger td { padding:17px 10px; vertical-align:top; font-size:12px; }
+.pr-history-ledger tr[data-selected="true"] td { background:var(--bg-selected); }
+.pr-history-ledger tr[data-event-row]:hover td { background:var(--bg-hover); }
+.pr-history-ledger tr[data-selected="true"]:hover td { background:var(--bg-selected); }
+.pr-history-ledger .pr-history-kind .icon { width:14px; height:14px; }
+.pr-history-ledger .pr-history-event-meta { margin:0 0 5px; }
+.pr-history-ledger .pr-history-event-title { font-size:13px; line-height:21px; }
+.pr-history-ledger .diff { display:flex; justify-content:flex-end; font-size:11px; }
+.pr-history-ledger .pr-history-detail-row td { padding:0 16px 20px; background:var(--bg-selected); }
+.pr-history-ledger .pr-history-lifecycle { margin-top:0; }
+@media(max-width:999px) {
+ .pr-history-day { grid-template-columns:112px minmax(0,1fr); gap:8px; }
+ .pr-history-controls { grid-template-columns:minmax(0,1fr) 190px; }
+}
+@media(max-width:639px) {
+ .pr-subviews { margin:0 0 22px; }
+ .pr-history-heading { align-items:flex-start; flex-direction:column; gap:10px; margin-bottom:20px; }
+ .pr-history-heading h2 { font-size:28px; line-height:35px; }
+ .pr-history-controls { grid-template-columns:minmax(0,1fr); gap:10px; }
+ .pr-history-controls .search,.pr-history-repo { height:44px; }
+ .pr-history-controls :is(input,select) { font-size:16px; }
+ .pr-history-views { gap:10px; }
+ .pr-history-filters { flex-wrap:wrap; }
+ .pr-history-choice { min-height:44px; padding:7px 9px; font-size:12px; }
+ .pr-history-modes { margin-left:auto; }
+ .pr-history-summary { padding-top:10px; }
+ .pr-history-summary .text-button { min-height:40px; }
+ .pr-history-day { display:block; padding-top:22px; }
+ .pr-history-day-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:9px; padding:0 0 10px; }
+ .pr-history-day-toggle { width:auto; min-height:40px; align-items:center; }
+ .pr-history-day-toggle > .icon { margin-top:0; }
+ .pr-history-day-counts { flex-direction:row; margin:0; gap:12px; }
+ .pr-history-event-content { padding-inline:9px 3px; }
+ .pr-history-event-title { min-height:44px; font-size:14px; }
+ .pr-history-title-line { gap:7px; }
+ .pr-history-github { width:44px; min-height:44px; margin-top:-8px; }
+ .pr-history-event-meta .diff { margin-left:0; }
+ .pr-history-lifecycle { gap:12px; }
+ .pr-history-ledger :is(thead,tbody) { display:block; }
+ .pr-history-ledger thead { display:none; }
+ .pr-history-ledger tr { display:grid; grid-template-columns:52px minmax(0,1fr) auto; gap:9px; padding:16px 4px; border-top:1px solid var(--line); }
+ .pr-history-ledger td { display:block; padding:0; border:0; }
+ .pr-history-ledger td:nth-child(1) { grid-column:1; grid-row:1; }
+ .pr-history-ledger td:nth-child(2) { grid-column:2; grid-row:1; }
+ .pr-history-ledger td:nth-child(3) { grid-column:1 / -1; grid-row:2; }
+ .pr-history-ledger td:nth-child(4) { grid-column:3; grid-row:1; }
+ .pr-history-ledger tr[data-selected="true"] { background:var(--bg-selected); }
+ .pr-history-ledger .pr-history-detail-row { display:block; padding:0 12px 18px; border:0; background:var(--bg-selected); }
+ .pr-history-ledger .pr-history-detail-row td { padding:0; }
+}
 </style>
 </head>
 <body data-tab="{{.Tab}}" data-refresh="{{.RefreshSec}}">
@@ -939,6 +1066,10 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <symbol id="i-dashed-square" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="1" stroke-dasharray="2 3"/></symbol>
 <symbol id="i-branch" viewBox="0 0 16 16"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="4" r="1.5"/><path d="M4 4.5v7M12 5.5v1a3 3 0 0 1-3 3H4"/></symbol>
 <symbol id="i-pull-request" viewBox="0 0 16 16"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="13" r="1.5"/><path d="M4 4.5v7M12 11.5V6a3 3 0 0 0-3-3H8m2-2L8 3l2 2"/></symbol>
+<symbol id="i-merge" viewBox="0 0 16 16"><circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="13" r="1.5"/><path d="M4 4.5v7M4 5c0 4 8 2 8 6.5"/></symbol>
+<symbol id="i-calendar" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="11" rx="2"/><path d="M5 1.5v3M11 1.5v3M2 7h12M5 10h1m3 0h1"/></symbol>
+<symbol id="i-timeline" viewBox="0 0 16 16"><circle cx="3.5" cy="4" r="1.5"/><circle cx="3.5" cy="12" r="1.5"/><path d="M3.5 5.5v5M8 4h6M8 12h6"/></symbol>
+<symbol id="i-ledger" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M2 6h12M6 6v8M2 10h12"/></symbol>
 <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2M8 10v1"/></symbol>
 <symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></symbol>
 <symbol id="i-x-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="m6 6 4 4m0-4-4 4"/></symbol>
@@ -1073,6 +1204,8 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 
 {{define "prs"}}{{template "head" .}}{{$synced := false}}{{with .PR}}{{$synced = not .At.IsZero}}{{end}}
 {{if not .Demo}}{{with .PR}}{{template "snapshot-time" .At}}{{end}}{{end}}
+<nav class="pr-subviews" aria-label="Pull request views"><button type="button" class="pr-subview" id="pr-open-tab" aria-pressed="true" aria-controls="pr-open-view">{{template "icon" "pull-request"}}Open<span class="meta numeric">{{len .PRs}}</span></button><button type="button" class="pr-subview" id="pr-history-tab" aria-pressed="false" aria-controls="pr-history">{{template "icon" "clock"}}History</button></nav>
+<div id="pr-open-view">
 <section class="pr-workspace" aria-label="Repository scope"><p class="pr-workspace-org">{{template "icon" "organization"}}<span id="pr-workspace-org">All organizations</span></p><details class="pr-workspace-picker" id="pr-workspace-picker"><summary aria-controls="pr-workspace-panel"><h2 id="pr-workspace-title">All repositories</h2>{{template "icon" "chevron-down"}}</summary><div class="pr-workspace-panel" id="pr-workspace-panel"><label class="filter-search">{{template "icon" "search"}}<input type="search" id="pr-workspace-search" placeholder="Find organization or repository…" aria-label="Find organization or repository" autocomplete="off"></label><div id="pr-workspace-options" class="pr-workspace-options"></div><p id="pr-workspace-empty" class="meta" hidden>No matching organizations or repositories.</p></div></details><div class="pr-workspace-stats"><span><strong id="pr-workspace-total">{{len .PRs}}</strong> open pull requests</span><span class="pr-workspace-action">{{template "icon" "x-circle"}}<span id="pr-workspace-action">0 need attention</span></span><span id="pr-workspace-updated"></span></div></section>
 {{template "collection" .}}
 
@@ -1081,6 +1214,15 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{if .PRs}}<section class="pr-inbox" id="pr-inbox" aria-label="Pull request inbox"><div class="pr-list" id="pr-list" role="region" aria-label="Pull requests grouped by organization and repository"><div class="pr-list-heading"><h2 id="pr-list-scope">All repositories</h2><button type="button" class="text-button" id="pr-collapse">Collapse all</button></div><div id="pr-groups">{{range .PRs}}{{template "pr-item" .}}{{end}}</div></div><article class="pr-reading-panel" id="pr-reading-panel" role="region" aria-label="Selected pull request" tabindex="0"><button class="pr-back button" type="button" id="pr-back">{{template "icon" "chevron-down"}}Back to pull requests</button><div class="pr-reader-nav" id="pr-reader-nav" aria-label="Navigate filtered pull requests"><span class="pr-reader-position numeric" id="pr-reader-position" aria-live="polite"></span><button type="button" class="icon-button pr-prev" id="pr-prev" aria-label="Previous pull request" title="Previous pull request (←)">{{template "icon" "chevron-down"}}</button><button type="button" class="icon-button pr-next" id="pr-next" aria-label="Next pull request" title="Next pull request (→)">{{template "icon" "chevron-down"}}</button></div><div id="pr-detail-content"><p class="meta">Select a pull request to read its details.</p></div></article></section>
 {{else}}{{with .PR}}{{if not .Error}}<div class="state-panel">{{template "icon" "pull-request"}}<div><h2>No open pull requests.</h2><p>You're viewing open PRs authored by the signed-in GitHub account.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}{{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Fetching pull requests…</h2><p>Results appear when the first sync finishes.</p></div></div>{{end}}{{end}}
 <details class="sync-details"><summary>Sync details</summary><div class="detail-lines">{{with .PR}}<p>Fetched {{template "exact-time" .At}} · scan took {{.Took}}</p><p class="numeric">GraphQL cost {{.Cost}} · {{.RateRemaining}} points remaining{{if not .RateReset.IsZero}} · resets {{template "exact-time" .RateReset}}{{end}}</p>{{end}}<p>Refresh every {{.RefreshSec}} seconds</p></div></details>
+</div>
+<section class="pr-history" id="pr-history" data-mode="timeline" aria-label="Pull request history" hidden>
+<header class="pr-history-heading"><div><p class="pr-workspace-org">{{template "icon" "organization"}}<span id="pr-history-org">All organizations</span></p><h2 id="pr-history-scope">All repositories</h2></div><p class="pr-history-period">{{template "icon" "calendar"}}<span id="pr-history-period">Last 30 days</span></p></header>
+<div class="pr-history-controls"><label class="search">{{template "icon" "search"}}<span class="sr-only">Search history</span><input id="pr-history-search" type="search" aria-label="Search history" placeholder="Search PR titles, repos or people…" autocomplete="off" spellcheck="false"><kbd aria-hidden="true">/</kbd></label><label><span class="sr-only">History repository</span><select class="pr-history-repo" id="pr-history-repo" aria-label="History repository"><option value="">All repositories</option></select></label></div>
+<div class="pr-history-views"><div class="pr-history-filters" id="pr-history-filters" role="group" aria-label="History events"></div><div class="pr-history-modes" role="group" aria-label="History layout"><button type="button" class="pr-history-choice" data-history-mode="timeline" aria-pressed="true">{{template "icon" "timeline"}}Timeline</button><button type="button" class="pr-history-choice" data-history-mode="ledger" aria-pressed="false">{{template "icon" "ledger"}}Ledger</button></div></div>
+<div class="pr-history-summary"><p id="pr-history-summary" aria-live="polite"></p><button type="button" class="text-button" id="pr-history-collapse" hidden>Collapse days</button></div>
+<div class="pr-history-state" id="pr-history-state" role="status"><div><h3>Loading history…</h3><p>Reading the latest saved GitHub activity.</p></div></div><div class="pr-history-days" id="pr-history-days"></div>
+<footer class="pr-history-footer"><span>Pull requests authored by your GitHub account</span><span id="pr-history-timezone"></span></footer>
+</section>
 {{template "foot" .}}{{end}}
 
 {{define "tool-icon"}}<span class="agent-mark" data-agent="{{.}}" aria-hidden="true"><svg viewBox="0 0 24 24"><use href="#agent-{{.}}"/></svg></span>{{end}}
@@ -1128,6 +1270,22 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     read(area, key, fallback) { try { return JSON.parse(window[area].getItem(key)) ?? fallback; } catch { return fallback; } },
     write(area, key, value) { try { window[area].setItem(key, JSON.stringify(value)); } catch {} }
   };
+  const make = (tag, cls, text) => {
+    const node = document.createElement(tag); if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text; return node;
+  };
+  const icon = name => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "icon"); svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS(svg.namespaceURI, "use"); use.setAttribute("href", "#i-" + name); svg.append(use); return svg;
+  };
+  const diffOf = item => {
+    const node = make("span", "diff");
+    const label = `${item.additions} lines added, ${item.deletions} lines deleted`;
+    node.setAttribute("aria-label", label); node.title = label;
+    node.append(make("span", "ink tone-ok", "+" + item.additions), make("span", "ink tone-bad", "−" + item.deletions));
+    return node;
+  };
   const tab = document.body.dataset.tab;
   const app = $("#app"), search = $("#search"), live = $("#announcements");
   function announce(text) { live.textContent = ""; requestAnimationFrame(() => { live.textContent = text; }); }
@@ -1158,6 +1316,249 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     });
   }
   localDates();
+  // History derives both layouts from one set of PR records and one filtered event list.
+  function createPRHistory() {
+    const region = $("#pr-history");
+    if (!region) return { active() { return false; }, search: null };
+    const historySearch = $("#pr-history-search"), repoSelect = $("#pr-history-repo"), daysRoot = $("#pr-history-days");
+    const openView = $("#pr-open-view"), openTab = $("#pr-open-tab"), historyTab = $("#pr-history-tab");
+    const statePanel = $("#pr-history-state"), collapse = $("#pr-history-collapse");
+    const prefix = "agentyard.prs.history";
+    const kinds = Object.freeze({
+      all: { label:"All events", icon:"ledger" },
+      opened: { label:"Opened", icon:"pull-request" },
+      merged: { label:"Merged", icon:"merge" }
+    });
+    const saved = storage.read("sessionStorage", prefix + ".filters", {});
+    const savedClosed = storage.read("sessionStorage", prefix + ".closed-days", []);
+    const closed = new Set(Array.isArray(savedClosed) ? savedClosed.filter(value => typeof value === "string") : []);
+    const savedMode = storage.read("localStorage", prefix + ".mode", "timeline");
+    let mode = savedMode === "ledger" ? "ledger" : "timeline";
+    let kind = Object.hasOwn(kinds, saved?.kind) ? saved.kind : "all";
+    let repository = typeof saved?.repo === "string" ? saved.repo : "";
+    let snapshot = null, events = [], selected = "", loading = false, requestError = "";
+    historySearch.value = typeof saved?.search === "string" ? saved.search : "";
+    const timeFormat = new Intl.DateTimeFormat(undefined, { hour:"2-digit", minute:"2-digit" });
+    const dateFormat = new Intl.DateTimeFormat(undefined, { day:"numeric", month:"short" });
+    const fullDateFormat = new Intl.DateTimeFormat(undefined, { weekday:"short", day:"numeric", month:"short", year:"numeric" });
+    const dateKey = date => [date.getFullYear(), String(date.getMonth() + 1).padStart(2,"0"), String(date.getDate()).padStart(2,"0")].join("-");
+    const validDate = value => {
+      if (typeof value !== "string") return null;
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) && date.getFullYear() >= 1970 ? date : null;
+    };
+    const button = (className, text) => { const node = make("button", className, text); node.type = "button"; return node; };
+    const rememberFilters = () => storage.write("sessionStorage", prefix + ".filters", {kind, repo:repository, search:historySearch.value});
+    const rememberClosed = () => storage.write("sessionStorage", prefix + ".closed-days", [...closed]);
+    function timeNode(date, exact = false) {
+      const node = make("time", "numeric", exact ? date.toLocaleString() : timeFormat.format(date));
+      node.dateTime = date.toISOString(); node.title = date.toLocaleString(); return node;
+    }
+    function kindFace(event, withIcon = true) {
+      const node = make("span", "pr-history-kind"); node.dataset.kind = event.kind;
+      if (withIcon) node.append(icon(kinds[event.kind].icon));
+      node.append(document.createTextNode(kinds[event.kind].label)); return node;
+    }
+    function repoFace(pr) {
+      const node = make("span", "pr-history-repository"), split = pr.repo.indexOf("/");
+      node.append(make("span", "", pr.repo.slice(0,split) + " / "),document.createTextNode(pr.repo.slice(split + 1)));
+      return node;
+    }
+    function lifecycle(pr) {
+      const list = make("dl", "pr-history-lifecycle");
+      function fact(label, content, actor) {
+        const group = make("div"), dd = make("dd"); group.append(make("dt", "", label),dd);
+        if (content instanceof Date) dd.append(timeNode(content,true)); else dd.textContent = content;
+        if (actor) dd.append(make("p", "meta", "@" + actor));
+        list.append(group);
+      }
+      fact("Opened", pr.created, pr.author);
+      fact("Merged", pr.merged || "Not merged", pr.mergedBy);
+      fact("Files changed", String(pr.changedFiles));
+      const changes = make("div"), changesValue = make("dd");
+      changes.append(make("dt", "", "Lines changed"),changesValue); changesValue.append(diffOf(pr)); list.append(changes);
+      return list;
+    }
+    function titleLine(event, detailID) {
+      const line = make("div", "pr-history-title-line"), title = button("pr-history-event-title", event.pr.title);
+      title.dataset.historyFocus = event.id;
+      title.setAttribute("aria-expanded", String(selected === event.id)); title.setAttribute("aria-controls", detailID);
+      title.addEventListener("click", () => { selected = selected === event.id ? "" : event.id; render(); });
+      const link = make("a", "pr-history-github"); link.href = event.pr.url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", "Open " + event.pr.repo + " #" + event.pr.number + " on GitHub (opens in a new tab)"); link.title = "Open on GitHub"; link.append(icon("external-link"));
+      line.append(title,link); return line;
+    }
+    function metadata(event, withChanges = false) {
+      const node = make("div", "pr-history-event-meta");
+      node.append(repoFace(event.pr),make("span", "numeric", "#" + event.pr.number));
+      if (event.actor) node.append(make("span", "", "@" + event.actor));
+      if (withChanges) node.append(diffOf(event.pr));
+      return node;
+    }
+    function timeline(group, contentID) {
+      const list = make("ol", "pr-history-events"); list.id = contentID;
+      group.forEach(event => {
+        const item = make("li", "pr-history-event"), mark = make("span", "pr-history-mark");
+        item.dataset.selected = String(selected === event.id); mark.dataset.kind = event.kind; mark.setAttribute("aria-hidden", "true"); mark.append(icon(kinds[event.kind].icon));
+        const content = make("div", "pr-history-event-content"), top = make("div", "pr-history-event-top");
+        const detailID = "pr-history-detail-" + event.index, detail = make("div"); detail.id = detailID; detail.hidden = selected !== event.id;
+        top.append(kindFace(event,false),timeNode(event.date));
+        if (selected === event.id) detail.append(lifecycle(event.pr));
+        content.append(top,titleLine(event,detailID),metadata(event,true),detail);
+        item.append(mark,content); list.append(item);
+      });
+      return list;
+    }
+    function ledger(group, contentID) {
+      const table = make("table", "pr-history-ledger"); table.id = contentID;
+      table.append(make("caption", "sr-only", "Pull request activity, " + fullDateFormat.format(group[0].date)));
+      const head = make("thead"), headings = make("tr"), body = make("tbody");
+      ["Time", "Event", "Pull request", "Changes"].forEach(label => { const th = make("th", "", label); th.scope = "col"; headings.append(th); });
+      head.append(headings); table.append(head,body);
+      group.forEach(event => {
+        const row = make("tr"), time = make("td"), state = make("td"), identity = make("td"), changes = make("td");
+        row.dataset.eventRow = ""; row.dataset.selected = String(selected === event.id);
+        const detailID = "pr-history-detail-" + event.index;
+        time.append(timeNode(event.date)); state.append(kindFace(event)); identity.append(metadata(event),titleLine(event,detailID)); changes.append(diffOf(event.pr));
+        row.append(time,state,identity,changes); body.append(row);
+        const detailRow = make("tr", "pr-history-detail-row"), detail = make("td");
+        detailRow.id = detailID; detailRow.hidden = selected !== event.id; detail.colSpan = 4;
+        if (selected === event.id) detail.append(lifecycle(event.pr));
+        detailRow.append(detail); body.append(detailRow);
+      });
+      return table;
+    }
+    const filterButtons = Object.entries(kinds).map(([value, option]) => {
+      const node = button("pr-history-choice"), count = make("span", "numeric", "0"), face = make("span", "pr-history-kind"); face.dataset.kind = value;
+      face.append(icon(option.icon)); node.append(face,document.createTextNode(option.label),count);
+      node.setAttribute("aria-pressed", String(kind === value));
+      node.addEventListener("click", () => { kind = value; rememberFilters(); render(); }); $("#pr-history-filters").append(node);
+      return {value,node,count};
+    });
+    function renderState() {
+      statePanel.replaceChildren(); statePanel.hidden = true;
+      const error = requestError || snapshot?.error;
+      let title = "", message = "", retry = false, syncAction = false;
+      if (loading && !snapshot) { title = "Loading history…"; message = "Reading the latest saved GitHub activity."; }
+      else if (error) {
+        title = snapshot?.at ? "Couldn't refresh history." : "Couldn't load history.";
+        message = snapshot?.at ? "Showing the last successful results from " + snapshot.at.toLocaleString() + "." : "No successful history sync is available yet.";
+        retry = !!requestError; syncAction = !requestError;
+      } else if (snapshot && !snapshot.at) {
+        title = "History hasn't synced yet."; message = "Opened and merged pull requests appear after the next GitHub sync."; syncAction = true;
+      } else if (snapshot?.truncated) {
+        title = "Some history is missing."; message = "GitHub's result limit was reached. The available events are shown below.";
+      }
+      if (!title) return;
+      statePanel.hidden = false; const content = make("div"); content.append(make("h3", "", title),make("p", "", message));
+      if (error) { const details = make("details"); details.append(make("summary", "", "Error details"),make("p", "path", error)); content.append(details); }
+      if (retry || syncAction) {
+        const actions = make("div", "actions"), action = button("button", retry ? "Retry loading" : "Sync now");
+        action.addEventListener("click", () => { if (retry) load(); else $("#sync").click(); }); actions.append(action); content.append(actions);
+      }
+      statePanel.append(icon(error ? "x-circle" : "clock"),content);
+    }
+    function render() {
+      const focus = document.activeElement?.dataset.historyFocus;
+      region.dataset.mode = mode;
+      $$('[data-history-mode]').forEach(node => node.setAttribute("aria-pressed", String(node.dataset.historyMode === mode)));
+      const terms = historySearch.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const scoped = events.filter(event => (!repository || event.pr.repo === repository) && terms.every(term => event.search.includes(term)));
+      const visible = scoped.filter(event => kind === "all" || event.kind === kind);
+      filterButtons.forEach(({value,node,count}) => {
+        count.textContent = value === "all" ? scoped.length : scoped.filter(event => event.kind === value).length;
+        node.setAttribute("aria-pressed", String(kind === value));
+      });
+      const split = repository.indexOf("/");
+      $("#pr-history-org").textContent = repository ? repository.slice(0,split) : "All organizations";
+      $("#pr-history-scope").textContent = repository ? repository.slice(0,split) + " / " + repository.slice(split + 1) : "All repositories";
+      const groups = new Map(); visible.forEach(event => { if (!groups.has(event.day)) groups.set(event.day,[]); groups.get(event.day).push(event); });
+      const prCount = new Set(visible.map(event => event.pr.key)).size;
+      $("#pr-history-summary").textContent = snapshot ? `${visible.length} ${visible.length === 1 ? "event" : "events"} · ${prCount} ${prCount === 1 ? "pull request" : "pull requests"} · ${groups.size} ${groups.size === 1 ? "day" : "days"}` : "";
+      collapse.hidden = !groups.size;
+      const allClosed = groups.size > 0 && [...groups.keys()].every(key => closed.has(key)); collapse.textContent = allClosed ? "Expand days" : "Collapse days";
+      collapse.onclick = () => { groups.forEach((_,key) => { if (allClosed) closed.delete(key); else closed.add(key); }); rememberClosed(); render(); };
+      daysRoot.replaceChildren();
+      const today = new Date(), yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+      groups.forEach((group,key) => {
+        const day = make("section", "pr-history-day"), heading = make("header", "pr-history-day-heading"), dayHeading = make("h3"), toggle = button("pr-history-day-toggle");
+        const title = make("span"), counts = make("div", "pr-history-day-counts"), contentID = "pr-history-day-" + key;
+        const label = key === dateKey(today) ? "Today" : key === dateKey(yesterday) ? "Yesterday" : group[0].date.toLocaleDateString(undefined,{weekday:"long"});
+        title.append(make("span", "pr-history-day-title", label),document.createTextNode(" "),make("span", "pr-history-day-date", fullDateFormat.format(group[0].date)));
+        toggle.append(icon("chevron-down"),title); toggle.dataset.historyFocus = key;
+        toggle.setAttribute("aria-expanded", String(!closed.has(key))); toggle.setAttribute("aria-controls", contentID);
+        toggle.addEventListener("click", () => { if (closed.has(key)) closed.delete(key); else closed.add(key); rememberClosed(); render(); });
+        ["opened","merged"].forEach(value => {
+          const count = group.filter(event => event.kind === value).length;
+          if (!count) return; const node = make("span"); node.append(icon(kinds[value].icon),document.createTextNode(count + " " + value)); counts.append(node);
+        });
+        dayHeading.append(toggle); heading.append(dayHeading,counts);
+        let content;
+        if (closed.has(key)) { content = make("div"); content.id = contentID; content.hidden = true; }
+        else content = mode === "ledger" ? ledger(group,contentID) : timeline(group,contentID);
+        day.append(heading,content); daysRoot.append(day);
+      });
+      if (snapshot?.at && !visible.length) {
+        const empty = make("div", "pr-history-state"), content = make("div");
+        content.append(make("h3", "", events.length ? "No matching events." : "No PR activity in the last 30 days."),make("p", "", events.length ? "Try another repository, event type or search." : "Opened and merged PRs authored by your GitHub account will appear here."));
+        empty.append(icon("calendar"),content); daysRoot.append(empty);
+      }
+      renderState();
+      if (focus) $$('[data-history-focus]',daysRoot).find(node => node.dataset.historyFocus === focus)?.focus({preventScroll:true});
+    }
+    function decode(data) {
+      if (!data || typeof data !== "object" || !Array.isArray(data.prs)) throw new Error("Invalid history response");
+      const since = validDate(data.since), at = validDate(data.at);
+      if (!since) throw new Error("History response is missing its time range");
+      const prs = data.prs.map(pr => {
+        if (!pr || typeof pr !== "object" || typeof pr.repo !== "string" || !pr.repo.includes("/") || typeof pr.title !== "string" || typeof pr.url !== "string" || !Number.isSafeInteger(pr.number) || pr.number <= 0 || typeof pr.author !== "string" || ![pr.additions,pr.deletions,pr.changedFiles].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Invalid pull request in history response");
+        const created = validDate(pr.createdAt), merged = validDate(pr.mergedAt), url = new URL(pr.url);
+        if (!created || url.protocol !== "https:" || url.hostname !== "github.com") throw new Error("Invalid pull request date or link");
+        if (pr.mergedAt && !merged && !pr.mergedAt.startsWith("0001-")) throw new Error("Invalid merge date");
+        return { key:pr.repo + "#" + pr.number, repo:pr.repo, number:pr.number, title:pr.title, url:url.href, created, merged, author:pr.author, mergedBy:typeof pr.mergedBy === "string" ? pr.mergedBy : "", additions:pr.additions, deletions:pr.deletions, changedFiles:pr.changedFiles };
+      });
+      return {at,since,prs,error:typeof data.error === "string" ? data.error : "",truncated:data.truncated === true};
+    }
+    async function load() {
+      if (loading) return; loading = true; requestError = ""; render();
+      try {
+        const next = decode(await json("/api/pr-history.json"));
+        const records = new Map(next.prs.map(pr => [pr.key,pr]));
+        const phases = [{kind:"opened",date:"created",actor:"author"},{kind:"merged",date:"merged",actor:"mergedBy"}];
+        events = [...records.values()].flatMap(pr => phases.filter(phase => pr[phase.date] && pr[phase.date] >= next.since).map(phase => {
+          const date = pr[phase.date], actor = pr[phase.actor];
+          return {id:pr.key + ":" + phase.kind,pr,kind:phase.kind,date,actor,day:dateKey(date),search:[pr.repo,pr.number,pr.title,pr.author,pr.mergedBy].join(" ").toLowerCase()};
+        })).sort((a,b) => b.date - a.date || a.id.localeCompare(b.id));
+        events.forEach((event,index) => { event.index = index; }); snapshot = next;
+        repoSelect.replaceChildren(make("option", "", "All repositories")); repoSelect.firstElementChild.value = "";
+        const repos = [...new Set(events.map(event => event.pr.repo))].sort((a,b) => a.localeCompare(b));
+        repos.forEach(repo => { const option = make("option", "", repo.replace("/", " / ")); option.value = repo; repoSelect.append(option); });
+        if (!repos.includes(repository)) repository = ""; repoSelect.value = repository;
+        $("#pr-history-period").textContent = dateFormat.format(next.since) + " – " + dateFormat.format(next.at || new Date());
+      } catch (error) { requestError = error instanceof Error ? error.message : "History request failed"; }
+      finally { loading = false; render(); }
+    }
+    historySearch.addEventListener("input", () => { rememberFilters(); render(); });
+    repoSelect.addEventListener("change", () => { repository = repoSelect.value; rememberFilters(); render(); });
+    $$('[data-history-mode]').forEach(node => node.addEventListener("click", () => {
+      mode = node.dataset.historyMode === "ledger" ? "ledger" : "timeline"; storage.write("localStorage", prefix + ".mode", mode); render();
+    }));
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    $("#pr-history-timezone").textContent = timezone ? "Times in " + timezone.replaceAll("_", " ") : "Times in your local timezone";
+    function setView(history, updateURL = true) {
+      region.hidden = !history; openView.hidden = history;
+      openTab.setAttribute("aria-pressed", String(!history)); historyTab.setAttribute("aria-pressed", String(history));
+      if (updateURL) {
+        const url = new URL(location.href); if (history) url.searchParams.set("view", "history"); else url.searchParams.delete("view");
+        window.history.replaceState(null,"",url);
+      }
+      if (history && !snapshot && !loading) load();
+    }
+    openTab.addEventListener("click", () => setView(false)); historyTab.addEventListener("click", () => setView(true));
+    setView(new URL(location.href).searchParams.get("view") === "history", false);
+    return { active() { return !region.hidden; }, search:historySearch };
+  }
+  const prHistory = createPRHistory();
   // One owner measures and synchronizes every native full-value disclosure.
   const values = (() => {
     let fieldsID = 0;
@@ -1364,15 +1765,6 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     const storageMap = createStorageMap();
     // This catalog owns option identity, labels and iconography. Every presentation
     // (quick views, menu, removable tokens) reads the same selected-value Sets.
-    const make = (tag, cls, text) => {
-      const node = document.createElement(tag); if (cls) node.className = cls;
-      if (text !== undefined) node.textContent = text; return node;
-    };
-    const icon = name => {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("class", "icon"); svg.setAttribute("aria-hidden", "true");
-      const use = document.createElementNS(svg.namespaceURI, "use"); use.setAttribute("href", "#i-" + name); svg.append(use); return svg;
-    };
     function compareCollectionEntries(a,b,order) {
       if (order === "name") return a.name.localeCompare(b.name);
       const field = order === "size" ? "size" : "active";
@@ -1626,9 +2018,8 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
         if (!data.files.length) { files.replaceChildren(make("p", "meta", data.changedFiles ? "Changed file details are unavailable." : "No changed files.")); return; }
         const ul = make("ul", "pr-files");
         data.files.forEach(file => {
-          const li = make("li", "pr-file"), diff = make("span", "diff");
-          diff.append(make("span", "ink tone-ok", "+" + file.additions), make("span", "ink tone-bad", "−" + file.deletions));
-          li.append(icon("code"), make("span", "pr-file-path", file.path), diff); ul.append(li);
+          const li = make("li", "pr-file");
+          li.append(icon("code"), make("span", "pr-file-path", file.path), diffOf(file)); ul.append(li);
         });
         files.replaceChildren(ul);
       }
@@ -1961,7 +2352,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       requestAnimationFrame(() => window.scrollTo(0, Number(position) || 0));
       storage.write("sessionStorage", scrollKey, null);
     }
-    const interacting = () => !!document.activeElement.closest(".collection") || document.activeElement === search || !!$("dialog[open]") || !settings.hidden || $$("details[open]").some(detail => detail.getClientRects().length) || !!window.getSelection()?.toString();
+    const interacting = () => !!document.activeElement.closest(".collection,.pr-history-controls") || document.activeElement === search || !!$("dialog[open]") || !settings.hidden || $$("details[open]").some(detail => detail.getClientRects().length) || !!window.getSelection()?.toString();
     function apply() {
       storage.write("sessionStorage", scrollKey, window.scrollY);
       location.reload();
@@ -2163,14 +2554,16 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       if (copyPanel.open) return;
       if (drawer?.open) return;
       if (!settings.hidden) { event.preventDefault(); setSettings(false, true); return; }
-      if (document.activeElement === search) { event.preventDefault(); search.value = ""; search.dispatchEvent(new Event("input")); }
+      const activeSearch = prHistory.active() ? prHistory.search : search;
+      if (document.activeElement === activeSearch) { event.preventDefault(); activeSearch.value = ""; activeSearch.dispatchEvent(new Event("input")); }
       return;
     }
     if (!shortcuts.checked || $("dialog[open]") || event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) { cancelSequence(); return; }
     const wasSequence = sequence && Date.now() - sequence < 800;
     cancelSequence();
-    if (event.key === "/" && search) { event.preventDefault(); search.focus(); search.select(); }
-    else if (["ArrowLeft","ArrowRight"].includes(event.key) && !event.shiftKey && navigatePR && settings.hidden && !$(".filter-menu[open],.pr-workspace-picker[open]") && !window.getSelection()?.toString()) {
+    const activeSearch = prHistory.active() ? prHistory.search : search;
+    if (event.key === "/" && activeSearch) { event.preventDefault(); activeSearch.focus(); activeSearch.select(); }
+    else if (["ArrowLeft","ArrowRight"].includes(event.key) && !event.shiftKey && navigatePR && !prHistory.active() && settings.hidden && !$(".filter-menu[open],.pr-workspace-picker[open]") && !window.getSelection()?.toString()) {
       if (navigatePR(event.key === "ArrowRight" ? 1 : -1)) event.preventDefault();
     }
     else if (["1", "2", "3"].includes(event.key)) { event.preventDefault(); $$("nav a")[Number(event.key) - 1].click(); }

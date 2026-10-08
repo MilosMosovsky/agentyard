@@ -986,7 +986,7 @@ func (y *syncer) start() string {
 		var wg sync.WaitGroup
 		wg.Add(3)
 		go func() { defer wg.Done(); y.s.scan() }()
-		go func() { defer wg.Done(); y.t.poll() }()
+		go func() { defer wg.Done(); y.t.refresh() }()
 		go func() { defer wg.Done(); y.x.refresh(0) }()
 		wg.Wait()
 		y.mu.Lock()
@@ -1094,6 +1094,14 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t.snap.Load())
 	})
+	mux.HandleFunc("GET /api/pr-history.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		snap := t.history.Load()
+		if snap == nil {
+			snap = &PRHistorySnapshot{Since: historySince(time.Now()), PRs: []*PRHistoryItem{}}
+		}
+		json.NewEncoder(w).Encode(snap)
+	})
 	mux.HandleFunc("GET /api/pr-detail", prDetailHandler(t, demo))
 	mux.HandleFunc("POST /sync", func(w http.ResponseWriter, r *http.Request) {
 		// Only the dashboard's own page may trigger it, not any site the viewer has open.
@@ -1188,6 +1196,10 @@ func runServe(args []string) error {
 		settle(cachedPR.PRs)
 		t.snap.Store(&cachedPR)
 	}
+	var cachedHistory PRHistorySnapshot
+	if loadCache("pr-history.json", &cachedHistory) {
+		t.history.Store(&cachedHistory)
+	}
 
 	if *flagOnce {
 		return json.NewEncoder(os.Stdout).Encode(s.scan())
@@ -1231,7 +1243,11 @@ func runServe(args []string) error {
 		}
 	}
 	go every(func() { s.scan() }, cachedWT.At)
-	go every(t.poll, cachedPR.At)
+	prFresh := cachedPR.At
+	if cachedHistory.At.Before(prFresh) {
+		prFresh = cachedHistory.At
+	}
+	go every(t.refresh, prFresh)
 	go every(func() { x.refresh(0) }, time.Time{})
 
 	<-ctx.Done()
