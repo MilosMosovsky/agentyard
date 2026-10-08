@@ -22,7 +22,11 @@ Search and multi-select verdict/repository filters update the map, metrics, proj
 
 ## Pull requests
 
-A repository workspace header shows the current scope, PR total, attention count, and latest activity. Its searchable picker moves between all repositories, an organization, or a single repository. The status dropdown and shared Filter menu use the same option catalog and selection state. Selections use OR within a field and AND between fields; option counts exclude that option's own field. Active selections can be removed individually, and Reset all clears them with search.
+A repository workspace header shows the current scope, PR total, attention count, and latest activity. Its searchable picker moves between all repositories, an organization, or a single repository. Status shortcuts and the shared Filter menu use the same option catalog and selection state. Selections use OR within a field and AND between fields; option counts exclude that option's own field. Active selections can be removed individually, and Reset all clears them with search.
+
+Ready, Failing, Awaiting review, and Drafts are compact shortcuts beneath search. Server-owned PR facets supply every count and filter; a PR can belong to several facets. Ready requires approval, passing checks and confirmed clean mergeability, with no draft or queue state. Failing includes failed checks on drafts. Overview is an optional native dialog with a searchable repository/status matrix and global totals; selecting a count closes it and applies that repository/status scope. The matrix becomes labeled repository cards on phones.
+
+Reader arrows and left/right keyboard shortcuts follow the actual filtered list order, including collapsed groups and abbreviated previews. Navigation reveals the selected PR and reports its position and active status view. Shortcuts respect editable controls, dialogs, text selection and the user's Keyboard shortcuts preference.
 
 The left overview uses inline `organization / repository` headings with aligned attention, count, and activity columns. Organizations and repositories follow the chosen activity or name sort. Collapsed repositories retain their metadata; expanded groups show two PR previews with a Show more action. Search and filtering lift this preview limit. A GitHub action is always available on each row.
 

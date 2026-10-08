@@ -1185,6 +1185,7 @@ func runServe(args []string) error {
 	}
 	var cachedPR PRSnapshot
 	if loadCache("prs.json", &cachedPR) {
+		settle(cachedPR.PRs)
 		t.snap.Store(&cachedPR)
 	}
 

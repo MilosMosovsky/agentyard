@@ -298,8 +298,10 @@ func TestDeriveStatePrecedence(t *testing.T) {
 		{"awaiting someone", TrackedPR{ReviewDecision: "REVIEW_REQUIRED", Waiting: []string{"jlee"}}, "Awaiting review", "waiting on jlee"},
 		{"behind", TrackedPR{ReviewDecision: "APPROVED", MergeState: "BEHIND"}, "Behind base", "update the branch"},
 		{"blocked", TrackedPR{MergeState: "BLOCKED"}, "Blocked", "branch protection not satisfied"},
-		{"ready, approved", TrackedPR{Approvers: []string{"priya"}}, "Ready to merge", "approved by priya"},
-		{"ready, no review rule", TrackedPR{}, "Ready to merge", "checks green"},
+		{"ready, approved", TrackedPR{ReviewDecision: "APPROVED", Approvers: []string{"priya"}, Mergeable: "MERGEABLE", MergeState: "CLEAN", Checks: CheckSummary{State: "SUCCESS", Passed: 3}}, "Ready to merge", "approved by priya"},
+		{"no approval evidence", TrackedPR{}, "Awaiting review", "approval not confirmed"},
+		{"no check evidence", TrackedPR{ReviewDecision: "APPROVED"}, "Checks unconfirmed", "passing checks not confirmed"},
+		{"no merge evidence", TrackedPR{ReviewDecision: "APPROVED", Checks: CheckSummary{State: "SUCCESS", Passed: 2}}, "Mergeability unknown", "GitHub has not confirmed this can merge"},
 	}
 	for _, c := range cases {
 		pr := c.pr

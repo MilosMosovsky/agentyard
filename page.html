@@ -538,7 +538,6 @@ body[data-tab="sessions"] th:first-child { text-align: center; border-right: 0; 
 @media (min-width:640px) and (max-width:1100px) { .sidebar { width:190px; padding-inline:14px; } .brand-area { padding-inline:0; } .wordmark { font-size:19px; gap:8px; } }
 @media (max-width:639px) { .agent-filter { padding-inline:10px; min-height:44px; } .session-filters .chips { gap:3px; } .session-type select { height:44px; width:100%; } .session-card-meta .agent-mark { width:24px; height:24px; } }
 
-body[data-tab="prs"] table { min-width:1120px; }
 .badge.status-evidence { background:transparent; }
 .badge.status-evidence > span { overflow-wrap:normal; }
 .evidence > span { white-space:nowrap; }
@@ -714,16 +713,68 @@ body[data-tab="prs"] .collection { display:flex; flex-direction:column; gap:10px
 body[data-tab="prs"] .collection-toolbar { order:-1; margin-top:0; }
 body[data-tab="prs"] .collection .search { flex:1; width:auto; }
 body[data-tab="prs"] .active-filter-row { padding-top:0; }
-.pr-status-control select { width:125px; }
+body[data-tab="prs"] .collection-views { border:0; padding:0; gap:8px; }
+body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:12px; flex-shrink:0; }
+.pr-reader-nav { display:flex; align-items:center; gap:6px; margin-bottom:20px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+.pr-reader-position { flex:1; min-width:0; color:var(--text-3); font-size:11px; line-height:18px; }
+.pr-reader-nav .icon-button { border:1px solid var(--line); flex-shrink:0; }
+.pr-reader-nav .icon-button:disabled { opacity:.35; }
+.pr-prev .icon { transform:rotate(90deg); }
+.pr-next .icon { transform:rotate(-90deg); }
+.pr-overview { width:880px; max-width:calc(100vw - 32px); max-height:calc(100dvh - 48px); padding:0; border:1px solid var(--line-control); border-radius:14px; box-shadow:0 24px 80px #0005; overflow:auto; }
+.pr-overview-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:24px 24px 18px; }
+.pr-overview-header h2 { font-size:21px; line-height:28px; letter-spacing:-.5px; }
+.pr-overview-header p { margin-top:5px; color:var(--text-3); font-size:12px; }
+.pr-overview-search { margin:0 24px 16px; }
+.pr-matrix-wrap { margin:0 24px; overflow-x:auto; }
+.pr-matrix { width:100%; min-width:590px; table-layout:fixed; border-collapse:collapse; font-size:12px; }
+.pr-matrix :is(th,td) { height:auto; padding:7px 3px; border:0; border-bottom:1px solid var(--line); text-align:center; vertical-align:middle; background:transparent; white-space:normal; }
+.pr-matrix th:first-child { width:34%; text-align:left; padding-left:0; }
+.pr-matrix thead th { color:var(--text-3); font-size:11px; font-weight:400; }
+.pr-matrix tbody th { font-weight:500; }
+.pr-matrix tbody tr:last-child > * { border-bottom:0; }
+.pr-matrix button { border:0; border-radius:6px; background:transparent; font-weight:500; }
+.pr-matrix button:hover:not(:disabled) { background:var(--bg-hover); }
+.pr-matrix-repo { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px; width:100%; min-height:40px; padding:8px; text-align:left; color:var(--text-1); overflow-wrap:anywhere; }
+.pr-matrix-repo span { color:var(--text-3); font-weight:400; }
+.pr-matrix-count { width:100%; min-height:40px; color:var(--state-ink,var(--text-2)); font-variant-numeric:tabular-nums; }
+.pr-matrix-count strong { font:inherit; }
+.pr-matrix-cell-label { display:none; }
+.pr-matrix-count:disabled { color:var(--text-3); opacity:.45; }
+.pr-matrix-total { width:100%; padding:5px 0; color:var(--text-3); font-size:11px; }
+.pr-matrix-total strong { display:block; margin-top:5px; color:var(--state-ink,var(--text-1)); font-size:16px; line-height:22px; font-weight:550; }
+.pr-overview-note { padding:16px 24px 22px; border-top:1px solid var(--line); color:var(--text-3); font-size:11px; line-height:18px; }
+.pr-overview-empty { padding:24px; color:var(--text-3); }
+@media (max-width:639px) {
+ body[data-tab="prs"] .collection-views { flex-wrap:wrap; align-items:center; }
+ body[data-tab="prs"] .quick-filters { display:contents; }
+ .pr-overview-header { padding:18px 16px 14px; }
+ .pr-overview-search { margin:0 16px 14px; }
+ .pr-matrix-wrap { margin:0 16px; overflow:visible; }
+ .pr-matrix { min-width:0; }
+ .pr-matrix :is(thead,tbody) { display:block; }
+ .pr-matrix tr { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:10px 0; border-bottom:1px solid var(--line); }
+ .pr-matrix :is(th,td) { display:block; padding:0; border:0; }
+ .pr-matrix th:first-child { width:auto; padding:0; }
+ .pr-matrix thead th:first-child { display:none; }
+ .pr-matrix tbody th { grid-column:1 / -1; }
+ .pr-matrix-count { min-height:48px; padding:5px 3px; background:var(--bg-canvas); }
+ .pr-matrix-cell-label { display:block; color:var(--text-3); font-size:11px; line-height:18px; }
+ .pr-matrix-count strong { display:block; }
+ .pr-matrix-repo { padding:4px 3px; font-size:13px; }
+ .pr-overview-note { padding:14px 16px 18px; }
+ .pr-reader-nav .icon-button { width:40px; height:40px; }
+}
 .pr-inbox { --pr-sticky-top:16px; display:grid; grid-template-columns:minmax(320px,1.06fr) minmax(0,.94fr); align-items:start; gap:24px; }
 .pr-list { --pr-indent:12px; --pr-edge:12px; --pr-glyph:12px; --pr-gap:8px; --pr-content-start:calc(var(--pr-indent) + var(--pr-glyph) + var(--pr-gap)); align-self:stretch; min-width:0; padding-bottom:12px; }
 .pr-list :is(button,a) { scroll-margin-top:104px; scroll-margin-bottom:16px; }
+.pr-list :is(.pr-group-toggle,.pr-group-more,.pr-select) { border-radius:7px; }
 .pr-list-heading { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:48px; padding:10px 12px; background:var(--bg-canvas); }
 .pr-list-heading h2 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-2); font-size:12px; line-height:20px; font-weight:550; }
 .pr-list-heading .text-button { font-size:10px; font-weight:400; white-space:nowrap; color:var(--text-3); text-decoration:none; }
 .pr-group-toggle:focus-visible { outline-offset:-3px; }
 .pr-org-repositories { padding:0; }
-.pr-repository { border-bottom:1px solid var(--line); }
+.pr-repository { padding-block:3px; border-bottom:1px solid var(--line); }
 .pr-repo-heading { position:sticky; top:48px; z-index:1; margin:0; background:var(--bg-canvas); }
 .pr-group-toggle { display:flex; align-items:center; gap:var(--pr-gap); width:100%; min-height:52px; padding:10px var(--pr-edge) 10px var(--pr-indent); border:0; background:transparent; color:var(--text-2); text-align:left; font-size:13px; font-weight:550; }
 .pr-group-toggle:hover { background:var(--bg-hover); }
@@ -748,7 +799,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
 .pr-item { position:relative; border-top:1px solid transparent; }
 .pr-item[data-separated="true"] { border-top-color:var(--line); }
 .pr-preview-hidden { display:none!important; }
-.pr-select { display:block; width:100%; padding:17px var(--pr-edge) 17px var(--pr-content-start); border:0; border-radius:7px; background:transparent; text-align:left; font-weight:400; }
+.pr-select { display:block; width:100%; padding:17px var(--pr-edge) 17px var(--pr-content-start); border:0; background:transparent; text-align:left; font-weight:400; }
 .pr-select:hover { background:var(--bg-hover); }
 .pr-select[aria-pressed="true"] { background:var(--bg-selected); }
 .pr-select:focus-visible { outline-offset:-3px; }
@@ -925,9 +976,9 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
 {{define "search"}}<label class="search">{{template "icon" "search"}}<span class="sr-only">Search {{.}}</span><input id="search" type="search" placeholder="Search {{.}}" aria-label="Search {{.}}" autocomplete="off" spellcheck="false"><kbd aria-hidden="true">/</kbd></label>{{end}}
 {{define "collection"}}
 <section class="collection" aria-label="{{if eq .Tab "prs"}}Pull request{{else if eq .Tab "sessions"}}Session{{else}}Worktree{{end}} controls">
-{{if eq .Tab "prs"}}<span id="shown" class="sr-only" aria-live="polite"></span>{{else}}<div class="collection-views"><div id="quick-filters" class="quick-filters" role="group" aria-label="Quick views"></div><span id="shown" class="meta numeric" aria-live="polite"></span></div>{{end}}
+<div class="collection-views"><div id="quick-filters" class="quick-filters" role="group" aria-label="Quick views"></div>{{if eq .Tab "prs"}}<button type="button" class="button" id="pr-overview-open" aria-haspopup="dialog">{{template "icon" "grid"}}Overview</button>{{end}}<span id="shown" class="{{if eq .Tab "prs"}}sr-only{{else}}meta numeric{{end}}" aria-live="polite"></span></div>
 <div class="collection-toolbar">
-{{if eq .Tab "prs"}}{{template "search" "repos and pull requests"}}<label class="sort-control pr-status-control">{{template "icon" "pull-request"}}<span class="sr-only">Pull request status</span><select id="pr-status-filter"><option value="">All states</option></select></label>{{else if eq .Tab "sessions"}}{{template "search" "sessions"}}{{else}}{{template "search" "worktrees"}}{{end}}
+{{if eq .Tab "prs"}}{{template "search" "repos and pull requests"}}{{else if eq .Tab "sessions"}}{{template "search" "sessions"}}{{else}}{{template "search" "worktrees"}}{{end}}
 <details class="filter-menu" id="filter-menu"><summary role="button" aria-expanded="false" aria-controls="filter-panel">{{template "icon" "filter"}}Filter<span id="filter-count" class="selection-count" hidden></span></summary>
 <div class="filter-panel" id="filter-panel"><div class="filter-panel-heading"><strong>Filters</strong><button type="button" class="icon-button" id="close-filters" aria-label="Close filters">{{template "icon" "close"}}</button></div><label class="filter-search">{{template "icon" "search"}}<input type="search" id="filter-search" placeholder="Find a filter…" aria-label="Find a filter" autocomplete="off"></label><div id="filter-fields" class="filter-fields"></div><p id="filter-empty" class="meta" hidden>No matching filters</p><div class="filter-panel-footer"><span class="meta">Select one or more</span><button type="button" class="text-button" data-reset-facets>Reset filters</button></div></div>
 </details>
@@ -939,7 +990,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
 <section data-filter-field="tool" data-label="Agent" data-primary data-icon="terminal"><span data-option="claude" data-label="{{template "tool-name" "claude"}}">{{template "tool-icon" "claude"}}</span><span data-option="codex" data-label="{{template "tool-name" "codex"}}">{{template "tool-icon" "codex"}}</span></section>
 <section data-filter-field="kind" data-label="Source" data-dynamic data-icon="terminal"></section><section data-filter-field="folder" data-label="Folder" data-dynamic data-icon="folder"></section>
 {{else if eq .Tab "prs"}}
-<section data-filter-field="tone" data-label="Status" data-primary data-icon="pull-request"><span data-option="bad" class="tone-bad">{{template "icon" "x-circle"}}Needs action</span><span data-option="ok" class="tone-ok">{{template "icon" "check-circle"}}Ready to merge</span><span data-option="warn" class="tone-warn">{{template "icon" "clock"}}Waiting</span><span data-option="muted" class="tone-muted">{{template "icon" "dotted-circle"}}Drafts</span><span data-option="info" class="tone-info">{{template "icon" "pull-request"}}In merge queue</span></section>
+<section data-filter-field="facet" data-label="Status" data-primary data-icon="pull-request"><span data-option="ready" data-quick data-overview data-short-label="Ready" class="tone-ok" title="Approved, all checks passing and confirmed mergeable">{{template "icon" "check-circle"}}Ready</span><span data-option="failing" data-quick data-overview data-short-label="Failing" class="tone-bad">{{template "icon" "x-circle"}}Failing</span><span data-option="review" data-quick data-overview data-short-label="Review" class="tone-warn">{{template "icon" "person-clock"}}Awaiting review</span><span data-option="pending" data-overview data-short-label="Running" class="tone-warn">{{template "icon" "clock"}}Checks running</span><span data-option="draft" data-quick data-overview data-short-label="Drafts" class="tone-muted">{{template "icon" "dotted-circle"}}Drafts</span><span data-option="action" class="tone-bad">{{template "icon" "x-circle"}}Needs action</span><span data-option="queue" class="tone-info">{{template "icon" "pull-request"}}In merge queue</span></section>
 <section data-filter-field="org" data-label="Organization" data-dynamic data-icon="organization"></section><section data-filter-field="repo" data-label="Repository" data-dynamic data-icon="folder"></section>
 {{else}}
 <section data-filter-field="verdict" data-label="Verdict" data-primary data-icon="branch">{{range verdicts}}<span data-option="{{.Key}}">{{template "status" (dict "Verdict" .Key)}}</span>{{end}}</section><section data-filter-field="repo" data-label="Repository" data-dynamic data-icon="folder"></section>
@@ -1004,7 +1055,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
 {{define "pr-check-failures"}}{{with .Checks.Failing}}<details class="pr-check-details"><summary>Failed checks <span class="numeric">{{len .}}</span></summary><ul class="pr-check-names">{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}{{end}}
 {{define "review"}}{{template "status" (dict "State" (reviewLabel .ReviewDecision) "Compact" true)}}{{with .Approvers}}<div class="review-names">Approved by {{join . ", "}}</div>{{end}}{{with .ChangesBy}}<div class="review-names">Changes by {{join . ", "}}</div>{{end}}{{with .Waiting}}<div class="review-names">Waiting on {{join . ", "}}</div>{{end}}{{end}}
 {{define "diff"}}<span class="diff"><span class="ink tone-ok">+{{.Additions}}</span><span class="ink tone-bad">−{{.Deletions}}</span></span>{{end}}
-{{define "pr-data"}}data-item data-key="{{.Repo}}/{{.Number}}" data-number="{{.Number}}" data-org="{{org .Repo}}" data-repo="{{.Repo}}" data-title="{{.Title}}" data-active="{{.LastCommit.Unix}}" data-tone="{{.Tone}}" data-state="{{.State}}" data-search="{{lowerAll .Repo .Title .Branch .Worktree .State .Why (join .Approvers " ") (join .Waiting " ") (join .ChangesBy " ") (join .Checks.Failing " ")}} {{.Number}}"{{end}}
+{{define "pr-data"}}data-item data-key="{{.Repo}}/{{.Number}}" data-number="{{.Number}}" data-org="{{org .Repo}}" data-repo="{{.Repo}}" data-title="{{.Title}}" data-active="{{.LastCommit.Unix}}" data-tone="{{.Tone}}" data-facet="{{join .Facets " "}}" data-state="{{.State}}" data-search="{{lowerAll .Repo .Title .Branch .Worktree .State .Why (join .Approvers " ") (join .Waiting " ") (join .ChangesBy " ") (join .Checks.Failing " ")}} {{.Number}}"{{end}}
 {{define "pr-github-action"}}<a class="{{if .Row}}pr-item-open{{else}}pr-github-link{{end}}" href="{{.PR.URL}}" target="_blank" rel="noopener noreferrer" title="Open {{.PR.Repo}} #{{.PR.Number}} on GitHub" aria-label="Open {{.PR.Repo}} pull request {{.PR.Number}} on GitHub (opens in a new tab)"><span{{if .Row}} class="pr-item-open-label"{{end}}>GitHub</span>{{template "icon" "external-link"}}</a>{{end}}
 {{define "pr-item"}}<article class="pr-item" {{template "pr-data" .}}><button type="button" class="pr-select" aria-pressed="false" aria-controls="pr-reading-panel"><span class="pr-item-title">{{.Title}}</span><span class="pr-item-meta"><span class="pr-item-number numeric">#{{.Number}}</span>{{template "status" (dict "State" .State "Tone" .Tone "Compact" true)}}{{template "time" .LastCommit}}</span></button>{{template "pr-github-action" (dict "PR" . "Row" true)}}
 <template data-pr-detail><div class="pr-detail-top"><span class="meta">{{.Repo}} <span class="numeric">#{{.Number}}</span></span>{{template "pr-github-action" (dict "PR" .)}}</div><h2 id="pr-detail-title" tabindex="-1">{{.Title}}</h2><div class="pr-detail-state">{{template "status" (dict "State" .State "Tone" .Tone)}}{{if ne .State "Checks failing"}}{{with .Why}}<p>{{.}}</p>{{end}}{{end}}</div>
@@ -1021,7 +1072,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
 
 {{template "no-matches"}}{{template "stale"}}
 {{with .PR}}{{if .Error}}<div class="state-panel">{{template "icon" "x-circle"}}<div>{{if .At.IsZero}}<h2>Couldn't load results.</h2><p>No successful sync is available yet.</p>{{else if and (eq .RateRemaining 0) (not .RateReset.IsZero)}}<h2>GitHub refresh paused.</h2><p>Showing the last successful results.</p><p>Resets {{template "exact-time" .RateReset}}</p>{{else}}<h2>Couldn't refresh pull requests.</h2><p>Showing results from {{template "exact-time" .At}}.</p>{{end}}<div class="actions"><button type="button" class="button" data-sync>{{if .At.IsZero}}Retry sync{{else}}Sync now{{end}}</button></div><details><summary>Error details</summary><p class="path">{{.Error}}</p></details></div></div>{{end}}{{end}}
-{{if .PRs}}<section class="pr-inbox" id="pr-inbox" aria-label="Pull request inbox"><div class="pr-list" id="pr-list" role="region" aria-label="Pull requests grouped by organization and repository"><div class="pr-list-heading"><h2 id="pr-list-scope">All repositories</h2><button type="button" class="text-button" id="pr-collapse">Collapse all</button></div><div id="pr-groups">{{range .PRs}}{{template "pr-item" .}}{{end}}</div></div><article class="pr-reading-panel" id="pr-reading-panel" role="region" aria-label="Selected pull request" tabindex="0"><button class="pr-back button" type="button" id="pr-back">{{template "icon" "chevron-down"}}Back to pull requests</button><div id="pr-detail-content"><p class="meta">Select a pull request to read its details.</p></div></article></section>
+{{if .PRs}}<section class="pr-inbox" id="pr-inbox" aria-label="Pull request inbox"><div class="pr-list" id="pr-list" role="region" aria-label="Pull requests grouped by organization and repository"><div class="pr-list-heading"><h2 id="pr-list-scope">All repositories</h2><button type="button" class="text-button" id="pr-collapse">Collapse all</button></div><div id="pr-groups">{{range .PRs}}{{template "pr-item" .}}{{end}}</div></div><article class="pr-reading-panel" id="pr-reading-panel" role="region" aria-label="Selected pull request" tabindex="0"><button class="pr-back button" type="button" id="pr-back">{{template "icon" "chevron-down"}}Back to pull requests</button><div class="pr-reader-nav" id="pr-reader-nav" aria-label="Navigate filtered pull requests"><span class="pr-reader-position numeric" id="pr-reader-position" aria-live="polite"></span><button type="button" class="icon-button pr-prev" id="pr-prev" aria-label="Previous pull request" title="Previous pull request (←)">{{template "icon" "chevron-down"}}</button><button type="button" class="icon-button pr-next" id="pr-next" aria-label="Next pull request" title="Next pull request (→)">{{template "icon" "chevron-down"}}</button></div><div id="pr-detail-content"><p class="meta">Select a pull request to read its details.</p></div></article></section>
 {{else}}{{with .PR}}{{if not .Error}}<div class="state-panel">{{template "icon" "pull-request"}}<div><h2>No open pull requests.</h2><p>You're viewing open PRs authored by the signed-in GitHub account.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}{{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Fetching pull requests…</h2><p>Results appear when the first sync finishes.</p></div></div>{{end}}{{end}}
 <details class="sync-details"><summary>Sync details</summary><div class="detail-lines">{{with .PR}}<p>Fetched {{template "exact-time" .At}} · scan took {{.Took}}</p><p class="numeric">GraphQL cost {{.Cost}} · {{.RateRemaining}} points remaining{{if not .RateReset.IsZero}} · resets {{template "exact-time" .RateReset}}{{end}}</p>{{end}}<p>Refresh every {{.RefreshSec}} seconds</p></div></details>
 {{template "foot" .}}{{end}}
@@ -1060,6 +1111,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
 </main><footer class="meta"><span>agentyard {{.Version}}</span></footer>
 </div></div>
 {{if and .Local (eq .Tab "sessions")}}<dialog id="session-drawer" class="drawer" aria-labelledby="drawer-title"><header class="drawer-header"><div><h2 id="drawer-title" tabindex="-1">Session</h2><p id="drawer-meta" class="meta numeric"></p></div><button type="button" class="icon-button" id="drawer-close" aria-label="Close session">{{template "icon" "close"}}</button></header><div id="drawer-body" class="drawer-body"></div></dialog>{{end}}
+{{if eq .Tab "prs"}}<dialog id="pr-overview" class="pr-overview" aria-labelledby="pr-overview-title" aria-describedby="pr-overview-note"><header class="pr-overview-header"><div><h2 id="pr-overview-title">Repository overview</h2><p id="pr-overview-summary"></p></div><button type="button" class="icon-button" id="pr-overview-close" aria-label="Close overview">{{template "icon" "close"}}</button></header><label class="filter-search pr-overview-search">{{template "icon" "search"}}<input type="search" id="pr-overview-search" placeholder="Find an organization or repository…" aria-label="Find repository in overview" autocomplete="off"></label><div class="pr-matrix-wrap"><table class="pr-matrix" id="pr-matrix"><caption class="sr-only">Open pull requests by repository and status. Select a count to view matching pull requests.</caption><thead></thead><tbody></tbody></table></div><p id="pr-overview-empty" class="pr-overview-empty" hidden>No repositories match your search.</p><p class="pr-overview-note" id="pr-overview-note">Ready means approved, all checks passing and confirmed mergeable. Status counts can overlap; failing checks include drafts.</p></dialog>{{end}}
 <dialog id="copy-panel" class="copy-panel" aria-labelledby="copy-heading"><h2 id="copy-heading">Select and copy this command.</h2><textarea id="copy-text" readonly aria-label="Command to copy" spellcheck="false"></textarea><button type="button" class="button" id="copy-close">Close</button></dialog>
 <div id="announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <script>
@@ -1145,6 +1197,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
     };
   })();
 
+  let navigatePR = null;
   // One visibility pass uses a canonical row for tables or a PR inbox item.
   if (search) {
     const items = $$("[data-item]"), rows = items.filter(item => item.matches("tr,.pr-item"));
@@ -1322,10 +1375,10 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
     // The repository picker, groups and reader consume the same rows and scopes.
     function createPRInbox() {
       const inbox = $("#pr-inbox");
-      if (!inbox) return { update() {}, sort() {} };
+      if (!inbox) { $("#pr-overview-open")?.setAttribute("disabled", ""); return { update() {}, sort() {} }; }
       const groupsRoot = $("#pr-groups"), reader = $("#pr-reading-panel"), content = $("#pr-detail-content");
       const orgCatalog = catalog.find(group => group.field === "org"), repoCatalog = catalog.find(group => group.field === "repo");
-      const statusSelect = $("#pr-status-filter"), picker = $("#pr-workspace-picker"), pickerSearch = $("#pr-workspace-search");
+      const picker = $("#pr-workspace-picker"), pickerSearch = $("#pr-workspace-search");
       const scopeButtons = [], groups = [], organizations = [];
       const closedValue = storage.read("sessionStorage", prefix + ".closed-repos", null);
       const closed = new Set(Array.isArray(closedValue) ? closedValue.filter(value => typeof value === "string") : []);
@@ -1338,6 +1391,64 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
         storage.write("sessionStorage", prefix + ".expanded-repos", [...expanded]);
       };
       const button = (className, text) => { const node = make("button", className, text); node.type = "button"; return node; };
+      const overview = $("#pr-overview"), overviewSearch = $("#pr-overview-search");
+      const matrixOptions = [null,...primary.options.filter(option => option.overview)];
+      let overviewJump = false;
+      function jumpToRepository(repo,option) {
+        scopes.forEach(selected => selected.clear()); search.value = "";
+        if (repo) (Array.isArray(repo) ? repo : [repo]).forEach(value => scopes.get("repo").add(value));
+        if (option) scopes.get(primary.field).add(option.value);
+        selectedKey = ""; inbox.dataset.reading = "false";
+        applyVisibility(); overviewJump = true; overview.close();
+      }
+      function renderOverview() {
+        const term = overviewSearch.value.trim().toLowerCase();
+        const available = groups.filter(group => group.key.toLowerCase().includes(term)).sort((a,b) => {
+          const left = {name:a.key,active:summarize(a.rows).active}, right = {name:b.key,active:summarize(b.rows).active};
+          return compareCollectionEntries(left,right,$("#sort").value) || a.key.localeCompare(b.key);
+        });
+        const members = available.flatMap(group => group.rows), head = make("tr"), body = $("#pr-matrix tbody");
+        const identity = make("th","","Repository"); identity.scope = "col"; head.append(identity);
+        function countButton(members,repo,option,header = false) {
+          const count = option ? members.filter(row => hasOption(row,primary.field,option.value)).length : members.length;
+          const node = button((header ? "pr-matrix-total " : "pr-matrix-count ") + (option?.className || ""));
+          if (header) node.append(make("span","",option?.shortLabel || "All"),make("strong","numeric",String(count)));
+          else node.append(make("span","pr-matrix-cell-label",option?.shortLabel || "All"),make("strong","",String(count || "—")));
+          node.disabled = !count;
+          node.setAttribute("aria-label",`${repo || "All matching repositories"}: ${count} ${option?.label || "all"} pull requests`);
+          node.title = option?.description || `View ${option?.label || "all pull requests"}`;
+          node.addEventListener("click",() => jumpToRepository(repo || (term ? available.map(group => group.key) : ""),option));
+          return node;
+        }
+        matrixOptions.forEach(option => { const th = make("th"); th.scope = "col"; th.append(countButton(members,"",option,true)); head.append(th); });
+        $("#pr-matrix thead").replaceChildren(head); body.replaceChildren();
+        available.forEach(group => {
+          const tr = make("tr"), th = make("th"), name = button("pr-matrix-repo"); th.scope = "row";
+          name.append(make("span","",group.org + " /"),document.createTextNode(group.key.slice(group.org.length + 1)));
+          name.setAttribute("aria-label","All pull requests in " + group.key);
+          name.addEventListener("click",() => jumpToRepository(group.key,null)); th.append(name); tr.append(th);
+          matrixOptions.forEach(option => { const td = make("td"); td.append(countButton(group.rows,group.key,option)); tr.append(td); });
+          body.append(tr);
+        });
+        $("#pr-overview-summary").textContent = `${members.length} open ${members.length === 1 ? "pull request" : "pull requests"} · ${available.length} ${available.length === 1 ? "repository" : "repositories"}`;
+        $("#pr-overview-empty").hidden = !!available.length;
+        $("#pr-matrix").hidden = !available.length;
+      }
+      $("#pr-overview-open").addEventListener("click",() => {
+        overviewSearch.value = ""; renderOverview(); overview.showModal(); modalBackground(); overviewSearch.focus();
+      });
+      overviewSearch.addEventListener("input",renderOverview);
+      $("#pr-overview-close").addEventListener("click",() => overview.close());
+      overview.addEventListener("click",event => {
+        const bounds = overview.getBoundingClientRect();
+        if (event.target === overview && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) overview.close();
+      });
+      overview.addEventListener("close",() => {
+        modalBackground();
+        if (overviewJump && selectedRow) { select(selectedRow,true); revealSelected(); }
+        else $("#pr-overview-open").focus({preventScroll:true});
+        overviewJump = false;
+      });
       function scopeButton(field,value,label) {
         const node = button("pr-workspace-option" + (field === "org" ? " pr-workspace-organization" : field === "repo" ? " pr-workspace-repository" : ""));
         node.setAttribute("aria-label",field ? (field === "repo" ? "Repository " : "Organization ") + value : "All repositories");
@@ -1364,12 +1475,6 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       document.addEventListener("click",event => { if (!picker.contains(event.target)) picker.open = false; });
       document.addEventListener("focusin",event => { if (picker.open && !picker.contains(event.target)) picker.open = false; });
       picker.addEventListener("keydown",event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); picker.open = false; $("summary",picker).focus(); } });
-      const multiple = make("option","","Multiple states"); multiple.value = "__multiple"; multiple.disabled = true; multiple.hidden = true; statusSelect.append(multiple);
-      primary.options.forEach(option => { const node = make("option","",option.label); node.value = option.value; statusSelect.append(node); });
-      statusSelect.addEventListener("change", () => {
-        const selected = scopes.get(primary.field); selected.clear(); if (statusSelect.value) selected.add(statusSelect.value);
-        inbox.dataset.reading = "false"; applyVisibility();
-      });
       orgCatalog.options.forEach(org => {
         const section = make("section", "pr-org-group"), bodyOrg = make("div", "pr-org-repositories");
         section.setAttribute("aria-label",org.label); section.append(bodyOrg); groupsRoot.append(section);
@@ -1424,6 +1529,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
         });
         [...organizations].sort(compare).forEach(org => groupsRoot.append(org.section));
         renderCollapsed();
+        renderNavigation();
       }
       function renderCollapsed() {
         const focused = !!search.value.trim() || [...scopes.values()].some(selected => selected.size);
@@ -1553,17 +1659,42 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
           renderCollapsed();
         }
         if (userInitiated) {
+          closed.delete(row.dataset.repo); rememberClosed(); renderCollapsed();
           announce("Selected pull request " + row.dataset.number + ": " + row.dataset.title);
           if (matchMedia("(max-width:899px)").matches) { inbox.dataset.reading = "true"; $("#pr-detail-title",content).focus({preventScroll:true}); inbox.scrollIntoView({block:"start"}); }
         }
+        renderNavigation();
       }
+      const matchingRows = () => $$(".pr-item",groupsRoot).filter(row => !row.hidden);
+      function renderNavigation() {
+        const matching = matchingRows(), index = matching.indexOf(selectedRow);
+        const active = primary.options.filter(option => scopes.get(primary.field).has(option.value));
+        const label = active.length === 1 ? active[0].label : active.length ? "Filtered" : "All pull requests";
+        $("#pr-reader-position").textContent = `${index < 0 ? 0 : index + 1} of ${matching.length} · ${label}`;
+        $("#pr-prev").disabled = index <= 0;
+        $("#pr-next").disabled = index < 0 || index >= matching.length - 1;
+      }
+      function revealSelected() {
+        const target = matchMedia("(max-width:899px)").matches ? $("#pr-detail-title",content) : $(".pr-select",selectedRow);
+        target.focus({preventScroll:true});
+        if (!matchMedia("(max-width:899px)").matches) target.scrollIntoView({block:"nearest"});
+      }
+      function move(direction) {
+        if (inbox.hidden || overview.open) return false;
+        const matching = matchingRows(), next = matching[matching.indexOf(selectedRow) + direction];
+        if (!next) return false;
+        select(next,true); revealSelected(); return true;
+      }
+      $("#pr-prev").addEventListener("click",() => move(-1));
+      $("#pr-next").addEventListener("click",() => move(1));
       rows.forEach(row => $(".pr-select",row).addEventListener("click", () => select(row,true)));
       function summarize(members) {
         const latest = members.reduce((last,row) => !last || Number(row.dataset.active) > Number(last.dataset.active) ? row : last,null);
-        return {count:members.length,actionCount:members.filter(row => row.dataset.tone === "bad").length,active:latest ? Number(latest.dataset.active) : 0,time:latest && $(".pr-item-meta time",latest)};
+        return {count:members.length,actionCount:members.filter(row => hasOption(row,"facet","action")).length,active:latest ? Number(latest.dataset.active) : 0,time:latest && $(".pr-item-meta time",latest)};
       }
       return {
         sort:sortGroups,
+        move,
         update(visible,matches) {
           inbox.hidden = !visible.length;
           const selectedOrgs = scopes.get("org"), selectedRepos = scopes.get("repo"), orgAvailable = rows.filter(row => matches(row,"repository-scope"));
@@ -1581,9 +1712,6 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
           $("#pr-workspace-action").textContent = summary.actionCount + (summary.actionCount === 1 ? " needs attention" : " need attention");
           const activity = $("#pr-workspace-updated"); activity.replaceChildren();
           if (summary.time) activity.append(icon("clock"),document.createTextNode("Active "),summary.time.cloneNode(true));
-          const selectedStates = scopes.get(primary.field), stateAvailable = rows.filter(row => matches(row,primary.field));
-          statusSelect.value = selectedStates.size > 1 ? multiple.value : [...selectedStates][0] || "";
-          [...statusSelect.options].forEach(option => { if (!option.value || option === multiple) return; option.disabled = !selectedStates.has(option.value) && !stateAvailable.some(row => row.dataset[primary.field] === option.value); });
           const repositoryCount = groups.filter(group => group.rows.some(row => !row.hidden)).length;
           $("#pr-list-scope").textContent = repositoryCount + (repositoryCount === 1 ? " repository" : " repositories");
           organizations.forEach(org => {
@@ -1608,7 +1736,8 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
           sortGroups($("#sort").value);
           const scope = JSON.stringify([search.value.trim(), [...scopes].map(([field,values]) => [field,[...values].sort()])]);
           const scopeChanged = previousScope !== null && previousScope !== scope, initialScope = previousScope === null; previousScope = scope;
-          if (!visible.length) { renderCollapsed(); request?.abort(); selectedRow = null; content.replaceChildren(make("p","meta","No pull requests match your filters.")); return; }
+          if (scopeChanged) inbox.dataset.reading = "false";
+          if (!visible.length) { renderCollapsed(); request?.abort(); selectedRow = null; renderNavigation(); content.replaceChildren(make("p","meta","No pull requests match your filters.")); return; }
           const row = visible.find(item => item.dataset.key === selectedKey) || $$(".pr-item",groupsRoot).find(item => !item.hidden);
           if (scopeChanged || (initialScope && !Array.isArray(closedValue))) {
             const revealAll = !!search.value.trim() || !!selectedRepos.size;
@@ -1624,7 +1753,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       const field = section.dataset.filterField, label = section.dataset.label;
       let options = $$("[data-option]", section).map(source => {
         const face = $(".badge", source) || source;
-        return { value:source.dataset.option, label:source.dataset.label || source.textContent.trim(), face, className:face.className };
+        return { value:source.dataset.option, label:source.dataset.label || source.textContent.trim(), shortLabel:source.dataset.shortLabel, quick:source.hasAttribute("data-quick"), overview:source.hasAttribute("data-overview"), description:source.title, face, className:face.className };
       });
       if (section.hasAttribute("data-dynamic")) {
         const values = new Map();
@@ -1641,6 +1770,10 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       return { field, label, options, primary:section.hasAttribute("data-primary") };
     });
     const saved = storage.read("sessionStorage", prefix + ".filters", {});
+    if (tab === "prs" && Array.isArray(saved?.tone) && !saved.facet) {
+      const legacy = {ok:["ready"],bad:["action"],warn:["review","pending"],muted:["draft"],info:["queue"]};
+      saved.facet = saved.tone.flatMap(value => legacy[value] || []);
+    }
     const scopes = new Map(catalog.map(group => [group.field, new Set(Array.isArray(saved?.[group.field]) ? saved[group.field].filter(value => group.options.some(option => option.value === value)) : [])]));
     const primary = catalog.find(group => group.primary), quick = $("#quick-filters"), panel = $("#filter-menu"), filterSearch = $("#filter-search");
     function faceOf(option) {
@@ -1657,7 +1790,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       if (!option && tab !== "sessions") button.append(make("span", "", "All"));
       button.append(make("span", "option-count"));
       const label = option?.label || "All " + (tab === "sessions" ? "agents" : tab === "prs" ? "pull requests" : "worktrees");
-      button.setAttribute("aria-label", label); button.title = label;
+      button.setAttribute("aria-label", label); button.title = option?.description || label;
       if (primary.field === "tool" && option) button.dataset.filterAgent = option.value;
       button.addEventListener("click", () => {
         const selected = scopes.get(primary.field), wasOnly = selected.size === 1 && selected.has(option?.value);
@@ -1666,8 +1799,9 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       });
       quick.append(button); return {button,option};
     }
-    const quickButtons = tab === "prs" ? [] : [makeQuick(null), ...primary.options.map(makeQuick)];
+    const quickButtons = [makeQuick(null), ...primary.options.filter(option => tab !== "prs" || option.quick).map(makeQuick)];
     const prInbox = createPRInbox();
+    navigatePR = prInbox.move;
     catalog.forEach(group => {
       const fieldset = make("fieldset"); fieldset.append(make("legend", "", group.label)); group.node = fieldset;
       group.options.forEach(option => {
@@ -1736,10 +1870,8 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       }
       catalog.forEach(group => {
         const selected = scopes.get(group.field), available = rows.filter(row => matches(row, group.field));
-        const counts = new Map();
-        available.forEach(row => counts.set(row.dataset[group.field], (counts.get(row.dataset[group.field]) || 0) + 1));
         group.options.forEach(option => {
-          const n = counts.get(option.value) || 0;
+          const n = available.filter(row => hasOption(row,group.field,option.value)).length;
           option.input.checked = selected.has(option.value); option.input.disabled = !n && !option.input.checked;
           $(".option-count", option.node).textContent = n;
           if (option.input.checked) { count++; token(faceOf(option), group.label + ": " + option.label, () => selected.delete(option.value)); }
@@ -1747,7 +1879,7 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       });
       const available = rows.filter(row => matches(row, primary.field)), selected = scopes.get(primary.field);
       quickButtons.forEach(({button,option}) => {
-        const n = option ? available.filter(row => row.dataset[primary.field] === option.value).length : available.length;
+        const n = option ? available.filter(row => hasOption(row,primary.field,option.value)).length : available.length;
         const pressed = option ? selected.size === 1 && selected.has(option.value) : !selected.size;
         $(".option-count",button).textContent = n; button.setAttribute("aria-pressed", String(pressed)); button.disabled = !!option && !n && !pressed;
       });
@@ -1756,10 +1888,13 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
       $("#filter-count").textContent = count; $("#filter-count").hidden = !count;
       $("[data-reset-facets]").disabled = !count;
     }
+    function hasOption(row,field,value) {
+      return field === "facet" ? row.dataset.facet.split(" ").includes(value) : row.dataset[field] === value;
+    }
     function applyVisibility() {
       const terms = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
       const filtered = terms.length > 0 || [...scopes.values()].some(value => value.size);
-      const matches = (row, except) => [...scopes].every(([field, selected]) => field === except || (except === "repository-scope" && (field === "org" || field === "repo")) || !selected.size || selected.has(row.dataset[field])) && terms.every(term => row.dataset.search.includes(term));
+      const matches = (row, except) => [...scopes].every(([field, selected]) => field === except || (except === "repository-scope" && (field === "org" || field === "repo")) || !selected.size || [...selected].some(value => hasOption(row,field,value))) && terms.every(term => row.dataset.search.includes(term));
       const visible = rows.filter(row => matches(row));
       const keys = new Set(visible.map(row => row.dataset.key));
       items.forEach(item => { item.hidden = !keys.has(item.dataset.key); });
@@ -2029,6 +2164,9 @@ body[data-tab="prs"] .active-filter-row { padding-top:0; }
     const wasSequence = sequence && Date.now() - sequence < 800;
     cancelSequence();
     if (event.key === "/" && search) { event.preventDefault(); search.focus(); search.select(); }
+    else if (["ArrowLeft","ArrowRight"].includes(event.key) && !event.shiftKey && navigatePR && settings.hidden && !$(".filter-menu[open],.pr-workspace-picker[open]") && !window.getSelection()?.toString()) {
+      if (navigatePR(event.key === "ArrowRight" ? 1 : -1)) event.preventDefault();
+    }
     else if (["1", "2", "3"].includes(event.key)) { event.preventDefault(); $$("nav a")[Number(event.key) - 1].click(); }
     else if (event.key === "s" && wasSequence && !syncButton.disabled) { event.preventDefault(); sync(); }
     else if (event.key === "g") { sequence = Date.now(); sequenceTimer = setTimeout(cancelSequence, 800); }

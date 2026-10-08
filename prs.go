@@ -62,6 +62,50 @@ type PRSnapshot struct {
 	Error         string        `json:"error,omitempty"`
 }
 
+func (pr *TrackedPR) hasFailingChecks() bool {
+	return pr.Checks.Failed > 0 || failedStates[pr.Checks.State]
+}
+
+func (pr *TrackedPR) hasPendingChecks() bool {
+	return pr.Checks.Pending > 0 || pendingStates[pr.Checks.State]
+}
+
+// ReadyToMerge is deliberately conservative: absent evidence is not a green light.
+func (pr *TrackedPR) ReadyToMerge() bool {
+	return !pr.IsDraft && pr.QueuePosition == 0 && pr.Mergeable == "MERGEABLE" &&
+		pr.MergeState == "CLEAN" && pr.ReviewDecision == "APPROVED" &&
+		pr.Checks.State == "SUCCESS" && pr.Checks.Passed > 0 &&
+		!pr.hasFailingChecks() && !pr.hasPendingChecks()
+}
+
+// Facets are independent facts, unlike the single highest-priority row state.
+// A draft with failed checks belongs to both views. All PR controls consume these.
+func (pr *TrackedPR) Facets() []string {
+	var facets []string
+	if pr.ReadyToMerge() {
+		facets = append(facets, "ready")
+	}
+	if pr.hasFailingChecks() {
+		facets = append(facets, "failing")
+	}
+	if !pr.IsDraft && pr.QueuePosition == 0 && pr.ReviewDecision != "APPROVED" && pr.ReviewDecision != "CHANGES_REQUESTED" {
+		facets = append(facets, "review")
+	}
+	if pr.hasPendingChecks() {
+		facets = append(facets, "pending")
+	}
+	if pr.IsDraft {
+		facets = append(facets, "draft")
+	}
+	if pr.hasFailingChecks() || pr.Mergeable == "CONFLICTING" || pr.MergeState == "DIRTY" || pr.MergeState == "BLOCKED" || pr.ReviewDecision == "CHANGES_REQUESTED" {
+		facets = append(facets, "action")
+	}
+	if pr.QueuePosition > 0 {
+		facets = append(facets, "queue")
+	}
+	return facets
+}
+
 type prTracker struct {
 	mu   sync.Mutex
 	snap atomic.Pointer[PRSnapshot]
@@ -339,6 +383,9 @@ func settle(prs []*TrackedPR) {
 // deriveState reduces a PR to the one thing that decides what happens next.
 func deriveState(pr *TrackedPR) {
 	failing := func() string {
+		if pr.Checks.Failed == 0 {
+			return "checks failed"
+		}
 		if len(pr.Checks.Failing) == 0 {
 			return fmt.Sprintf("%d failing", pr.Checks.Failed)
 		}
@@ -351,12 +398,15 @@ func deriveState(pr *TrackedPR) {
 		pr.State, pr.Tone, pr.Why = "Draft", "muted", "not ready for review"
 	case pr.Mergeable == "CONFLICTING" || pr.MergeState == "DIRTY":
 		pr.State, pr.Tone, pr.Why = "Conflicts", "bad", "rebase onto the base branch"
-	case pr.Checks.Failed > 0:
+	case pr.hasFailingChecks():
 		pr.State, pr.Tone, pr.Why = "Checks failing", "bad", failing()
 	case pr.ReviewDecision == "CHANGES_REQUESTED":
 		pr.State, pr.Tone, pr.Why = "Changes requested", "bad", "by "+strings.Join(pr.ChangesBy, ", ")
-	case pr.Checks.Pending > 0:
+	case pr.hasPendingChecks():
 		pr.State, pr.Tone, pr.Why = "Checks running", "warn", fmt.Sprintf("%d pending", pr.Checks.Pending)
+		if pr.Checks.Pending == 0 {
+			pr.Why = "checks in progress"
+		}
 	case pr.ReviewDecision == "REVIEW_REQUIRED":
 		pr.State, pr.Tone, pr.Why = "Awaiting review", "warn", "no approval yet"
 		if len(pr.Waiting) > 0 {
@@ -366,10 +416,16 @@ func deriveState(pr *TrackedPR) {
 		pr.State, pr.Tone, pr.Why = "Behind base", "warn", "update the branch"
 	case pr.MergeState == "BLOCKED":
 		pr.State, pr.Tone, pr.Why = "Blocked", "warn", "branch protection not satisfied"
-	default:
+	case pr.ReadyToMerge():
 		pr.State, pr.Tone, pr.Why = "Ready to merge", "ok", "checks green"
 		if len(pr.Approvers) > 0 {
 			pr.Why = "approved by " + strings.Join(pr.Approvers, ", ")
 		}
+	case pr.ReviewDecision != "APPROVED":
+		pr.State, pr.Tone, pr.Why = "Awaiting review", "warn", "approval not confirmed"
+	case pr.Checks.State != "SUCCESS" || pr.Checks.Passed == 0:
+		pr.State, pr.Tone, pr.Why = "Checks unconfirmed", "warn", "passing checks not confirmed"
+	default:
+		pr.State, pr.Tone, pr.Why = "Mergeability unknown", "warn", "GitHub has not confirmed this can merge"
 	}
 }

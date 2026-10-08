@@ -239,6 +239,7 @@ func demoPRs(now time.Time) []*TrackedPR {
 			Checks: CheckSummary{State: "PENDING", Passed: 9, Pending: 3}},
 		{Repo: "ada/dotfiles", Number: 12, Title: "zsh: lazy-load nvm and pyenv", Branch: "feat/lazy-shell-init",
 			CreatedAt: ago(2 * d), LastCommit: ago(2*d - 2*h), Additions: 34, Deletions: 12,
+			ReviewDecision: "APPROVED", Approvers: []string{"sam"},
 			Mergeable: "MERGEABLE", MergeState: "CLEAN", Checks: passed(1)},
 	}
 	for _, p := range prs {

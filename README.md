@@ -30,8 +30,8 @@ One Go binary. No dependencies. Runs quietly in the background on your Mac.
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/worktrees-dark.png">
-  <img alt="The agentyard Worktrees page with totals, a colored storage treemap, repository breakdown, and cleanup filters." src="docs/screenshots/worktrees-light.png" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-appshot-dark.jpg">
+  <img alt="agentyard Pull requests in a browser window: repository groups, PR status and activity, and the selected pull request's description, reviews and checks." src="docs/screenshots/prs-appshot-light.jpg" width="100%">
 </picture>
 
 <sub>Every screenshot here is <code>agentyard demo</code>: synthetic data, nothing from a real machine.</sub>
@@ -56,6 +56,11 @@ agentyard install    # run it at login on http://localhost:4777 (asks first)
 ## A tour
 
 ### Worktrees
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/worktrees-dark.png">
+  <img alt="The Worktrees page with storage totals, a colored treemap, repository breakdown, and cleanup filters." src="docs/screenshots/worktrees-light.png" width="100%">
+</picture>
 
 Every 5 minutes agentyard finds each repository under your root folder that has linked worktrees,
 fetches it, looks up each branch's pull request, and gives every worktree one verdict:
@@ -97,10 +102,12 @@ this order:
 | **Checks failing** | any check failed | the failing checks, by name |
 | **Changes requested** | a reviewer asked for changes | who asked |
 | **Checks pending** | checks are still running | how many |
-| **Awaiting review** | a required review is missing | who it is waiting on |
+| **Awaiting review** | approval is missing or a review is required | who it is waiting on |
 | **Behind base** | the branch is out of date | update the branch |
 | **Blocked** | branch protection is not satisfied | |
-| **Ready to merge** | none of the above | who approved it |
+| **Ready to merge** | approved, passing checks, and GitHub confirms a clean merge; not draft or queued | who approved it |
+| **Checks unconfirmed** | passing checks are not confirmed | missing check evidence |
+| **Mergeability unknown** | GitHub has not confirmed a clean merge | missing merge evidence |
 
 The overview groups PRs under compact `organization / repository` headings. Counts, attention
 indicators, and the latest commit time remain visible when a repository is collapsed. Groups follow
@@ -110,10 +117,29 @@ Select a PR to read its description, changed files, checks, reviews, branch, and
 in the sticky reader. The list scrolls with the page. **GitHub** links on each row and in the reader
 open the PR directly. On a phone, selection opens the reader with a **Back to pull requests** action.
 
-Use the repository heading's picker to find an organization or repository, the status dropdown for
-needs-action, ready, waiting, draft, or queued PRs, and **Filter** for multiple selections. Search and
-filters show all matching results without the two-PR preview limit. Active selections can be removed
-individually; filters, sorting, repository expansion, and the selected PR persist for the browser session.
+Use **Ready**, **Failing**, **Awaiting review**, and **Drafts** above the list for quick status views.
+Counts respect the current search and repository scope. **Filter** adds checks running, needs-action,
+and queued views, plus multiple selections. Statuses can overlap: a failing draft appears in both
+Failing and Drafts. Ready requires explicit approval, at least one passing check, a successful check
+rollup with no failures or pending checks, and confirmed clean mergeability.
+
+**Overview** opens a searchable repository/status matrix without replacing the default PR list.
+It shows all open PRs; click a repository or count to open those matching PRs. On phones, the matrix
+becomes repository cards with labeled counts. The reader's arrows and **← / →** keys move through
+the filtered results in list order, reveal the selected PR, and show your position. Arrow shortcuts
+leave typing and open dialogs alone and respect the Keyboard shortcuts setting.
+
+<details>
+<summary>Repository overview</summary>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-overview-dark.jpg">
+  <img alt="The optional repository overview: searchable repositories and clickable counts for ready, failing, awaiting review, running checks and draft pull requests." src="docs/screenshots/prs-overview-light.jpg" width="100%">
+</picture>
+</details>
+
+The repository heading's picker narrows by organization or repository. Search and filters show all
+matching results without the two-PR preview limit. Active selections can be removed individually;
+filters, sorting, repository expansion, and the selected PR persist for the browser session.
 
 ### Sessions
 

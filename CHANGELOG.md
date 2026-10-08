@@ -6,6 +6,25 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-08
+
+### Added
+
+- PR status shortcuts and an optional searchable repository overview with counts that open the
+  matching PRs. Failing checks remain discoverable on draft PRs.
+- Previous/next reader controls and left/right keyboard navigation through filtered results,
+  including collapsed repositories, with position and active status shown in the reader.
+
+### Changed
+
+- Ready to merge now requires explicit approval, successful checks and confirmed clean mergeability.
+  Missing evidence is shown as awaiting review, checks unconfirmed, or mergeability unknown.
+- The README leads with a browser-framed Pull requests appshot in dark and light themes.
+
+### Fixed
+
+- Repository hover rows share the PR rows' rounded corners, with space around their dividers.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added
@@ -81,7 +100,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.2.0
 [0.1.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.1.0

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>agentyard · Pull requests appshot</title>
+  <style>
+    * { box-sizing:border-box; }
+    html { --backdrop:#171820; --glow:#272535; --chrome:#22232d; --line:#363743; --text:#b9bac8; --address:#191a22; color-scheme:dark; }
+    html[data-theme="light"] { --backdrop:#e9eaf1; --glow:#f5f3fb; --chrome:#f5f5f9; --line:#d9dae4; --text:#656777; --address:#eaeaf1; color-scheme:light; }
+    body { margin:0; width:1536px; padding:48px; background:radial-gradient(ellipse at 50% 0,var(--glow),var(--backdrop) 75%); font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .window { overflow:hidden; border:1px solid var(--line); border-radius:14px; box-shadow:0 20px 36px -18px #0005,0 3px 8px #0001; }
+    .chrome { position:relative; display:flex; align-items:center; justify-content:center; height:48px; border-bottom:1px solid var(--line); background:var(--chrome); color:var(--text); }
+    .traffic { position:absolute; left:18px; display:flex; gap:8px; }
+    .traffic i { width:10px; height:10px; border-radius:50%; background:#ed6a5e; box-shadow:inset 0 0 0 1px #0001; }
+    .traffic i:nth-child(2) { background:#f4bf50; }
+    .traffic i:nth-child(3) { background:#61c554; }
+    .address { display:flex; justify-content:center; align-items:center; gap:8px; width:440px; height:28px; border:1px solid var(--line); border-radius:6px; background:var(--address); }
+    svg { width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+    .controls { position:absolute; right:18px; display:flex; gap:18px; }
+    .controls svg { width:15px; height:15px; }
+    .app { display:block; width:100%; height:auto; }
+  </style>
+</head>
+<body>
+  <main class="window" aria-label="agentyard Pull requests in a browser window">
+    <div class="chrome" aria-hidden="true">
+      <span class="traffic"><i></i><i></i><i></i></span>
+      <span class="address"><svg viewBox="0 0 16 16"><rect x="3.5" y="7" width="9" height="7" rx="2"/><path d="M5.5 7V4.5a2.5 2.5 0 0 1 5 0V7"/></svg>agentyard.local/prs</span>
+      <span class="controls"><svg viewBox="0 0 16 16"><path d="M8 10V1m-3 3 3-3 3 3M4 6H2v8h12V6h-2"/></svg><svg viewBox="0 0 16 16"><rect x="2" y="5" width="9" height="9" rx="2"/><path d="M6 2h6a2 2 0 0 1 2 2v6"/></svg></span>
+    </div>
+    <img class="app" src="prs-dark.jpg" width="1440" height="1000" alt="Pull requests grouped by repository, with status, recent activity, GitHub links and a reader for the selected PR.">
+  </main>
+  <script>
+    const theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = theme;
+    document.querySelector('.app').src = `prs-${theme}.jpg`;
+  </script>
+</body>
+</html>
