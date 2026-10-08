@@ -287,7 +287,7 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: 10px; }
 .reason { display: block; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--text-2); margin-top: 4px; }
 .evidence { display: flex; align-items: baseline; gap: 4px; font-size: 12px; line-height: 20px; }
 .evidence .icon { width: 14px; height: 14px; align-self: center; }
-.check-names, .review-names { margin-top: 4px; color: var(--text-2); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.review-names { margin-top: 4px; color: var(--text-2); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .review-names { white-space: normal; }
 .diff { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; max-inline-size: 100%; gap: 0 6px; white-space: nowrap; font-size: 13px; font-variant-numeric: tabular-nums lining-nums; }
 .cleanup { margin-top: 8px; }
@@ -509,16 +509,6 @@ body[data-tab="sessions"] th:first-child { text-align: center; border-right: 0; 
   .card a { display: inline-block; padding-block: 10px; min-height: 44px; }
   .session-tool-values { display: inline-flex; align-items: baseline; gap: 8px; }
   .session-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .pr-card .pr-card-title { font-size: 15px; line-height: 22px; font-weight: 600; text-wrap: balance; }
-  .pr-card-title .meta { font-weight: 500; }
-  .pr-card a { min-height: 0; padding: 0; margin: 0; }
-  .pr-card-title > a { display: flex; align-items: center; min-height: 44px; padding: 0; }
-  .pr-card-meta > a, .pr-card-meta .value-line > a { display: flex; align-items: center; min-height: 44px; padding: 0; }
-  .pr-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; line-height: 20px; }
-  .pr-card-meta > .field { flex: 1; min-width: 120px; }
-  .pr-card-blocker { display: grid; justify-items: start; gap: 8px; }
-  .pr-card .reason { margin: 0; }
-  .pr-card .metric-grid { gap: 8px; }
   .summary-card { gap: 8px; }
   .summary-card-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
   .summary-card-header h3 { min-width: 0; flex: 1; }
@@ -650,7 +640,7 @@ body[data-tab="sessions"] .quick-view .option-count { min-width:12px; }
 .table-region { border:1px solid var(--line); outline:0; border-radius:8px; }
 th { background:var(--bg-canvas); font-size:11px; font-weight:500; color:var(--text-3); height:36px; }
 td { padding-block:16px; }
-.row-title a, .pr-card-title a { color:var(--text-1); }
+.row-title a { color:var(--text-1); }
 .session-title { font-size:13px; font-weight:550; }
 .session-preview { font-size:11px; }
 .session-row .path, .session-row .branch { font-size:11px; }
@@ -689,16 +679,178 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
  .session-row .copy-resume { border-color:transparent; background:transparent; color:var(--text-2); }
  .session-row .copy-resume:hover, .session-row .copy-resume:focus-visible { border-color:var(--line); background:var(--bg-hover); color:var(--text-1); }
 }
-.pr-card-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0; padding-top:10px; border-top:1px solid var(--line); }
-.pr-card-footer .meta { font-size:11px; line-height:17px; font-weight:400; }
 @media(max-width:639px) {
  .summary-controls .summary-group > summary { min-height:44px; }
- .pr-card .field.path .clipped { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
- .pr-card .pr-card-meta { font-size:12px; }
- .pr-card .metric-grid dt { font-size:11px; margin-bottom:3px; }
- .pr-card .metric-grid dd { font-size:12px; }
- .pr-card .metric-grid .review-names { font-size:11px; }
- .pr-card .metric-grid { gap:6px; }
+}
+
+/* Pull requests share one grouped list and one reader at every screen size. */
+.pr-workspace { margin:4px 0 22px; }
+.pr-workspace-org { display:flex; align-items:center; gap:7px; margin-bottom:7px; color:var(--text-3); font-size:12px; }
+.pr-workspace-org .icon { width:13px; height:13px; }
+.pr-workspace-picker { position:relative; }
+.pr-workspace-picker > summary { display:inline-flex; align-items:center; gap:12px; max-width:100%; list-style:none; padding:0; color:var(--text-1); }
+.pr-workspace-picker > summary::-webkit-details-marker { display:none; }
+.pr-workspace-picker > summary::before { display:none; }
+.pr-workspace-picker > summary h2 { margin:0; font-size:32px; line-height:39px; font-weight:550; letter-spacing:-1px; overflow-wrap:anywhere; }
+.pr-workspace-picker > summary > .icon { width:25px; height:25px; padding:5px; border:1px solid var(--line); border-radius:6px; color:var(--text-3); flex-shrink:0; }
+.pr-workspace-picker[open] > summary > .icon { background:var(--bg-selected); color:var(--accent); }
+.pr-workspace-stats { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; margin-top:13px; color:var(--text-3); font-size:11px; }
+.pr-workspace-stats > span { display:inline-flex; align-items:center; gap:5px; }
+.pr-workspace-stats .icon { width:12px; height:12px; }
+.pr-workspace-stats .pr-workspace-action { color:var(--tone-protect); }
+.pr-workspace-stats strong { color:var(--text-2); font-weight:500; }
+.pr-workspace-panel { position:absolute; top:calc(100% + 10px); left:0; z-index:20; width:min(380px,calc(100vw - 48px)); padding:10px; background:var(--bg-surface); border:1px solid var(--line-control); border-radius:10px; box-shadow:0 16px 48px #0003; }
+.pr-workspace-panel .filter-search { margin-bottom:8px; }
+.pr-workspace-options { max-height:min(460px,60dvh); overflow:auto; scrollbar-width:thin; }
+.pr-workspace-option { display:flex; align-items:center; gap:8px; width:100%; min-height:38px; padding:8px 10px; border:0; border-radius:6px; background:transparent; text-align:left; color:var(--text-2); font-size:12px; font-weight:400; }
+.pr-workspace-option:hover { background:var(--bg-hover); }
+.pr-workspace-option[aria-pressed="true"] { color:var(--accent); background:var(--bg-selected); }
+.pr-workspace-option .option-text { flex:1; min-width:0; overflow-wrap:anywhere; }
+.pr-workspace-option .option-count { color:var(--text-3); font-size:11px; }
+.pr-workspace-option .icon { flex-shrink:0; width:14px; height:14px; }
+.pr-workspace-organization { margin-top:8px; color:var(--text-3); font-size:11px; }
+.pr-workspace-repository { padding-left:25px; }
+body[data-tab="prs"] .collection { display:flex; flex-direction:column; gap:10px; margin-bottom:0; padding-bottom:12px; border-bottom:1px solid var(--line); }
+body[data-tab="prs"] .collection-toolbar { order:-1; margin-top:0; }
+body[data-tab="prs"] .collection .search { flex:1; width:auto; }
+body[data-tab="prs"] .active-filter-row { padding-top:0; }
+.pr-status-control select { width:125px; }
+.pr-inbox { --pr-sticky-top:16px; display:grid; grid-template-columns:minmax(320px,1.06fr) minmax(0,.94fr); align-items:start; gap:24px; }
+.pr-list { --pr-indent:12px; --pr-edge:12px; --pr-glyph:12px; --pr-gap:8px; --pr-content-start:calc(var(--pr-indent) + var(--pr-glyph) + var(--pr-gap)); align-self:stretch; min-width:0; padding-bottom:12px; }
+.pr-list :is(button,a) { scroll-margin-top:104px; scroll-margin-bottom:16px; }
+.pr-list-heading { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:48px; padding:10px 12px; background:var(--bg-canvas); }
+.pr-list-heading h2 { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-2); font-size:12px; line-height:20px; font-weight:550; }
+.pr-list-heading .text-button { font-size:10px; font-weight:400; white-space:nowrap; color:var(--text-3); text-decoration:none; }
+.pr-group-toggle:focus-visible { outline-offset:-3px; }
+.pr-org-repositories { padding:0; }
+.pr-repository { border-bottom:1px solid var(--line); }
+.pr-repo-heading { position:sticky; top:48px; z-index:1; margin:0; background:var(--bg-canvas); }
+.pr-group-toggle { display:flex; align-items:center; gap:var(--pr-gap); width:100%; min-height:52px; padding:10px var(--pr-edge) 10px var(--pr-indent); border:0; background:transparent; color:var(--text-2); text-align:left; font-size:13px; font-weight:550; }
+.pr-group-toggle:hover { background:var(--bg-hover); }
+.pr-group-toggle[aria-expanded="true"] { color:var(--text-1); }
+.pr-group-toggle > .icon { width:var(--pr-glyph); height:var(--pr-glyph); flex-shrink:0; color:var(--text-3); }
+.pr-group-toggle > .icon:first-child { transform:rotate(-90deg); }
+.pr-group-toggle[aria-expanded="true"] > .icon:first-child { transform:rotate(0); }
+.pr-group-name { display:flex; align-items:baseline; flex:1; min-width:0; white-space:nowrap; }
+.pr-group-owner { max-width:44%; overflow:hidden; text-overflow:ellipsis; color:var(--text-3); font-weight:400; }
+.pr-group-separator { flex-shrink:0; padding-inline:5px; color:var(--text-3); font-weight:400; }
+.pr-group-repo { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.pr-group-action { display:inline-flex; align-items:center; gap:4px; color:var(--tone-protect); font-size:11px; white-space:nowrap; }
+.pr-group-action .icon { width:12px; height:12px; }
+.pr-group-meta { display:grid; grid-template-columns:32px 46px 65px; align-items:center; justify-items:end; flex-shrink:0; gap:8px; color:var(--text-3); font-size:11px; line-height:16px; font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.pr-group-action[hidden] { display:inline-flex!important; visibility:hidden; }
+.pr-group-updated { white-space:nowrap; }
+.pr-group-items { padding-bottom:8px; }
+.pr-group-more { display:flex; justify-content:space-between; align-items:center; width:100%; min-height:38px; margin-bottom:8px; padding:8px var(--pr-edge) 8px var(--pr-content-start); border:0; background:transparent; color:var(--text-3); text-align:left; font-size:11px; font-weight:400; }
+.pr-group-more:hover { background:var(--bg-hover); color:var(--accent); }
+.pr-group-more .icon { width:12px; height:12px; }
+.pr-group-more[aria-expanded="true"] .icon { transform:rotate(180deg); }
+.pr-item { position:relative; border-top:1px solid transparent; }
+.pr-item[data-separated="true"] { border-top-color:var(--line); }
+.pr-preview-hidden { display:none!important; }
+.pr-select { display:block; width:100%; padding:17px var(--pr-edge) 17px var(--pr-content-start); border:0; border-radius:7px; background:transparent; text-align:left; font-weight:400; }
+.pr-select:hover { background:var(--bg-hover); }
+.pr-select[aria-pressed="true"] { background:var(--bg-selected); }
+.pr-select:focus-visible { outline-offset:-3px; }
+.pr-item-title { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:0 0 7px; padding-right:74px; color:var(--text-1); font-size:13px; line-height:20px; font-weight:550; }
+.pr-item-meta { display:grid; grid-template-columns:7ch minmax(0,1fr) auto; align-items:center; gap:10px; color:var(--text-3); font-size:11px; line-height:18px; }
+.pr-item-meta .badge { min-width:0; background:none; min-height:18px; font-size:11px; line-height:18px; font-weight:400; }
+.pr-item-meta .badge .icon { flex-shrink:0; width:12px; height:12px; margin-top:3px; }
+.pr-item-meta .badge > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pr-item-meta time { justify-self:end; white-space:nowrap; }
+.pr-item-open { position:absolute; top:11px; right:calc(var(--pr-edge) - 5px); display:inline-flex; align-items:center; justify-content:flex-end; gap:5px; min-height:32px; padding:4px 5px; border-radius:5px; color:var(--text-2); font-size:11px; line-height:20px; text-decoration:none; }
+.pr-item-open .icon { width:13px; height:13px; }
+.pr-item-open:hover { background:var(--bg-hover); color:var(--accent); text-decoration:none; }
+.pr-item-open:focus-visible { outline-offset:-2px; }
+.pr-reading-panel { position:sticky; top:var(--pr-sticky-top); max-height:calc(100dvh - var(--pr-sticky-top) - var(--pr-sticky-top)); min-width:0; min-height:0; margin-top:16px; padding:26px 28px 32px; overflow:auto; overscroll-behavior:contain; border:1px solid var(--line); border-radius:9px; background:var(--bg-surface); scrollbar-gutter:stable; scrollbar-width:thin; scrollbar-color:var(--line-control) transparent; }
+.pr-reading-panel:focus-visible { outline-offset:-3px; }
+.pr-detail-top { display:flex; justify-content:space-between; align-items:center; gap:14px; margin-bottom:12px; }
+.pr-detail-top .meta { font-size:11px; font-weight:400; overflow-wrap:anywhere; }
+.pr-github-link { display:inline-flex; align-items:center; gap:5px; flex-shrink:0; color:var(--text-3); font-size:11px; }
+.pr-github-link .icon { width:12px; height:12px; }
+#pr-detail-title { font-size:21px; line-height:29px; letter-spacing:-.55px; font-weight:600; overflow-wrap:anywhere; }
+#pr-detail-title:focus { outline:none; }
+.pr-detail-state { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; margin-top:15px; }
+.pr-detail-state p { font-size:12px; line-height:19px; color:var(--text-2); overflow-wrap:anywhere; }
+.pr-detail-section { border-top:1px solid var(--line); margin-top:24px; padding-top:20px; }
+.pr-detail-section h3 { font-size:12px; line-height:20px; font-weight:600; margin-bottom:9px; }
+.pr-description-section h3 { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; }
+.pr-description { white-space:normal; overflow-wrap:anywhere; color:var(--text-2); font-size:13px; line-height:22px; }
+.pr-description p { white-space:pre-wrap; }
+.pr-description > * + * { margin-top:12px; }
+.pr-description > :first-child { margin-top:0; }
+.pr-description h4 { margin-bottom:0; color:var(--text-1); font-size:12px; line-height:20px; font-weight:600; }
+.pr-description :is(ul,ol) { padding-left:20px; }
+.pr-description li + li { margin-top:4px; }
+.pr-description code { font-size:11px; line-height:19px; background:var(--bg-inset); padding:2px 4px; border-radius:3px; }
+.pr-description pre { white-space:pre-wrap; overflow-wrap:anywhere; margin-inline:0; padding:12px; border:1px solid var(--line); border-radius:6px; background:var(--bg-canvas); }
+.pr-description pre code { padding:0; background:transparent; }
+.pr-detail-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px 24px; border-top:1px solid var(--line); margin:24px 0 0; padding-top:20px; }
+.pr-detail-facts dt { margin-bottom:7px; font-size:11px; color:var(--text-3); }
+.pr-detail-facts dd { margin:0; font-size:12px; line-height:20px; overflow-wrap:anywhere; }
+.pr-detail-facts .badge { background:none; }
+.pr-detail-facts .review-names { font-size:11px; line-height:18px; margin-top:5px; }
+.pr-check-counts { display:flex; flex-wrap:wrap; gap:2px 10px; }
+.pr-check-counts .evidence { font-size:11px; }
+.pr-check-details { margin-top:18px; padding:12px 14px; border:1px solid var(--line); border-radius:7px; background:var(--bg-canvas); }
+.pr-check-details + .pr-detail-section { border-top:0; padding-top:0; }
+.pr-check-details summary { width:100%; min-height:24px; font-size:12px; }
+.pr-check-names { margin:10px 0 0; padding-left:16px; color:var(--text-2); font-size:11px; line-height:19px; }
+.pr-check-names li + li { margin-top:5px; }
+.pr-section-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.pr-section-heading h3 { margin:0; }
+.pr-section-heading .diff { font-size:11px; }
+.pr-files { list-style:none; margin:0; padding:0; display:grid; gap:9px; }
+.pr-file { display:flex; align-items:flex-start; gap:8px; }
+.pr-file .icon { width:13px; height:13px; margin-top:3px; color:var(--text-3); }
+.pr-file-path { flex:1; min-width:0; overflow-wrap:anywhere; font:11px/19px var(--font-mono); color:var(--text-2); }
+.pr-file .diff { font-size:10px; }
+.pr-branch-section h3:not(:first-child) { margin-top:17px; }
+.pr-branch-section .branch,.pr-branch-section .path { overflow-wrap:anywhere; }
+.pr-detail-error { display:flex; flex-wrap:wrap; align-items:center; gap:10px; color:var(--text-2); font-size:12px; }
+.pr-detail-error p { flex:1 0 100%; overflow-wrap:anywhere; }
+.pr-detail-error .button { min-height:32px; height:auto; font-size:11px; }
+.pr-back { display:none; }
+@media(min-width:900px) and (max-width:1199px) {
+ .pr-inbox { grid-template-columns:minmax(295px,1fr) minmax(0,1fr); gap:18px; }
+ .pr-reading-panel { padding:22px; }
+ .pr-group-meta { grid-template-columns:26px 40px 58px; gap:6px; }
+}
+@media(max-width:1199px) {
+ .pr-item-open-label { display:none; }
+ .pr-item-open { width:32px; }
+ .pr-item-title { padding-right:46px; }
+}
+@media(max-width:899px) {
+ .pr-inbox { display:block; }
+ .pr-list { border-right:0; }
+ .pr-list :is(button,a) { scroll-margin-top:16px; }
+ .pr-list-heading { position:static; }
+ .pr-repo-heading { position:static; }
+ .pr-reading-panel { display:none; position:static; max-height:none; overflow:visible; padding:22px; border-radius:9px; }
+ .pr-inbox[data-reading="true"] .pr-list { display:none; }
+ .pr-inbox[data-reading="true"] .pr-reading-panel { display:block; }
+ .pr-back { display:inline-flex; margin-bottom:22px; border-color:var(--line); font-size:12px; }
+ .pr-back .icon { transform:rotate(90deg); }
+ body[data-tab="prs"] .collection-toolbar { flex-wrap:wrap; }
+ body[data-tab="prs"] .collection .search { flex:1 0 100%; }
+ .pr-detail-facts { gap:20px 16px; }
+}
+@media(max-width:639px) {
+ .pr-workspace-picker > summary h2 { font-size:28px; line-height:35px; }
+ .pr-workspace-stats { gap:8px 12px; }
+ .pr-group-meta { grid-template-columns:23px 38px 55px; gap:5px; font-size:10px; }
+ .pr-group-toggle { font-size:12px; }
+ .pr-status-control { flex:1; min-width:0; }
+ .pr-status-control select { width:100%; }
+ body[data-tab="prs"] .collection { gap:12px; }
+ .pr-item-open { top:6px; width:44px; min-height:44px; }
+ .pr-item-title { min-height:30px; font-size:14px; line-height:21px; }
+ .pr-reading-panel { padding:20px 18px; }
+ #pr-detail-title { font-size:20px; line-height:28px; }
+ body[data-tab="prs"] .sort-control:not(.pr-status-control) select { width:80px; }
+ .pr-list-heading .text-button { min-height:32px; }
+ .pr-file .diff { display:none; }
 }
 
 </style>
@@ -753,6 +905,7 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
 <symbol id="i-play" viewBox="0 0 16 16"><path d="m5 3 8 5-8 5Z"/></symbol>
 <symbol id="i-grid" viewBox="0 0 16 16"><rect x="2" y="2" width="4" height="4" rx="1"/><rect x="10" y="2" width="4" height="4" rx="1"/><rect x="2" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/></symbol>
 <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 3h4l2 2h6v8H2Z"/></symbol>
+<symbol id="i-external-link" viewBox="0 0 16 16"><path d="M9 2h5v5M14 2 7 9M7 3H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V9"/></symbol>
 <symbol id="i-disk" viewBox="0 0 16 16"><path d="m3 2-2 7v4h14V9l-2-7ZM1 9h14M11 11h1"/></symbol>
 <symbol id="agent-claude" viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></symbol>
 <symbol id="agent-codex" viewBox="0 0 24 24"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></symbol>
@@ -772,9 +925,9 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
 {{define "search"}}<label class="search">{{template "icon" "search"}}<span class="sr-only">Search {{.}}</span><input id="search" type="search" placeholder="Search {{.}}" aria-label="Search {{.}}" autocomplete="off" spellcheck="false"><kbd aria-hidden="true">/</kbd></label>{{end}}
 {{define "collection"}}
 <section class="collection" aria-label="{{if eq .Tab "prs"}}Pull request{{else if eq .Tab "sessions"}}Session{{else}}Worktree{{end}} controls">
-<div class="collection-views"><div id="quick-filters" class="quick-filters" role="group" aria-label="Quick views"></div><span id="shown" class="meta numeric" aria-live="polite"></span></div>
+{{if eq .Tab "prs"}}<span id="shown" class="sr-only" aria-live="polite"></span>{{else}}<div class="collection-views"><div id="quick-filters" class="quick-filters" role="group" aria-label="Quick views"></div><span id="shown" class="meta numeric" aria-live="polite"></span></div>{{end}}
 <div class="collection-toolbar">
-{{if eq .Tab "prs"}}{{template "search" "pull requests"}}{{else if eq .Tab "sessions"}}{{template "search" "sessions"}}{{else}}{{template "search" "worktrees"}}{{end}}
+{{if eq .Tab "prs"}}{{template "search" "repos and pull requests"}}<label class="sort-control pr-status-control">{{template "icon" "pull-request"}}<span class="sr-only">Pull request status</span><select id="pr-status-filter"><option value="">All states</option></select></label>{{else if eq .Tab "sessions"}}{{template "search" "sessions"}}{{else}}{{template "search" "worktrees"}}{{end}}
 <details class="filter-menu" id="filter-menu"><summary role="button" aria-expanded="false" aria-controls="filter-panel">{{template "icon" "filter"}}Filter<span id="filter-count" class="selection-count" hidden></span></summary>
 <div class="filter-panel" id="filter-panel"><div class="filter-panel-heading"><strong>Filters</strong><button type="button" class="icon-button" id="close-filters" aria-label="Close filters">{{template "icon" "close"}}</button></div><label class="filter-search">{{template "icon" "search"}}<input type="search" id="filter-search" placeholder="Find a filter…" aria-label="Find a filter" autocomplete="off"></label><div id="filter-fields" class="filter-fields"></div><p id="filter-empty" class="meta" hidden>No matching filters</p><div class="filter-panel-footer"><span class="meta">Select one or more</span><button type="button" class="text-button" data-reset-facets>Reset filters</button></div></div>
 </details>
@@ -847,27 +1000,28 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
 <details class="sync-details"><summary>Sync details</summary><div class="detail-lines">{{with .WT}}<p>Scanned {{template "exact-time" .At}} · scan took {{.Took}}</p>{{end}}<p>Next scan {{template "exact-time" .Next}} · sizes refresh every 30 min</p><p>Logical size; space freed can be smaller.</p></div></details>
 {{template "foot" .}}{{end}}
 
-{{define "pr-repo"}}<div class="cell-stack">{{template "value" (dict "Text" .Repo "Display" (repoShort .Repo) "Href" (printf "https://github.com/%s/pulls" .Repo))}}<span class="meta">{{org .Repo}}</span></div>{{end}}
-{{define "pr-title"}}<div class="cell-stack">{{template "value" (dict "Text" .Title "Href" .URL "Lines" true "Class" "row-title")}}<span class="meta numeric">#{{.Number}}</span></div>{{end}}
-{{define "pr-branch-value"}}{{template "value" (dict "Text" .Branch "Href" (branchLink .Repo .Branch) "Class" "branch")}}{{end}}
-{{define "pr-worktree"}}{{if .Worktree}}{{template "value" (dict "Text" .Worktree "Display" (tilde .Worktree) "Class" "path secondary")}}{{else}}<span class="meta">No local worktree</span>{{end}}{{end}}
-{{define "pr-branch"}}<div class="cell-stack">{{template "pr-branch-value" .}}{{template "pr-worktree" .}}</div>{{end}}
-{{define "pr-blocker"}}{{template "status" (dict "State" .State "Tone" .Tone)}}<span class="reason">{{.Why}}</span>{{end}}
-{{define "checks"}}{{with .Checks}}{{if or .Passed .Failed .Pending}}{{if .Failed}}<div class="evidence ink tone-bad">{{template "icon" "x-circle"}}<span>{{.Failed}} failed</span></div>{{end}}{{if .Pending}}<div class="evidence ink tone-warn">{{template "icon" "clock"}}<span>{{.Pending}} pending</span></div>{{end}}<div class="evidence ink tone-ok">{{template "icon" "check"}}<span>{{.Passed}} passed</span></div>{{else}}<span class="meta">No checks reported</span>{{end}}{{if ne $.State "Checks failing"}}{{with .Failing}}<div class="check-names">{{range .}}<div>{{.}}</div>{{end}}</div>{{end}}{{end}}{{end}}{{end}}
-{{define "review"}}{{template "status" (dict "State" (reviewLabel .ReviewDecision) "Compact" true)}}{{with .Approvers}}<div class="review-names"><span class="sr-only">Approved by </span>{{join . ", "}}</div>{{end}}{{with .ChangesBy}}<div class="review-names"><span class="sr-only">Changes by </span>{{join . ", "}}</div>{{end}}{{with .Waiting}}<div class="review-names"><span class="sr-only">Waiting on </span>{{join . ", "}}</div>{{end}}{{end}}
+{{define "checks"}}{{with .Checks}}<div class="pr-check-counts">{{if or .Passed .Failed .Pending}}{{if .Failed}}<span class="evidence ink tone-bad">{{template "icon" "x-circle"}}{{.Failed}} failed</span>{{end}}{{if .Pending}}<span class="evidence ink tone-warn">{{template "icon" "clock"}}{{.Pending}} pending</span>{{end}}<span class="evidence ink tone-ok">{{template "icon" "check"}}{{.Passed}} passed</span>{{else}}<span class="meta">No checks reported</span>{{end}}</div>{{end}}{{end}}
+{{define "pr-check-failures"}}{{with .Checks.Failing}}<details class="pr-check-details"><summary>Failed checks <span class="numeric">{{len .}}</span></summary><ul class="pr-check-names">{{range .}}<li>{{.}}</li>{{end}}</ul></details>{{end}}{{end}}
+{{define "review"}}{{template "status" (dict "State" (reviewLabel .ReviewDecision) "Compact" true)}}{{with .Approvers}}<div class="review-names">Approved by {{join . ", "}}</div>{{end}}{{with .ChangesBy}}<div class="review-names">Changes by {{join . ", "}}</div>{{end}}{{with .Waiting}}<div class="review-names">Waiting on {{join . ", "}}</div>{{end}}{{end}}
 {{define "diff"}}<span class="diff"><span class="ink tone-ok">+{{.Additions}}</span><span class="ink tone-bad">−{{.Deletions}}</span></span>{{end}}
-{{define "pr-data"}}data-item data-key="{{.Repo}}/{{.Number}}" data-org="{{org .Repo}}" data-repo="{{.Repo}}" data-title="{{.Title}}" data-active="{{.LastCommit.Unix}}" data-tone="{{.Tone}}" data-state="{{.State}}" data-search="{{lowerAll .Repo .Title .Branch .Worktree .State .Why (join .Approvers " ") (join .Waiting " ") (join .ChangesBy " ") (join .Checks.Failing " ")}} {{.Number}}"{{end}}
-{{define "pr-row"}}<tr {{template "pr-data" .}}><td>{{template "pr-repo" .}}</td><td>{{template "pr-title" .}}</td><td>{{template "pr-branch" .}}</td><td>{{template "pr-blocker" .}}</td><td>{{template "checks" .}}</td><td>{{template "review" .}}</td><td><div class="cell-stack">{{template "time" .LastCommit}}<span class="meta">Opened {{template "time" .CreatedAt}}</span></div></td><td class="n">{{template "diff" .}}</td></tr>{{end}}
-{{define "pr-card"}}<article class="card pr-card" {{template "pr-data" .}}><h2 class="pr-card-title"><a href="{{.URL}}"><span>{{.Title}} <span class="meta numeric">#{{.Number}}</span></span></a></h2><div class="pr-card-blocker">{{template "pr-blocker" .}}</div><div class="pr-card-meta"><a href="https://github.com/{{.Repo}}/pulls">{{.Repo}}</a>{{template "pr-branch-value" .}}</div>{{template "pr-worktree" .}}<dl class="metric-grid"><div><dt>Checks</dt><dd>{{template "checks" .}}</dd></div><div><dt>Review</dt><dd>{{template "review" .}}</dd></div></dl><footer class="pr-card-footer"><span class="meta numeric">Commit {{template "time" .LastCommit}}<br>Opened {{template "time" .CreatedAt}}</span><span class="numeric" aria-label="Changed lines">{{template "diff" .}}</span></footer></article>{{end}}
+{{define "pr-data"}}data-item data-key="{{.Repo}}/{{.Number}}" data-number="{{.Number}}" data-org="{{org .Repo}}" data-repo="{{.Repo}}" data-title="{{.Title}}" data-active="{{.LastCommit.Unix}}" data-tone="{{.Tone}}" data-state="{{.State}}" data-search="{{lowerAll .Repo .Title .Branch .Worktree .State .Why (join .Approvers " ") (join .Waiting " ") (join .ChangesBy " ") (join .Checks.Failing " ")}} {{.Number}}"{{end}}
+{{define "pr-github-action"}}<a class="{{if .Row}}pr-item-open{{else}}pr-github-link{{end}}" href="{{.PR.URL}}" target="_blank" rel="noopener noreferrer" title="Open {{.PR.Repo}} #{{.PR.Number}} on GitHub" aria-label="Open {{.PR.Repo}} pull request {{.PR.Number}} on GitHub (opens in a new tab)"><span{{if .Row}} class="pr-item-open-label"{{end}}>GitHub</span>{{template "icon" "external-link"}}</a>{{end}}
+{{define "pr-item"}}<article class="pr-item" {{template "pr-data" .}}><button type="button" class="pr-select" aria-pressed="false" aria-controls="pr-reading-panel"><span class="pr-item-title">{{.Title}}</span><span class="pr-item-meta"><span class="pr-item-number numeric">#{{.Number}}</span>{{template "status" (dict "State" .State "Tone" .Tone "Compact" true)}}{{template "time" .LastCommit}}</span></button>{{template "pr-github-action" (dict "PR" . "Row" true)}}
+<template data-pr-detail><div class="pr-detail-top"><span class="meta">{{.Repo}} <span class="numeric">#{{.Number}}</span></span>{{template "pr-github-action" (dict "PR" .)}}</div><h2 id="pr-detail-title" tabindex="-1">{{.Title}}</h2><div class="pr-detail-state">{{template "status" (dict "State" .State "Tone" .Tone)}}{{if ne .State "Checks failing"}}{{with .Why}}<p>{{.}}</p>{{end}}{{end}}</div>
+<section class="pr-detail-section pr-description-section" aria-labelledby="pr-description-heading"><h3 id="pr-description-heading">Description <span class="meta" data-pr-author></span></h3><div data-pr-remote aria-live="polite"><p class="meta">Loading description and changed files…</p></div></section>
+<dl class="pr-detail-facts"><div><dt>Review</dt><dd>{{template "review" .}}</dd></div><div><dt>Checks</dt><dd>{{template "checks" .}}</dd></div><div><dt>Last commit</dt><dd>{{template "time" .LastCommit}}</dd></div><div><dt>Opened</dt><dd>{{template "time" .CreatedAt}}</dd></div></dl>
+{{template "pr-check-failures" .}}
+<section class="pr-detail-section"><div class="pr-section-heading"><h3>Files changed <span class="meta numeric" data-pr-file-count></span></h3>{{template "diff" .}}</div><div data-pr-files><p class="meta">Loading changed files…</p></div></section>
+<section class="pr-detail-section pr-branch-section"><h3>Branch</h3><a class="branch" href="{{branchLink .Repo .Branch}}">{{.Branch}}</a><h3>Local worktree</h3>{{if .Worktree}}<p class="path">{{tilde .Worktree}}</p>{{else}}<p class="meta">No local worktree</p>{{end}}</section></template><noscript><a href="{{.URL}}">Open #{{.Number}} on GitHub</a></noscript></article>{{end}}
 
 {{define "prs"}}{{template "head" .}}{{$synced := false}}{{with .PR}}{{$synced = not .At.IsZero}}{{end}}
 {{if not .Demo}}{{with .PR}}{{template "snapshot-time" .At}}{{end}}{{end}}
+<section class="pr-workspace" aria-label="Repository scope"><p class="pr-workspace-org">{{template "icon" "organization"}}<span id="pr-workspace-org">All organizations</span></p><details class="pr-workspace-picker" id="pr-workspace-picker"><summary aria-controls="pr-workspace-panel"><h2 id="pr-workspace-title">All repositories</h2>{{template "icon" "chevron-down"}}</summary><div class="pr-workspace-panel" id="pr-workspace-panel"><label class="filter-search">{{template "icon" "search"}}<input type="search" id="pr-workspace-search" placeholder="Find organization or repository…" aria-label="Find organization or repository" autocomplete="off"></label><div id="pr-workspace-options" class="pr-workspace-options"></div><p id="pr-workspace-empty" class="meta" hidden>No matching organizations or repositories.</p></div></details><div class="pr-workspace-stats"><span><strong id="pr-workspace-total">{{len .PRs}}</strong> open pull requests</span><span class="pr-workspace-action">{{template "icon" "x-circle"}}<span id="pr-workspace-action">0 need attention</span></span><span id="pr-workspace-updated"></span></div></section>
 {{template "collection" .}}
-
 
 {{template "no-matches"}}{{template "stale"}}
 {{with .PR}}{{if .Error}}<div class="state-panel">{{template "icon" "x-circle"}}<div>{{if .At.IsZero}}<h2>Couldn't load results.</h2><p>No successful sync is available yet.</p>{{else if and (eq .RateRemaining 0) (not .RateReset.IsZero)}}<h2>GitHub refresh paused.</h2><p>Showing the last successful results.</p><p>Resets {{template "exact-time" .RateReset}}</p>{{else}}<h2>Couldn't refresh pull requests.</h2><p>Showing results from {{template "exact-time" .At}}.</p>{{end}}<div class="actions"><button type="button" class="button" data-sync>{{if .At.IsZero}}Retry sync{{else}}Sync now{{end}}</button></div><details><summary>Error details</summary><p class="path">{{.Error}}</p></details></div></div>{{end}}{{end}}
-{{if .PRs}}<section data-repo-group><div class="table-region" tabindex="0" role="region" aria-label="Pull requests, scroll horizontally for all columns"><table><caption class="sr-only">Open pull requests</caption><colgroup><col style="width:9%"><col style="width:23%"><col style="width:16%"><col style="width:16%"><col style="width:9%"><col style="width:11%"><col style="width:9%"><col style="width:7%"></colgroup><thead><tr><th scope="col">Repository</th><th scope="col">Pull request</th><th scope="col">Branch · local worktree</th><th scope="col">Blocker</th><th scope="col">Checks</th><th scope="col">Review</th><th scope="col">Activity</th><th scope="col" class="n">Diff</th></tr></thead><tbody>{{range .PRs}}{{template "pr-row" .}}{{end}}</tbody></table></div><div class="phone-cards">{{range .PRs}}{{template "pr-card" .}}{{end}}</div></section>
+{{if .PRs}}<section class="pr-inbox" id="pr-inbox" aria-label="Pull request inbox"><div class="pr-list" id="pr-list" role="region" aria-label="Pull requests grouped by organization and repository"><div class="pr-list-heading"><h2 id="pr-list-scope">All repositories</h2><button type="button" class="text-button" id="pr-collapse">Collapse all</button></div><div id="pr-groups">{{range .PRs}}{{template "pr-item" .}}{{end}}</div></div><article class="pr-reading-panel" id="pr-reading-panel" role="region" aria-label="Selected pull request" tabindex="0"><button class="pr-back button" type="button" id="pr-back">{{template "icon" "chevron-down"}}Back to pull requests</button><div id="pr-detail-content"><p class="meta">Select a pull request to read its details.</p></div></article></section>
 {{else}}{{with .PR}}{{if not .Error}}<div class="state-panel">{{template "icon" "pull-request"}}<div><h2>No open pull requests.</h2><p>You're viewing open PRs authored by the signed-in GitHub account.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}{{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Fetching pull requests…</h2><p>Results appear when the first sync finishes.</p></div></div>{{end}}{{end}}
 <details class="sync-details"><summary>Sync details</summary><div class="detail-lines">{{with .PR}}<p>Fetched {{template "exact-time" .At}} · scan took {{.Took}}</p><p class="numeric">GraphQL cost {{.Cost}} · {{.RateRemaining}} points remaining{{if not .RateReset.IsZero}} · resets {{template "exact-time" .RateReset}}{{end}}</p>{{end}}<p>Refresh every {{.RefreshSec}} seconds</p></div></details>
 {{template "foot" .}}{{end}}
@@ -991,9 +1145,9 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
     };
   })();
 
-  // One visibility pass handles both presentations; only canonical table rows count.
+  // One visibility pass uses a canonical row for tables or a PR inbox item.
   if (search) {
-    const items = $$("[data-item]"), rows = items.filter(item => item.tagName === "TR");
+    const items = $$("[data-item]"), rows = items.filter(item => item.matches("tr,.pr-item"));
     const prefix = "agentyard." + tab;
     const query = storage.read("sessionStorage", prefix + ".search", "");
     search.value = typeof query === "string" ? query : "";
@@ -1160,6 +1314,312 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
       svg.setAttribute("class", "icon"); svg.setAttribute("aria-hidden", "true");
       const use = document.createElementNS(svg.namespaceURI, "use"); use.setAttribute("href", "#i-" + name); svg.append(use); return svg;
     };
+    function compareCollectionEntries(a,b,order) {
+      if (order === "name") return a.name.localeCompare(b.name);
+      const field = order === "size" ? "size" : "active";
+      return (b[field] - a[field]) * (order === "oldest" ? -1 : 1);
+    }
+    // The repository picker, groups and reader consume the same rows and scopes.
+    function createPRInbox() {
+      const inbox = $("#pr-inbox");
+      if (!inbox) return { update() {}, sort() {} };
+      const groupsRoot = $("#pr-groups"), reader = $("#pr-reading-panel"), content = $("#pr-detail-content");
+      const orgCatalog = catalog.find(group => group.field === "org"), repoCatalog = catalog.find(group => group.field === "repo");
+      const statusSelect = $("#pr-status-filter"), picker = $("#pr-workspace-picker"), pickerSearch = $("#pr-workspace-search");
+      const scopeButtons = [], groups = [], organizations = [];
+      const closedValue = storage.read("sessionStorage", prefix + ".closed-repos", null);
+      const closed = new Set(Array.isArray(closedValue) ? closedValue.filter(value => typeof value === "string") : []);
+      const expandedValue = storage.read("sessionStorage", prefix + ".expanded-repos", []);
+      const expanded = new Set(Array.isArray(expandedValue) ? expandedValue.filter(value => typeof value === "string") : []);
+      const cache = new Map();
+      let selectedKey = storage.read("sessionStorage", prefix + ".selected-pr", ""), selectedRow = null, request = null, previousScope = null;
+      const rememberClosed = () => {
+        storage.write("sessionStorage", prefix + ".closed-repos", [...closed]);
+        storage.write("sessionStorage", prefix + ".expanded-repos", [...expanded]);
+      };
+      const button = (className, text) => { const node = make("button", className, text); node.type = "button"; return node; };
+      function scopeButton(field,value,label) {
+        const node = button("pr-workspace-option" + (field === "org" ? " pr-workspace-organization" : field === "repo" ? " pr-workspace-repository" : ""));
+        node.setAttribute("aria-label",field ? (field === "repo" ? "Repository " : "Organization ") + value : "All repositories");
+        node.append(icon(field === "repo" ? "folder" : "organization"),make("span","option-text",label),make("span","option-count"));
+        node.addEventListener("click", () => {
+          scopes.get("org").clear(); scopes.get("repo").clear();
+          if (field) scopes.get(field).add(value);
+          picker.open = false; inbox.dataset.reading = "false"; applyVisibility(); $("summary",picker).focus();
+        });
+        $("#pr-workspace-options").append(node); scopeButtons.push({node,field,value,label});
+      }
+      scopeButton("","","All repositories");
+      orgCatalog.options.forEach(org => {
+        scopeButton("org",org.value,org.label);
+        repoCatalog.options.filter(repo => rows.some(row => row.dataset.org === org.value && row.dataset.repo === repo.value)).forEach(repo => scopeButton("repo",repo.value,repo.value.slice(org.value.length + 1)));
+      });
+      function searchScopes() {
+        const term = pickerSearch.value.trim().toLowerCase();
+        scopeButtons.forEach(({node,label,value}) => { node.hidden = !(`${label} ${value}`.toLowerCase().includes(term)); });
+        $("#pr-workspace-empty").hidden = scopeButtons.some(({node}) => !node.hidden);
+      }
+      pickerSearch.addEventListener("input",searchScopes);
+      picker.addEventListener("toggle", () => { $("summary",picker).setAttribute("aria-expanded",String(picker.open)); if (picker.open) { pickerSearch.value = ""; searchScopes(); pickerSearch.focus(); } });
+      document.addEventListener("click",event => { if (!picker.contains(event.target)) picker.open = false; });
+      document.addEventListener("focusin",event => { if (picker.open && !picker.contains(event.target)) picker.open = false; });
+      picker.addEventListener("keydown",event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); picker.open = false; $("summary",picker).focus(); } });
+      const multiple = make("option","","Multiple states"); multiple.value = "__multiple"; multiple.disabled = true; multiple.hidden = true; statusSelect.append(multiple);
+      primary.options.forEach(option => { const node = make("option","",option.label); node.value = option.value; statusSelect.append(node); });
+      statusSelect.addEventListener("change", () => {
+        const selected = scopes.get(primary.field); selected.clear(); if (statusSelect.value) selected.add(statusSelect.value);
+        inbox.dataset.reading = "false"; applyVisibility();
+      });
+      orgCatalog.options.forEach(org => {
+        const section = make("section", "pr-org-group"), bodyOrg = make("div", "pr-org-repositories");
+        section.setAttribute("aria-label",org.label); section.append(bodyOrg); groupsRoot.append(section);
+        const orgRows = rows.filter(row => row.dataset.org === org.value);
+        const organization = {section,body:bodyOrg,rows:orgRows,key:org.value,groups:[],active:0}; organizations.push(organization);
+        repoCatalog.options.filter(repo => orgRows.some(row => row.dataset.repo === repo.value)).forEach(repo => {
+          const sectionRepo = make("section", "pr-repository"), headingRepo = make("h3", "pr-repo-heading"), toggle = button("pr-group-toggle"), body = make("div", "pr-group-items"), more = button("pr-group-more");
+          const count = make("span", "option-count"), action = make("span", "pr-group-action"), name = make("span", "pr-group-name");
+          name.append(make("span","pr-group-owner",org.label),make("span","pr-group-separator","/"),make("span","pr-group-repo",repo.value.slice(org.value.length + 1)));
+          name.title = repo.value;
+          const meta = make("span", "pr-group-meta"), updated = make("span", "pr-group-updated");
+          action.setAttribute("role", "img"); action.append(icon("x-circle"), make("span"));
+          meta.append(action,count,updated);
+          toggle.append(icon("chevron-down"), name, meta);
+          body.id = "pr-repository-" + groups.length; toggle.setAttribute("aria-controls", body.id);
+          const members = orgRows.filter(row => row.dataset.repo === repo.value);
+          members.forEach(row => body.append(row)); headingRepo.append(toggle); sectionRepo.append(headingRepo,body,more); bodyOrg.append(sectionRepo);
+          more.setAttribute("aria-controls",body.id);
+          const group = {section:sectionRepo,toggle,body,more,count,action,updated,rows:members,key:repo.value,org:org.value,active:0}; groups.push(group); organization.groups.push(group);
+          more.addEventListener("click", () => { expanded.has(group.key) ? expanded.delete(group.key) : expanded.add(group.key); rememberClosed(); renderCollapsed(); more.focus(); });
+          toggle.addEventListener("click", () => {
+            if (closed.has(repo.value)) closed.delete(repo.value); else closed.add(repo.value);
+            rememberClosed(); renderCollapsed();
+          });
+        });
+      });
+      if (!Array.isArray(closedValue)) {
+        groups.forEach(group => closed.add(group.key));
+      }
+      const isGroupOpen = group => !closed.has(group.key);
+      // One owner paints boundaries between the rows that are actually displayed.
+      function renderSeparators() {
+        groups.forEach(group => {
+          group.rows.forEach(row => { row.dataset.separated = "false"; });
+          let previousActive = false;
+          (group.preview || []).forEach((row,index) => {
+            const active = row === selectedRow || row.matches(":hover,:focus-within");
+            row.dataset.separated = String(index > 0 && !active && !previousActive);
+            previousActive = active;
+          });
+        });
+      }
+      let separatorFrame = 0;
+      ["pointerover","pointerout","focusin","focusout"].forEach(type => groupsRoot.addEventListener(type, () => {
+        if (!separatorFrame) separatorFrame = requestAnimationFrame(() => { separatorFrame = 0; renderSeparators(); });
+      }));
+      function sortGroups(order) {
+        const compare = (a,b) => compareCollectionEntries({name:a.key,active:a.active},{name:b.key,active:b.active},order) || a.key.localeCompare(b.key);
+        organizations.forEach(org => {
+          org.active = Math.max(0,...org.groups.map(group => group.active));
+          [...org.groups].sort(compare).forEach(group => org.body.append(group.section));
+        });
+        [...organizations].sort(compare).forEach(org => groupsRoot.append(org.section));
+        renderCollapsed();
+      }
+      function renderCollapsed() {
+        const focused = !!search.value.trim() || [...scopes.values()].some(selected => selected.size);
+        groups.forEach(group => {
+          const open = isGroupOpen(group), members = $$(':scope > .pr-item',group.body).filter(row => !row.hidden);
+          const limited = !focused && !expanded.has(group.key) && members.length > 2;
+          let preview = limited ? members.slice(0,2) : members;
+          if (limited && members.includes(selectedRow) && !preview.includes(selectedRow)) preview = [preview[0],selectedRow];
+          group.preview = preview;
+          group.rows.forEach(row => { row.classList.toggle("pr-preview-hidden",!preview.includes(row)); });
+          group.body.hidden = !open; group.toggle.setAttribute("aria-expanded",String(open));
+          group.more.hidden = !open || focused || members.length <= 2;
+          const remaining = members.length - preview.length;
+          group.more.replaceChildren(make("span","",limited ? "Show " + remaining + (remaining === 1 ? " more pull request" : " more pull requests") : "Show fewer"),icon("chevron-down"));
+          group.more.setAttribute("aria-expanded",String(!limited));
+        });
+        renderSeparators();
+        const visibleGroups = groups.filter(group => !group.section.hidden);
+        $("#pr-collapse").textContent = visibleGroups.length && visibleGroups.every(isGroupOpen) ? "Collapse all" : "Expand all";
+      }
+      $("#pr-collapse").addEventListener("click", () => {
+        const visibleGroups = groups.filter(group => !group.section.hidden), expand = !visibleGroups.every(isGroupOpen);
+        visibleGroups.forEach(group => { if (expand) closed.delete(group.key); else closed.add(group.key); }); rememberClosed(); renderCollapsed();
+      });
+      function showList() {
+        inbox.dataset.reading = "false";
+        if (selectedRow) {
+          const button = $(".pr-select", selectedRow);
+          button.focus({preventScroll:true}); button.scrollIntoView({block:"nearest"});
+        }
+      }
+      $("#pr-back").addEventListener("click", showList);
+      reader.addEventListener("keydown", event => { if (event.key === "Escape" && matchMedia("(max-width:899px)").matches) { event.preventDefault(); showList(); } });
+      function validateDetail(data) {
+        if (!data || typeof data.body !== "string" || typeof data.author !== "string" || !Number.isSafeInteger(data.changedFiles) || data.changedFiles < 0 || !Array.isArray(data.files) || !data.files.every(file => file && typeof file.path === "string" && Number.isSafeInteger(file.additions) && file.additions >= 0 && Number.isSafeInteger(file.deletions) && file.deletions >= 0)) throw new Error("GitHub returned an invalid pull request detail response.");
+        return data;
+      }
+      // A deliberately small Markdown subset, built only from text nodes and safe elements.
+      function renderDescription(body) {
+        if (!body.trim()) return make("p", "meta", "No description provided.");
+        const root = make("div", "pr-description"), lines = body.replace(/\r\n?/g,"\n").split("\n");
+        function inline(node,text) {
+          const pattern = /`([^`\n]+)`|\*\*([^*\n]+)\*\*/g;
+          let offset = 0;
+          for (const match of text.matchAll(pattern)) {
+            node.append(document.createTextNode(text.slice(offset,match.index)));
+            node.append(make(match[1] === undefined ? "strong" : "code", "", match[1] ?? match[2]));
+            offset = match.index + match[0].length;
+          }
+          node.append(document.createTextNode(text.slice(offset)));
+          return node;
+        }
+        const heading = line => line.match(/^ {0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/);
+        const listItem = line => line.match(/^ {0,3}([-+*]|\d+[.)])\s+(.+)$/);
+        const fence = line => line.match(/^ {0,3}(`{3,}|~{3,})/);
+        for (let i = 0; i < lines.length;) {
+          if (!lines[i].trim()) { i++; continue; }
+          const code = fence(lines[i]), title = heading(lines[i]), item = listItem(lines[i]);
+          if (code) {
+            const text = []; i++;
+            while (i < lines.length && !lines[i].trimStart().startsWith(code[1])) text.push(lines[i++]);
+            if (i < lines.length) i++;
+            const pre = make("pre"); pre.append(make("code", "", text.join("\n"))); root.append(pre); continue;
+          }
+          if (title) { root.append(inline(make("h4"), title[1])); i++; continue; }
+          if (item) {
+            const ordered = /^\d/.test(item[1]), list = make(ordered ? "ol" : "ul");
+            if (ordered) list.start = Number.parseInt(item[1],10);
+            while (i < lines.length) {
+              const next = listItem(lines[i]);
+              if (!next || /^\d/.test(next[1]) !== ordered) break;
+              list.append(inline(make("li"),next[2])); i++;
+            }
+            root.append(list); continue;
+          }
+          const paragraph = [lines[i++]];
+          while (i < lines.length && lines[i].trim() && !heading(lines[i]) && !listItem(lines[i]) && !fence(lines[i])) paragraph.push(lines[i++]);
+          root.append(inline(make("p"),paragraph.join("\n")));
+        }
+        return root;
+      }
+      function renderDetail(data) {
+        $("[data-pr-author]", content).textContent = data.author ? "by " + data.author : "";
+        const remote = $("[data-pr-remote]", content), files = $("[data-pr-files]", content);
+        remote.setAttribute("aria-busy", "false"); remote.replaceChildren(renderDescription(data.body));
+        const fileCount = $("[data-pr-file-count]", content);
+        fileCount.textContent = data.files.length < data.changedFiles ? data.files.length + " of " + data.changedFiles : data.changedFiles;
+        if (!data.files.length) { files.replaceChildren(make("p", "meta", data.changedFiles ? "Changed file details are unavailable." : "No changed files.")); return; }
+        const ul = make("ul", "pr-files");
+        data.files.forEach(file => {
+          const li = make("li", "pr-file"), diff = make("span", "diff");
+          diff.append(make("span", "ink tone-ok", "+" + file.additions), make("span", "ink tone-bad", "−" + file.deletions));
+          li.append(icon("code"), make("span", "pr-file-path", file.path), diff); ul.append(li);
+        });
+        files.replaceChildren(ul);
+      }
+      async function loadDetail(row) {
+        request?.abort();
+        const controller = new AbortController(); request = controller;
+        const remote = $("[data-pr-remote]", content);
+        if (cache.has(row.dataset.key)) { renderDetail(cache.get(row.dataset.key)); return; }
+        remote.setAttribute("aria-busy", "true"); remote.replaceChildren(make("p", "meta", "Loading description and changed files…"));
+        $("[data-pr-files]", content).replaceChildren(make("p", "meta", "Loading changed files…"));
+        try {
+          const params = new URLSearchParams({repo:row.dataset.repo,number:row.dataset.number});
+          const response = await fetch("/api/pr-detail?" + params, {signal:controller.signal});
+          if (!response.ok) throw new Error((await response.text()).trim() || "Could not load the PR description and files.");
+          const data = validateDetail(await response.json());
+          if (controller.signal.aborted || selectedRow !== row) return;
+          cache.set(row.dataset.key,data); renderDetail(data);
+        } catch (error) {
+          if (controller.signal.aborted || selectedRow !== row) return;
+          remote.setAttribute("aria-busy", "false");
+          const errorBox = make("div", "pr-detail-error"), retry = button("button", "Retry loading details");
+          errorBox.append(make("p", "", error instanceof Error ? error.message : "Could not load the PR description and files."),retry);
+          retry.addEventListener("click", () => loadDetail(row)); remote.replaceChildren(errorBox);
+          $("[data-pr-files]", content).replaceChildren(make("p", "meta", "Changed files could not be loaded."));
+        }
+      }
+      function select(row, userInitiated = false) {
+        if (selectedRow !== row) {
+          selectedRow = row; selectedKey = row.dataset.key;
+          rows.forEach(item => $(".pr-select",item).setAttribute("aria-pressed", String(item === row)));
+          content.replaceChildren($("template[data-pr-detail]",row).content.cloneNode(true));
+          localDates(content); reader.scrollTop = 0; loadDetail(row);
+          storage.write("sessionStorage", prefix + ".selected-pr", selectedKey);
+          renderCollapsed();
+        }
+        if (userInitiated) {
+          announce("Selected pull request " + row.dataset.number + ": " + row.dataset.title);
+          if (matchMedia("(max-width:899px)").matches) { inbox.dataset.reading = "true"; $("#pr-detail-title",content).focus({preventScroll:true}); inbox.scrollIntoView({block:"start"}); }
+        }
+      }
+      rows.forEach(row => $(".pr-select",row).addEventListener("click", () => select(row,true)));
+      function summarize(members) {
+        const latest = members.reduce((last,row) => !last || Number(row.dataset.active) > Number(last.dataset.active) ? row : last,null);
+        return {count:members.length,actionCount:members.filter(row => row.dataset.tone === "bad").length,active:latest ? Number(latest.dataset.active) : 0,time:latest && $(".pr-item-meta time",latest)};
+      }
+      return {
+        sort:sortGroups,
+        update(visible,matches) {
+          inbox.hidden = !visible.length;
+          const selectedOrgs = scopes.get("org"), selectedRepos = scopes.get("repo"), orgAvailable = rows.filter(row => matches(row,"repository-scope"));
+          scopeButtons.forEach(({node,field,value}) => {
+            const n = field ? orgAvailable.filter(row => row.dataset[field] === value).length : orgAvailable.length;
+            $(".option-count",node).textContent = n;
+            node.disabled = !!field && !n;
+            node.setAttribute("aria-pressed",String(field === "org" ? selectedOrgs.size === 1 && selectedOrgs.has(value) && !selectedRepos.size : field === "repo" ? selectedRepos.size === 1 && selectedRepos.has(value) : !selectedRepos.size && !selectedOrgs.size));
+          });
+          const summary = summarize(visible), selectedRepo = selectedRepos.size === 1 ? [...selectedRepos][0] : "";
+          const selectedOrg = selectedRepo ? rows.find(row => row.dataset.repo === selectedRepo)?.dataset.org : selectedOrgs.size === 1 ? [...selectedOrgs][0] : "";
+          $("#pr-workspace-org").textContent = selectedOrg || (selectedOrgs.size > 1 ? selectedOrgs.size + " organizations" : "All organizations");
+          $("#pr-workspace-title").textContent = selectedRepo ? selectedRepo.slice(selectedOrg.length + 1) : selectedRepos.size > 1 ? "Selected repositories" : "All repositories";
+          $("#pr-workspace-total").textContent = summary.count;
+          $("#pr-workspace-action").textContent = summary.actionCount + (summary.actionCount === 1 ? " needs attention" : " need attention");
+          const activity = $("#pr-workspace-updated"); activity.replaceChildren();
+          if (summary.time) activity.append(icon("clock"),document.createTextNode("Active "),summary.time.cloneNode(true));
+          const selectedStates = scopes.get(primary.field), stateAvailable = rows.filter(row => matches(row,primary.field));
+          statusSelect.value = selectedStates.size > 1 ? multiple.value : [...selectedStates][0] || "";
+          [...statusSelect.options].forEach(option => { if (!option.value || option === multiple) return; option.disabled = !selectedStates.has(option.value) && !stateAvailable.some(row => row.dataset[primary.field] === option.value); });
+          const repositoryCount = groups.filter(group => group.rows.some(row => !row.hidden)).length;
+          $("#pr-list-scope").textContent = repositoryCount + (repositoryCount === 1 ? " repository" : " repositories");
+          organizations.forEach(org => {
+            org.section.hidden = !org.rows.some(row => !row.hidden);
+          });
+          groups.forEach(group => {
+            const members = group.rows.filter(row => !row.hidden), {actionCount,active,time:latestTime} = summarize(members);
+            const actionLabel = actionCount + (actionCount === 1 ? " PR needs action" : " PRs need action");
+            group.active = active;
+            group.updated.replaceChildren();
+            if (latestTime) {
+              const time = latestTime.cloneNode(true);
+              time.title = "Latest PR commit: " + latestTime.title;
+              group.updated.append(time);
+            }
+            group.updated.hidden = !latestTime;
+            group.section.hidden = !members.length; group.count.textContent = members.length + (members.length === 1 ? " PR" : " PRs");
+            group.toggle.setAttribute("aria-label", group.key + ", " + group.count.textContent + (actionCount ? ", " + actionLabel : "") + (latestTime ? ", latest PR commit " + latestTime.textContent : ""));
+            group.action.hidden = !actionCount; $("span",group.action).textContent = actionCount;
+            group.action.setAttribute("aria-label", actionLabel);
+          });
+          sortGroups($("#sort").value);
+          const scope = JSON.stringify([search.value.trim(), [...scopes].map(([field,values]) => [field,[...values].sort()])]);
+          const scopeChanged = previousScope !== null && previousScope !== scope, initialScope = previousScope === null; previousScope = scope;
+          if (!visible.length) { renderCollapsed(); request?.abort(); selectedRow = null; content.replaceChildren(make("p","meta","No pull requests match your filters.")); return; }
+          const row = visible.find(item => item.dataset.key === selectedKey) || $$(".pr-item",groupsRoot).find(item => !item.hidden);
+          if (scopeChanged || (initialScope && !Array.isArray(closedValue))) {
+            const revealAll = !!search.value.trim() || !!selectedRepos.size;
+            groups.filter(group => group.rows.some(item => !item.hidden) && (revealAll || group.key === row.dataset.repo)).forEach(group => { closed.delete(group.key); });
+            rememberClosed();
+          }
+          renderCollapsed();
+          select(row);
+        }
+      };
+    }
     const catalog = $$("[data-filter-field]", $("#filter-catalog").content).map(section => {
       const field = section.dataset.filterField, label = section.dataset.label;
       let options = $$("[data-option]", section).map(source => {
@@ -1206,7 +1666,8 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
       });
       quick.append(button); return {button,option};
     }
-    const quickButtons = [makeQuick(null), ...primary.options.map(makeQuick)];
+    const quickButtons = tab === "prs" ? [] : [makeQuick(null), ...primary.options.map(makeQuick)];
+    const prInbox = createPRInbox();
     catalog.forEach(group => {
       const fieldset = make("fieldset"); fieldset.append(make("legend", "", group.label)); group.node = fieldset;
       group.options.forEach(option => {
@@ -1247,7 +1708,8 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
     const originalOrder = new Map(rows.map((row, index) => [row.dataset.key, index]));
     function sortItems() {
       const ordered = [...rows].sort((a,b) => {
-        const result = sort.value === "name" ? a.dataset.title.localeCompare(b.dataset.title) : sort.value === "size" ? Number(b.dataset.size) - Number(a.dataset.size) : (Number(b.dataset.active) - Number(a.dataset.active)) * (sort.value === "oldest" ? -1 : 1);
+        const keys = row => ({name:row.dataset.title,active:Number(row.dataset.active),size:Number(row.dataset.size)});
+        const result = compareCollectionEntries(keys(a),keys(b),sort.value);
         return result || originalOrder.get(a.dataset.key) - originalOrder.get(b.dataset.key);
       });
       const rank = new Map(ordered.map((row,index) => [row.dataset.key,index]));
@@ -1258,6 +1720,7 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
         const rankOf = group => Math.min(...$$("tr[data-item]", group).map(row => rank.get(row.dataset.key)));
         groups.sort((a,b) => rankOf(a) - rankOf(b)).forEach(group => group.parentElement.insertBefore(group, $("main > .sync-details")));
       }
+      prInbox.sort(sort.value);
       storage.write("sessionStorage", prefix + ".sort", sort.value); values.schedule();
     }
     sort.addEventListener("change", sortItems); sortItems();
@@ -1296,7 +1759,7 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
     function applyVisibility() {
       const terms = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
       const filtered = terms.length > 0 || [...scopes.values()].some(value => value.size);
-      const matches = (row, except) => [...scopes].every(([field, selected]) => field === except || !selected.size || selected.has(row.dataset[field])) && terms.every(term => row.dataset.search.includes(term));
+      const matches = (row, except) => [...scopes].every(([field, selected]) => field === except || (except === "repository-scope" && (field === "org" || field === "repo")) || !selected.size || selected.has(row.dataset[field])) && terms.every(term => row.dataset.search.includes(term));
       const visible = rows.filter(row => matches(row));
       const keys = new Set(visible.map(row => row.dataset.key));
       items.forEach(item => { item.hidden = !keys.has(item.dataset.key); });
@@ -1334,6 +1797,7 @@ footer { margin-top:20px; font-size:10px; font-weight:400; }
       });
       $$("[data-summary-section]").forEach(group => { group.hidden = filtered && !visible.length; });
       renderFilters(matches, filtered);
+      prInbox.update(visible,matches);
       storage.write("sessionStorage", prefix + ".filters", Object.fromEntries([...scopes].map(([field, values]) => [field, [...values]])));
       storageMap.update(visible);
       storage.write("sessionStorage", prefix + ".search", search.value);

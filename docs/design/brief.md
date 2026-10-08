@@ -22,9 +22,13 @@ Search and multi-select verdict/repository filters update the map, metrics, proj
 
 ## Pull requests
 
-Colored status quick views filter by the server's workflow tone. The shared Filter menu combines statuses, organizations, and repositories. Selections use OR within a field and AND between fields; option counts exclude that option's own field. Active selections can be removed individually, and Reset all clears them with search.
+A repository workspace header shows the current scope, PR total, attention count, and latest activity. Its searchable picker moves between all repositories, an organization, or a single repository. The status dropdown and shared Filter menu use the same option catalog and selection state. Selections use OR within a field and AND between fields; option counts exclude that option's own field. Active selections can be removed individually, and Reset all clears them with search.
 
-The table keeps blocker, checks, and review evidence distinct. Activity combines last commit and opened time to preserve readable column widths. Status text must wrap at words rather than split words into fragments.
+The left overview uses inline `organization / repository` headings with aligned attention, count, and activity columns. Organizations and repositories follow the chosen activity or name sort. Collapsed repositories retain their metadata; expanded groups show two PR previews with a Show more action. Search and filtering lift this preview limit. A GitHub action is always available on each row.
+
+The overview follows normal document scrolling. A separate sticky reader shows the selected PR's description, changed files, checks, reviews, branch, and local worktree. Long checks use a disclosure in the reader rather than stretching list rows. Below 900px, the reader replaces the list and offers a Back to pull requests action with focus restoration. Below 640px, existing mobile navigation remains unchanged.
+
+Selected, hovered, and keyboard-focused rows have quiet rounded surfaces. A single boundary renderer suppresses separators on both sides of those surfaces, using the actually visible rows so filtering and previews do not leave orphan dividers. Long titles wrap; metadata stays aligned. Descriptions render a small Markdown subset as text and safe elements, never raw HTML.
 
 ## Sessions
 

@@ -215,7 +215,20 @@ func demoPRs(now time.Time) []*TrackedPR {
 		{Repo: "acme/infra", Number: 214, Title: "Terraform 1.9 and provider upgrades", Branch: "codex/terraform-1.9", IsDraft: true,
 			CreatedAt: ago(3 * h), LastCommit: ago(2 * h), Additions: 146, Deletions: 139,
 			ReviewDecision: "REVIEW_REQUIRED", Mergeable: "MERGEABLE", MergeState: "DRAFT",
-			Checks: CheckSummary{State: "PENDING", Passed: 4, Pending: 2}},
+			Checks: CheckSummary{State: "FAILURE", Passed: 122, Failed: 12, Failing: []string{
+				"Terraform validate — shared networking and private endpoints",
+				"Staging plan — database parameter group compatibility",
+				"Production plan — application workload identity bindings",
+				"Provider lock consistency across infrastructure modules",
+				"Policy checks — encrypted storage and backup retention",
+				"Module integration tests — object storage lifecycle",
+				"Module integration tests — managed database failover",
+				"Container registry access — staging deployment identity",
+				"Migration lint — resource address replacement detection",
+				"Documentation — generated module inputs and outputs",
+				"Dependency audit — provider version constraints",
+				"Deployment preview — staging service health checks",
+			}}},
 		{Repo: "acme/infra", Number: 210, Title: "Pin the AWS provider to 5.x across modules", Branch: "chore/pin-aws-provider",
 			CreatedAt: ago(8 * d), LastCommit: ago(6 * d), Additions: 27, Deletions: 27,
 			ReviewDecision: "APPROVED", Approvers: []string{"priya-r"}, Mergeable: "MERGEABLE", MergeState: "BEHIND",
@@ -233,6 +246,43 @@ func demoPRs(now time.Time) []*TrackedPR {
 		p.URL = fmt.Sprintf("https://github.com/%s/pull/%d", p.Repo, p.Number)
 	}
 	return prs
+}
+
+// Descriptions and file paths are synthetic, just like the rest of the demo.
+func demoPRDetail(pr *TrackedPR) PRDetail {
+	bodies := map[int]string{
+		482:  "## Summary\n\nPrevent concurrent refresh requests from rotating the same token twice. Requests for a session share the pending refresh and receive the newly issued token.\n\n## Validation\n\nAdded concurrent refresh coverage and ran the auth suite with the race detector.",
+		476:  "## Summary\n\nWrite payments to both ledgers during migration. Reconciliation compares balances before switching the read path.\n\n## Rollout\n\nKeep the original ledger available for rollback. The PostgreSQL integration test and migration lint check need attention before this can merge.",
+		479:  "Accept an idempotency key when creating a charge. Repeated requests return the original result instead of creating another charge.\n\nKeys expire after 24 hours and are scoped to the account.",
+		471:  "Write CSV rows to the response as they are read from the database, keeping memory use bounded for large exports.\n\nStop reading when the client disconnects. Tested with a million-row export and an interrupted download.",
+		1291: "Give shipping its own checkout step and validation state. Customers can edit their address without losing their payment information.\n\nThe branch needs a rebase after the recent checkout layout changes.",
+		1279: "Restore saved cart contents when a customer signs in on another device.\n\nReview feedback asks for explicit behavior when a saved item is no longer available.",
+		1284: "Load the product carousel when it approaches the viewport. The first product image keeps its eager loading behavior.\n\nReduces initial JavaScript and image requests on product pages.",
+		214:  "Upgrade Terraform and pin provider versions across infrastructure modules.\n\nStill preparing the staging apply and migration notes. This PR is not ready for review.",
+		210:  "Pin the AWS provider to the same supported major version in every module.\n\nUpdate the dependency locks and verify the generated plan.",
+		88:   "Add support for pushing eligible linked assets on HTTP/2 connections.\n\nCover cancellation and cache behavior in the protocol tests. The compatibility checks are still running.",
+		12:   "Initialize Node and Python version managers only when their commands are first used.\n\nProject-specific version selection keeps working while interactive shell startup gets faster.",
+	}
+	files := map[string][]string{
+		"acme/api":           {"internal/api/handler.go", "internal/api/handler_test.go", "docs/api.md"},
+		"acme/web":           {"src/checkout/Checkout.tsx", "src/checkout/Checkout.test.tsx"},
+		"acme/infra":         {"infra/versions.tf", "infra/.terraform.lock.hcl"},
+		"acme-labs/tinyhttp": {"src/http2/server.ts", "tests/http2/server.test.ts"},
+		"ada/dotfiles":       {"zsh/config.zsh", "zsh/lazy-tools.zsh"},
+	}
+	detail := PRDetail{Body: bodies[pr.Number], Author: "ada", Files: []PRFile{}}
+	paths := files[pr.Repo]
+	for i, path := range paths {
+		// Keep per-file diff totals consistent with the synthetic PR summary.
+		added, removed := pr.Additions/len(paths), pr.Deletions/len(paths)
+		if i == 0 {
+			added += pr.Additions % len(paths)
+			removed += pr.Deletions % len(paths)
+		}
+		detail.Files = append(detail.Files, PRFile{Path: path, Additions: added, Deletions: removed})
+	}
+	detail.ChangedFiles = len(detail.Files)
+	return detail
 }
 
 // ---------------------------------------------------------------- sessions

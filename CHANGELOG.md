@@ -6,6 +6,32 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-08
+
+### Added
+
+- Pull request reading panel with descriptions, changed files, review and check details, branches,
+  and linked local worktrees. Details load on selection, with shared requests, caching, and retry.
+- Searchable organization and repository picker, with PR totals and attention counts.
+- Direct GitHub links from every pull request row and the reading panel.
+
+### Changed
+
+- Replaced the wide pull request table with a repository overview and a separate sticky reader.
+  The list follows normal page scrolling; phones open the reader with a Back to pull requests action.
+- Compact `organization / repository` headings show counts and latest commit time, including when
+  collapsed. Organizations and repositories follow the selected activity or name sort.
+- Repository previews show two pull requests with a Show more action; search and filters show all
+  matching results. Repository expansion and the selected PR are remembered for the browser session.
+- Consolidated PR status controls into a dropdown alongside search, filters, and sorting.
+- Refreshed the README, design notes, and light, dark, and phone PR screenshots using synthetic data.
+
+### Fixed
+
+- Long check lists no longer stretch pull request rows; details are available in the reader.
+- Aligned repository metadata and pull request actions, with wrapping for long titles and paths.
+- Dividers stay clear of rounded selected, hovered, and keyboard-focused rows.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added
@@ -55,6 +81,7 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.2.0
 [0.1.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.1.0

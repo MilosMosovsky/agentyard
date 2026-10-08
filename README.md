@@ -81,8 +81,8 @@ commit, the worktree's index and any uncommitted file. Sizes are `du` logical si
 ### Pull requests
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-dark.png">
-  <img alt="The Pull requests page: colored status quick views, searchable multi-select filters, and a table where each PR shows the one thing blocking it." src="docs/screenshots/prs-light.png" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-dark.jpg">
+  <img alt="The Pull requests page: compact organization / repository groups with activity and status counts, direct GitHub links, and a sticky reader for the selected PR." src="docs/screenshots/prs-light.jpg" width="100%">
 </picture>
 
 Every open PR you authored (`is:pr is:open author:@me archived:false`, as whoever `gh` is logged in
@@ -102,8 +102,18 @@ this order:
 | **Blocked** | branch protection is not satisfied | |
 | **Ready to merge** | none of the above | who approved it |
 
-Next to the state: check counts, review state, last commit, diff size, and the local worktree that has
-the branch checked out. Status quick views give one-click access to needs-action, ready, waiting, draft, and queued PRs. The Filter menu combines multiple statuses, organizations, and repositories with search. Active selections can be removed individually; filters and sort order are remembered for the browser session.
+The overview groups PRs under compact `organization / repository` headings. Counts, attention
+indicators, and the latest commit time remain visible when a repository is collapsed. Groups follow
+your activity or name sort. Expanded repositories preview two PRs; **Show more** opens the rest.
+
+Select a PR to read its description, changed files, checks, reviews, branch, and linked local worktree
+in the sticky reader. The list scrolls with the page. **GitHub** links on each row and in the reader
+open the PR directly. On a phone, selection opens the reader with a **Back to pull requests** action.
+
+Use the repository heading's picker to find an organization or repository, the status dropdown for
+needs-action, ready, waiting, draft, or queued PRs, and **Filter** for multiple selections. Search and
+filters show all matching results without the two-PR preview limit. Active selections can be removed
+individually; filters, sorting, repository expansion, and the selected PR persist for the browser session.
 
 ### Sessions
 
@@ -135,7 +145,7 @@ every target is thumb-sized.
 <p align="center">
   <img alt="The Worktrees page on a phone: totals as a two-by-two grid and repositories as cards." src="docs/screenshots/phone-worktrees.png" width="260">
   &nbsp;&nbsp;
-  <img alt="The Pull requests page on a phone: status quick views, a mobile filter panel, and one card per PR with its blocker, checks and review." src="docs/screenshots/phone-prs.png" width="260">
+  <img alt="The Pull requests page on a phone: repository groups with activity counts, compact PR previews and direct GitHub actions." src="docs/screenshots/phone-prs.jpg" width="260">
 </p>
 
 **Sync now** (top right) re-runs the worktree scan, the PR poll and the session index right away and
@@ -379,8 +389,10 @@ manager.
 
 #### JSON
 
-The page's data is also served as JSON: `/api.json` (worktrees), `/api/prs.json` (pull requests) and
-`/api/status` (version, last scan times, whether a sync is running).
+The page's data is also served as JSON: `/api.json` (worktrees), `/api/prs.json` (pull requests),
+`/api/pr-detail?repo=OWNER/REPO&number=123` (description and changed files for a tracked PR), and
+`/api/status` (version, last scan times, whether a sync is running). PR details include up to the first
+100 changed files and the total changed-file count.
 
 ## Privacy and security
 
@@ -424,7 +436,8 @@ every 5 minutes, or on Sync now
 - **GitHub API cost.** One GraphQL query pages through your PRs 20 at a time: about 1 point per 20
   PRs per poll, so about 7 points every 5 minutes for 120 PRs, out of the 5,000 an hour GitHub
   allows. Failing check names are fetched only for PRs that have failures. Polling pauses while
-  fewer than 300 points remain.
+  fewer than 300 points remain. Descriptions and changed files load only when selected; simultaneous
+  requests share a query, and server results are cached for five minutes or until a new commit.
 - **Sessions without reading transcripts.** Each transcript is read as a 128 KB head and a 512 KB
   tail, and only again when the file changes. Opening a session reads just enough of its end for the
   latest 40 messages.

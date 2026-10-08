@@ -829,7 +829,6 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"join":      strings.Join,
 	"org":       func(repo string) string { o, _, _ := strings.Cut(repo, "/"); return o },
 	"repoShort": func(repo string) string { _, r, _ := strings.Cut(repo, "/"); return r },
-	"prOrgs":    prOrgs,
 	"fsize":     func(n int64) string { return byteSize(uint64(max(n, 0))) },
 	"countKind": func(list []*Session, kind string) (n int) {
 		for _, x := range list {
@@ -1095,6 +1094,7 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t.snap.Load())
 	})
+	mux.HandleFunc("GET /api/pr-detail", prDetailHandler(t, demo))
 	mux.HandleFunc("POST /sync", func(w http.ResponseWriter, r *http.Request) {
 		// Only the dashboard's own page may trigger it, not any site the viewer has open.
 		if o := r.Header.Get("Origin"); o != "" {
