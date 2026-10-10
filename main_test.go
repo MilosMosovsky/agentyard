@@ -66,7 +66,7 @@ func TestDemoPages(t *testing.T) {
 	h, x := demoHandler(t)
 	first := (*x.list.Load())[0]
 	pages := map[string][]string{
-		"/":             {"claude/fix-auth-race", "codex/migrate-payments-ledger", "Fix token refresh race in auth middleware", "worktree remove", "worktree prune"},
+		"/":             {"claude/fix-auth-race", "codex/migrate-payments-ledger", "Fix token refresh race in auth middleware", "worktree remove"},
 		"/prs":          {"Migrate payments to the v2 ledger", "test (postgres-16)", "acme-labs/tinyhttp", "ada/dotfiles", "tkowalski"},
 		"/sessions":     {"Fix token refresh race in auth middleware", "claude --resume", "codex resume", "Scheduled: nightly-dependency-audit"},
 		"/api.json":     {`"verdict":"merged"`, `"verdict":"prunable"`, `"verdict":"unmerged"`, `"verdict":"open"`, `"verdict":"keep"`},
@@ -265,7 +265,7 @@ func TestClassify(t *testing.T) {
 func TestJudgeRemoveCommands(t *testing.T) {
 	w := &Worktree{Path: "/r/it's here", Prunable: true}
 	judge("/r/repo", w)
-	if w.Verdict != "prunable" || w.RemoveCmd != "git -C /r/repo worktree prune" {
+	if w.Verdict != "prunable" || w.RemoveCmd != `git -C /r/repo worktree remove '/r/it'\''s here'` {
 		t.Errorf("prunable: %s %q", w.Verdict, w.RemoveCmd)
 	}
 	w = &Worktree{Path: "/r/it's here", InDefault: true}
@@ -277,6 +277,20 @@ func TestJudgeRemoveCommands(t *testing.T) {
 	judge("/r/repo", w)
 	if w.RemoveCmd != "" {
 		t.Errorf("keep got a remove command: %q", w.RemoveCmd)
+	}
+	for _, w := range []*Worktree{
+		{Path: "/r/gone", Prunable: true, Hazard: "folder is gone, but 1 commit is reachable only from its HEAD"},
+		{Path: "/r/outer", InDefault: true, Hazard: "another git checkout sits in its ignored folder .worktrees/"},
+	} {
+		judge("/r/repo", w)
+		if w.Verdict != "keep" || w.Reason != w.Hazard || w.RemoveCmd != "" {
+			t.Errorf("hazard not kept: %s %q %q", w.Verdict, w.Reason, w.RemoveCmd)
+		}
+	}
+	w = &Worktree{Path: "/r/env", InDefault: true, Ignored: []string{".env", "notes/"}}
+	judge("/r/repo", w)
+	if w.Verdict != "merged" || !strings.HasSuffix(w.Reason, "removing also deletes ignored .env, notes/") {
+		t.Errorf("ignored files not stated: %s %q", w.Verdict, w.Reason)
 	}
 }
 

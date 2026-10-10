@@ -6,6 +6,29 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-10
+
+### Added
+
+- `agentyard mcp`: a Model Context Protocol server over stdio, so Claude Code, Codex or any MCP client
+  can query worktrees and clean up. Tools: `worktree_summary`, `list_worktrees` (verdict, repository,
+  text, inactivity and size filters, explicit truncation), `get_worktree`, `remove_worktrees` and
+  `sync_worktrees`. Answers come from the background agent, or its disk cache, and always state their
+  source and age; `-demo` serves synthetic data.
+- `remove_worktrees` re-scans each repository at call time and removes only worktrees that are still
+  Safe to delete or Prunable, one path at a time with `git worktree remove` (never `--force`), with a
+  `dry_run` mode and a per-path outcome that lists the ignored files removal deletes. HEAD is re-read
+  just before each removal. Branches are never deleted, and the HTTP server stays read-only.
+
+### Changed
+
+- A worktree holding another checkout in its ignored folders, or a gone worktree whose detached HEAD
+  has commits on no branch, tag or remote, or a folder that cannot be read, is now Keep instead of
+  Safe to delete or Prunable: removing it would lose that work.
+- The copy-ready command for a Prunable worktree is now `git worktree remove <path>`, which drops only
+  that registration, instead of `git worktree prune`, which drops every stale one.
+- Safe to delete reasons name the ignored files (`.env` and the like) that removal would delete.
+
 ## [0.5.0] - 2026-10-08
 
 ### Added
@@ -117,7 +140,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.5.0
 [0.4.1]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.1
 [0.4.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.0

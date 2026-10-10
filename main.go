@@ -83,6 +83,8 @@ type Worktree struct {
 	LastCommit   time.Time `json:"lastCommit"`
 	LastActive   time.Time `json:"lastActive"` // newest of commit, index and changed-file mtimes
 	Prunable     bool      `json:"prunable"`
+	Ignored      []string  `json:"ignored,omitempty"` // ignored files a removal deletes; checked only when reclaimable
+	Hazard       string    `json:"hazard,omitempty"`  // work a removal would lose that status can't see
 	Verdict      string    `json:"verdict"`
 	Reason       string    `json:"reason"`
 	RemoveCmd    string    `json:"removeCmd,omitempty"`
@@ -138,6 +140,15 @@ func verdictIndex(v string) int {
 
 func reclaimable(v string) bool { return verdictIndex(v) < 2 }
 
+// verdictLabel is a verdict's human name; an unknown key (say, from a cache
+// written by another version) is shown as itself.
+func verdictLabel(v string) string {
+	if i := verdictIndex(v); i < len(verdicts) {
+		return verdicts[i].Label
+	}
+	return v
+}
+
 // ---------------------------------------------------------------- exec
 
 func run(timeout time.Duration, dir, name string, args ...string) (string, error) {
@@ -153,9 +164,14 @@ func run(timeout time.Duration, dir, name string, args ...string) (string, error
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if i := strings.LastIndexByte(msg, '\n'); i >= 0 {
-			msg = msg[i+1:]
+		// The last line, unless git said fatal:/error: earlier; its hint lines
+		// ("use 'remove -f -f'") are not the reason.
+		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
+		msg := lines[len(lines)-1]
+		for _, l := range lines {
+			if strings.HasPrefix(l, "fatal: ") || strings.HasPrefix(l, "error: ") {
+				msg = l
+			}
 		}
 		return out.String(), fmt.Errorf("%s %s: %v %s", name, args[0], err, msg)
 	}
@@ -169,6 +185,8 @@ func gitOK(dir string, args ...string) bool { _, err := git(dir, args...); retur
 
 // ---------------------------------------------------------------- discovery
 
+// skipDirs are dependency and build output: never a repository, too big to
+// walk, and regenerated rather than written by hand.
 var skipDirs = map[string]bool{
 	"node_modules": true, ".venv": true, "venv": true, "vendor": true, "dist": true, "build": true,
 	"target": true, ".next": true, ".cache": true, "__pycache__": true, "Pods": true, "DerivedData": true,
@@ -230,6 +248,17 @@ func (c *sizeCache) measure(path string) int64 {
 	c.m[path] = sizeEntry{kb, time.Now()}
 	c.mu.Unlock()
 	return kb
+}
+
+// seed takes every size in snap, stamped at, so a scan re-runs git but not du.
+func (c *sizeCache) seed(snap *Snapshot, at time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, r := range snap.Repos {
+		for _, w := range r.Worktrees {
+			c.m[w.Path] = sizeEntry{w.SizeKB, at}
+		}
+	}
 }
 
 func (c *sizeCache) retain(live map[string]bool) {
@@ -474,10 +503,17 @@ func repoActive(r *Repo) (t time.Time) {
 
 func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR, sizes *sizeCache) *Worktree {
 	w := &Worktree{Path: e.path, Folder: filepath.Dir(e.path), Branch: e.branch, Sha: e.sha, Prunable: e.prunable}
-	if _, err := os.Stat(e.path); err != nil {
+	switch _, err := os.Stat(e.path); {
+	case errors.Is(err, fs.ErrNotExist):
 		w.Prunable = true
+	case err != nil:
+		// Unreadable is not gone, whatever git says: the folder may still hold work.
+		w.Prunable, w.Hazard = false, "cannot read the folder: "+err.Error()
+		judge(r.Path, w)
+		return w
 	}
 	if w.Prunable {
+		w.Hazard = orphaned(r.Path, e.sha)
 		judge(r.Path, w)
 		return w
 	}
@@ -533,21 +569,114 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		w.SizeKB = sizes.measure(e.path)
 	}
 	judge(r.Path, w)
+	if reclaimable(w.Verdict) {
+		// Only now: the walk is worth its cost just for worktrees that could go.
+		w.Ignored, w.Hazard = ignoredContent(e.path)
+		judge(r.Path, w)
+	}
 	return w
 }
 
+// orphaned says why pruning a gone worktree would lose commits: a detached
+// HEAD's commits are reachable only from the registration a prune deletes.
+func orphaned(repo, sha string) string {
+	if sha == "" {
+		return "folder is gone and git does not say which commit it was on"
+	}
+	out, err := git(repo, "rev-list", "--count", sha, "--not", "--branches", "--tags", "--remotes")
+	if err != nil {
+		return "folder is gone and its commits could not be checked: " + err.Error()
+	}
+	if n, _ := strconv.Atoi(strings.TrimSpace(out)); n > 0 {
+		return "folder is gone, but " + counted(n, "commit is", "commits are") +
+			" reachable only from its HEAD; keep them with: git -C " + shellQuote(repo) + " branch <name> " + sha
+	}
+	return ""
+}
+
+const (
+	ignoredShown = 20     // ignored entries kept per worktree
+	ignoredWalk  = 100000 // entries walked looking for a nested .git
+)
+
+// ignoredContent is what `git worktree remove` deletes without asking:
+// ignored files, which git status never shows. skipDirs output is left out
+// as regenerable. A .git anywhere under an ignored folder is another
+// checkout or worktree whose work would go too, so it is a hazard.
+func ignoredContent(wt string) (ignored []string, hazard string) {
+	out, err := git(wt, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
+	if err != nil {
+		return nil, "cannot list its ignored files: " + err.Error()
+	}
+	more, walked := 0, 0
+	for _, p := range strings.Split(out, "\x00") {
+		name := strings.TrimSuffix(p, "/")
+		if base := filepath.Base(name); name == "" || skipDirs[base] || base == ".DS_Store" {
+			continue
+		}
+		if len(ignored) < ignoredShown {
+			ignored = append(ignored, p)
+		} else {
+			more++
+		}
+		if hazard != "" || !strings.HasSuffix(p, "/") {
+			continue
+		}
+		filepath.WalkDir(filepath.Join(wt, name), func(q string, d fs.DirEntry, err error) error {
+			rel, _ := filepath.Rel(wt, q)
+			switch walked++; {
+			case err != nil:
+				hazard = "cannot check its ignored folder " + rel + ": " + err.Error()
+			case walked > ignoredWalk:
+				hazard = "too many ignored files under " + name + "/ to check for nested checkouts"
+			case d.Name() == ".git":
+				hazard = "another git checkout sits in its ignored folder " + filepath.Dir(rel) + "/, and removing this worktree would delete it"
+			case d.IsDir() && skipDirs[d.Name()]:
+				return fs.SkipDir
+			default:
+				return nil
+			}
+			return fs.SkipAll
+		})
+	}
+	if more > 0 {
+		ignored = append(ignored, fmt.Sprintf("… %d more", more))
+	}
+	return ignored, hazard
+}
+
 // judge gives a scanned worktree its verdict and, when it can go, the command
-// that removes it.
+// that removes it. A hazard outranks everything: it is work git status and
+// the commit checks can't see.
 func judge(repo string, w *Worktree) {
-	if w.Prunable {
+	w.RemoveCmd = ""
+	switch {
+	case w.Hazard != "":
+		w.Verdict, w.Reason = "keep", w.Hazard
+	case w.Prunable:
 		w.Verdict, w.Reason = "prunable", "folder is gone; registration is stale"
-		w.RemoveCmd = "git -C " + shellQuote(repo) + " worktree prune"
+	default:
+		classify(w)
+	}
+	if !reclaimable(w.Verdict) {
 		return
 	}
-	classify(w)
-	if reclaimable(w.Verdict) {
-		w.RemoveCmd = "git -C " + shellQuote(repo) + " worktree remove " + shellQuote(w.Path)
+	args := removeArgs(repo, w)
+	for i, a := range args {
+		args[i] = shellQuote(a)
 	}
+	w.RemoveCmd = strings.Join(args, " ")
+	if len(w.Ignored) > 0 {
+		w.Reason += " · removing also deletes ignored " + strings.Join(w.Ignored, ", ")
+	}
+}
+
+// removeArgs is the one command that removes a reclaimable worktree: the
+// dashboard prints it and agentyard mcp runs it. Never --force, so git still
+// refuses changes, untracked files and locks. For a prunable worktree it drops
+// just that registration, where `worktree prune` would take every stale one.
+func removeArgs(repo string, w *Worktree) []string {
+	return []string{"git", "-C", repo, "worktree", "remove", w.Path}
 }
 
 // classify decides whether the worktree can go. Only merged work is reclaimable.
@@ -884,7 +1013,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 		return m
 	},
 	"verdicts": func() any { return verdicts },
-	"label":    func(v string) string { return verdicts[verdictIndex(v)].Label },
+	"label":    verdictLabel,
 	"short":    func(s string) string { return s[:min(len(s), 8)] },
 	"rel": func(p string) string {
 		if rel, err := filepath.Rel(*flagRoot, p); err == nil && !strings.HasPrefix(rel, "..") {
@@ -1185,11 +1314,7 @@ func runServe(args []string) error {
 	var cachedWT Snapshot
 	if loadCache("worktrees.json", &cachedWT) {
 		s.snap.Store(&cachedWT)
-		for _, r := range cachedWT.Repos {
-			for _, w := range r.Worktrees {
-				s.sizes.m[w.Path] = sizeEntry{w.SizeKB, cachedWT.At}
-			}
-		}
+		s.sizes.seed(&cachedWT, cachedWT.At)
 	}
 	var cachedPR PRSnapshot
 	if loadCache("prs.json", &cachedPR) {

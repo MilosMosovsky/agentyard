@@ -22,6 +22,7 @@ One Go binary. No dependencies. Runs quietly in the background on your Mac.
 [Tour](#a-tour) ·
 [Install](#install) ·
 [Background agent](#run-in-the-background) ·
+[AI cleanup](#let-your-ai-clean-up) ·
 [Configuration](#configuration) ·
 [Privacy](#privacy-and-security) ·
 [How it works](#how-it-works) ·
@@ -68,10 +69,10 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 | Verdict | Meaning |
 |---|---|
 | **Safe to delete** | PR merged (or HEAD already in the default branch) and the worktree is clean. The only verdict that is safe to delete. |
-| **Prunable** | The folder is gone; only git's registration is left (`git worktree prune`). |
+| **Prunable** | The folder is gone; only git's registration is left, and every commit it had is on a branch, tag or remote. |
 | **Not merged** | Clean and pushed, but never merged (closed PR, or no PR). Needs a human decision. |
 | **Open PR** | The branch has a PR in review. |
-| **Keep** | Uncommitted changes, or commits that exist only on this machine. |
+| **Keep** | Uncommitted changes, commits that exist only on this machine, or another checkout inside its ignored folders. |
 
 An interactive treemap shows measured disk usage by worktree or repository. Select a tile for its verdict and path, or jump to its row. Search, verdict, and repository filters update the chart, totals, and list together. Choose several values in the Filter menu; remove any selection individually.
 
@@ -81,7 +82,10 @@ commit, the worktree's index and any uncommitted file. Sizes are `du` logical si
 30 minutes; APFS clones and package-manager hardlinks mean the space you actually free can be smaller.
 
 > [!NOTE]
-> agentyard never deletes anything. It prints the commands and leaves running them to you.
+> The dashboard never deletes anything: it prints the commands and leaves running them to you. The
+> only thing that can remove a worktree is the [MCP server](#let-your-ai-clean-up)'s
+> `remove_worktrees` tool, when your AI calls it on this Mac, and only for worktrees that a fresh scan
+> still finds Safe to delete or Prunable.
 
 ### Pull requests
 
@@ -373,6 +377,59 @@ Removing a Homebrew install? Stop the agent first, or launchd keeps trying to st
 gone: `agentyard uninstall && brew uninstall agentyard`. `brew uninstall --zap agentyard` also
 removes the agent, the cache and the log.
 
+## Let your AI clean up
+
+`agentyard mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio.
+Connect it to Claude Code, Codex or any MCP client and ask in plain words: "what can I delete?",
+"clean up everything merged in acme/web", "which worktrees haven't I touched in a month?".
+
+```sh
+claude mcp add agentyard -- agentyard mcp      # Claude Code
+```
+
+```toml
+# Codex: ~/.codex/config.toml
+[mcp_servers.agentyard]
+command = "agentyard"
+args = ["mcp"]
+```
+
+It reads the background agent's latest scan (`/api.json` on the address your install uses), or the
+scan saved on disk when the agent is not running. Every answer says where its data came from and how
+old it is. `agentyard mcp -demo` serves the demo's synthetic worktrees, to try it without touching
+anything.
+
+| Tool | |
+|---|---|
+| `worktree_summary` | Worktrees, disk size and reclaimable size, counts per verdict and per repository, free disk, scan errors. |
+| `list_worktrees` | Rows with verdict, reason, size, last activity and PR. Filter by `verdict`, `repo`, `query`, `inactive_days` and `min_size_mb`; `sort` by `activity` or `size`; `limit` defaults to 50 and truncation is always reported. |
+| `get_worktree` | Everything known about one worktree, by path. |
+| `remove_worktrees` | Removes the given worktrees if they are still reclaimable; `dry_run` reports what would go. |
+| `sync_worktrees` | Asks the background agent to rescan now and waits for it, up to a few minutes. |
+
+How removal stays safe:
+
+- **Re-checked at the moment of removal.** The list the AI saw only says where to look. Before
+  removing anything, agentyard re-scans each affected repository (fetch, `git status`, unpushed
+  commits, PR lookup) with the same verdict logic as the dashboard. A worktree that has gained an
+  uncommitted file or a local commit since the last scan is refused.
+- **Only Safe to delete and Prunable.** Keep, Open PR and Not merged are always refused, with the
+  reason. A path must exactly match a worktree git lists right now; the main working tree never does.
+  A worktree whose ignored folders hold another checkout or worktree (say, `.worktrees/` inside it)
+  is Keep, because removing it would delete that one too. So is a gone worktree whose detached HEAD
+  had commits on no branch, tag or remote.
+- **git does the removing, one path at a time, never with `--force`.** Each runs
+  `git worktree remove <path>`, which refuses a worktree with changes, untracked files or a lock; for a
+  Prunable worktree it drops only that registration. Just before each one, HEAD is read again and a
+  worktree that gained a commit since the scan is refused. Branches are never deleted.
+- **Ignored files go with the worktree.** git does not count ignored files as changes, so `.env`,
+  local databases or notes in a removed worktree are deleted. Build and dependency output aside, the
+  dry run and every result list them, so you and your AI see them first.
+- **Local only.** The server runs as you, on this Mac, over your AI client's stdin and stdout. The HTTP
+  server gains nothing and stays read-only.
+
+After a removal it asks the background agent to rescan, so the dashboard catches up.
+
 ## Configuration
 
 ```console
@@ -390,6 +447,7 @@ Commands:
   open        open the dashboard in your browser
   uninstall   stop the background agent and remove it
   serve       run the dashboard in the foreground
+  mcp         let your AI query and clean up worktrees (MCP over stdio)
   version     print the version
   help        show this help
 
@@ -433,6 +491,13 @@ manager.
 | `-sessions-lan` | off | serve the Sessions tab to other devices too |
 | `-once` | | scan once, print the worktree JSON to stdout and exit |
 
+#### `agentyard mcp`
+
+| Flag | Default | |
+|---|---|---|
+| `-listen ADDR` | the installed agent's, else `127.0.0.1:4777` | where to reach the background agent |
+| `-demo` | off | serve the demo's synthetic worktrees; nothing is read or removed |
+
 `agentyard demo` takes `-listen` (default `127.0.0.1:4777`; if that port is busy and you did not pass
 `-listen`, it picks a free one) and `--no-open`. `agentyard version` prints the version.
 
@@ -459,8 +524,10 @@ agentyard is a local tool with no login and no telemetry. It talks to GitHub thr
 - **Only its own names are answered.** Requests must address it as `localhost`, an IP address, its
   `.local` name or this Mac's host name; any other `Host` gets a 403. That stops DNS rebinding, where a
   web page re-points its own domain at `127.0.0.1` to read the dashboard.
-- **Read-only.** It never deletes worktrees or branches and never writes to your repositories. The
-  one thing it runs that touches them is `git fetch --prune`.
+- **The dashboard is read-only.** It never deletes worktrees or branches and never writes to your
+  repositories; the one thing it runs that touches them is `git fetch --prune`. Removal exists only in
+  `agentyard mcp`, a separate process your AI client starts on this Mac: it removes only worktrees a
+  fresh scan finds Safe to delete or Prunable, never forces, and never deletes branches.
 
 Found a vulnerability? Please report it privately; see [SECURITY.md](SECURITY.md).
 
@@ -500,8 +567,12 @@ every 5 minutes, or on Sync now
 <details>
 <summary><b>Does it delete anything?</b></summary>
 
-No. It shows a verdict and the exact `git worktree remove` command for the safe-to-delete rows, and
-you decide. The only command it runs against your repositories is `git fetch --prune`.
+Not on its own. The dashboard shows a verdict and the exact `git worktree remove` command for the
+safe-to-delete rows, and you decide; the only command it runs against your repositories is
+`git fetch --prune`. If you connect [`agentyard mcp`](#let-your-ai-clean-up) to your AI, its
+`remove_worktrees` tool can remove worktrees, but only ones a fresh scan, taken at that moment, still
+finds Safe to delete or Prunable, and only through `git worktree remove` (never `--force`). Ignored
+files inside them, such as `.env`, go too, and are listed first. Branches are never deleted.
 </details>
 
 <details>
@@ -553,7 +624,8 @@ to paste and nothing to configure. The PR list is simply whoever `gh` is logged 
 <summary><b>Can I script against it?</b></summary>
 
 `agentyard serve -once` prints one worktree scan as JSON and exits, and a running agentyard serves
-`/api.json`, `/api/prs.json` and `/api/status`.
+`/api.json`, `/api/prs.json` and `/api/status`. For AI assistants, [`agentyard mcp`](#let-your-ai-clean-up)
+serves the same worktree data, plus guarded cleanup, over MCP.
 </details>
 
 ## Contributing

@@ -53,6 +53,7 @@ Commands:
   open        open the dashboard in your browser
   uninstall   stop the background agent and remove it
   serve       run the dashboard in the foreground
+  mcp         let your AI query and clean up worktrees (MCP over stdio)
   version     print the version
   help        show this help
 
@@ -79,6 +80,8 @@ func main() {
 		err = runStatus(args)
 	case "open":
 		err = runOpen(args)
+	case "mcp":
+		err = runMCP(args)
 	default:
 		fmt.Fprintf(os.Stderr, "agentyard: unknown command %q\n\n%s", cmd, usage)
 		os.Exit(2)
@@ -200,10 +203,8 @@ func runOpen(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	url := serviceURL(defaultListen, "")
-	if cfg, ok := installedConfig(); ok {
-		url = cfg.URL()
-	}
+	cfg, _ := agentConfig()
+	url := cfg.URL()
 	fmt.Println(url)
 	return openBrowser(url)
 }
@@ -220,18 +221,31 @@ type liveStatus struct {
 }
 
 func fetchStatus(listen string) (*liveStatus, error) {
-	c := &http.Client{Timeout: 2 * time.Second}
-	resp, err := c.Get("http://" + probeAddr(listen) + "/api/status")
+	var st liveStatus
+	return &st, agentJSON(http.MethodGet, listen, "/api/status", 2*time.Second, 1<<16, &st)
+}
+
+// agentJSON is the one way this binary talks to a running agentyard: a
+// request to the address it listens on (loopback for an unspecified host),
+// the JSON answer decoded into v.
+func agentJSON(method, listen, path string, timeout time.Duration, limit int64, v any) error {
+	req, err := http.NewRequest(method, "http://"+probeAddr(listen)+path, nil)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s", resp.Status)
+		return fmt.Errorf("%s", resp.Status)
 	}
-	var st liveStatus
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	return &st, json.Unmarshal(b, &st)
+	b, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
 }
 
 func runStatus(args []string) error {
@@ -239,13 +253,12 @@ func runStatus(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	cfg, installed := installedConfig()
+	cfg, installed := agentConfig()
 	rows := [][2]string{{"version", appVersion()}}
-	listen := defaultListen
+	listen := cfg.Listen
 	if !installed {
 		rows = append(rows, [2]string{"agent", "not installed — run: agentyard install"})
 	} else {
-		listen = cfg.Listen
 		state := "not loaded (run: agentyard install)"
 		if runtime.GOOS == "darwin" {
 			if st, pid, ok := agentState(); ok {
@@ -273,7 +286,7 @@ func runStatus(args []string) error {
 			v = "unknown"
 		}
 		if !installed {
-			rows = append(rows, [2]string{"url", serviceURL(listen, "")})
+			rows = append(rows, [2]string{"url", cfg.URL()})
 		}
 		if st.Demo {
 			v += " (demo)"

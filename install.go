@@ -134,6 +134,15 @@ func installedConfig() (installConfig, bool) {
 	return configFromArgs(args)
 }
 
+// agentConfig is the agent this binary talks to: the installed one, else
+// the one `agentyard serve` starts with its defaults.
+func agentConfig() (cfg installConfig, installed bool) {
+	if cfg, ok := installedConfig(); ok {
+		return cfg, true
+	}
+	return installConfig{Listen: defaultListen}, false
+}
+
 // ---------------------------------------------------------------- plist
 
 func xmlText(s string) string {

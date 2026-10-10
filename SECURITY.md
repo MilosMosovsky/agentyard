@@ -19,9 +19,18 @@ requests, and your Claude Code and Codex transcripts, and serves them over HTTP.
   include tokens and customer data. Other devices on the LAN see a notice instead. `-sessions-lan`
   lifts that; only use it if every device on your network is trusted. `install` saves it only together
 with `--lan`. Session ids are validated and shell-quoted in the copied resume command.
-- **Read-only.** agentyard never deletes worktrees or branches and never writes to your repositories.
-  It prints the commands and leaves running them to you. It does run `git fetch --prune` in repos
-  that have worktrees.
+- **The dashboard is read-only.** The HTTP server never deletes worktrees or branches and never writes
+  to your repositories, and it has no endpoint that does. It prints the commands and leaves running
+  them to you. It does run `git fetch --prune` in repos that have worktrees.
+- **`agentyard mcp` can remove worktrees, guarded.** It is a separate process that your AI client
+  starts on this machine and talks to over stdin/stdout, running as you; it never listens on the
+  network. Its `remove_worktrees` tool re-scans the repository first and removes only worktrees whose
+  fresh verdict is Safe to delete or Prunable, one at a time with `git worktree remove` (never
+  `--force`). Anything else, and any path git does not list as a worktree at that moment, is refused.
+  Ignored files inside a removed worktree (`.env` and the like) are deleted with it and listed in
+  every result. Branches are never deleted. It reads its listings from the agent at the address it is
+  given, the installed agent's by default; the decision to remove always comes from its own local
+  scan, never from that data.
 - **Credentials.** It uses the GitHub CLI's existing login and stores no tokens; the LaunchAgent never
   carries `GH_TOKEN` or `GITHUB_TOKEN`. Caches in
   `~/Library/Caches/agentyard/` hold repository, PR and session metadata, not credentials.
