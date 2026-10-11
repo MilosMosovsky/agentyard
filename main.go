@@ -83,11 +83,17 @@ type Worktree struct {
 	LastCommit   time.Time `json:"lastCommit"`
 	LastActive   time.Time `json:"lastActive"` // newest of commit, index and changed-file mtimes
 	Prunable     bool      `json:"prunable"`
-	Ignored      []string  `json:"ignored,omitempty"` // ignored files a removal deletes; checked only when reclaimable
-	Hazard       string    `json:"hazard,omitempty"`  // work a removal would lose that status can't see
-	Verdict      string    `json:"verdict"`
-	Reason       string    `json:"reason"`
-	RemoveCmd    string    `json:"removeCmd,omitempty"`
+	// ContentRef is the remote ref whose tree already holds all of the worktree's
+	// local work (uncommitted files and unpushed commits); see contentMatch.
+	// ContentInDefault says that ref is the default branch.
+	ContentRef       string   `json:"contentRef,omitempty"`
+	ContentInDefault bool     `json:"contentInDefault,omitempty"`
+	ContentHistory   bool     `json:"contentHistory,omitempty"` // matched only as older versions in ContentRef's history
+	Ignored          []string `json:"ignored,omitempty"`        // ignored files a removal deletes; checked only when reclaimable
+	Hazard           string   `json:"hazard,omitempty"`         // work a removal would lose that status can't see
+	Verdict          string   `json:"verdict"`
+	Reason           string   `json:"reason"`
+	RemoveCmd        string   `json:"removeCmd,omitempty"`
 }
 
 type Repo struct {
@@ -152,15 +158,20 @@ func verdictLabel(v string) string {
 // ---------------------------------------------------------------- exec
 
 func run(timeout time.Duration, dir, name string, args ...string) (string, error) {
+	return runEnv(timeout, dir, nil, name, args...)
+}
+
+// runEnv is run with extra environment variables, which win over inherited ones.
+func runEnv(timeout time.Duration, dir string, env []string, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	// GIT_OPTIONAL_LOCKS=0: `git status` must never take index.lock, or it races
 	// with whatever is committing in that worktree at the same moment.
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(append(os.Environ(),
 		"GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1", "LC_ALL=C",
-		"GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=10")
+		"GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=10"), env...)
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr
 	if err := cmd.Run(); err != nil {
@@ -568,6 +579,9 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 	} else {
 		w.SizeKB = sizes.measure(e.path)
 	}
+	if hasLocalWork(w) {
+		matchContent(r, w, remote)
+	}
 	judge(r.Path, w)
 	if reclaimable(w.Verdict) {
 		// Only now: the walk is worth its cost just for worktrees that could go.
@@ -672,21 +686,54 @@ func judge(repo string, w *Worktree) {
 }
 
 // removeArgs is the one command that removes a reclaimable worktree: the
-// dashboard prints it and agentyard mcp runs it. Never --force, so git still
-// refuses changes, untracked files and locks. For a prunable worktree it drops
-// just that registration, where `worktree prune` would take every stale one.
+// dashboard prints it and agentyard mcp runs it. A clean worktree goes without
+// --force, so git still refuses changes, untracked files and locks. A dirty one
+// is reclaimable only when contentMatch proved every change is on a remote, and
+// git refuses changes, so that one case needs --force (once: a locked worktree
+// is still refused). For a prunable worktree it drops just that registration,
+// where `worktree prune` would take every stale one.
 func removeArgs(repo string, w *Worktree) []string {
+	if !w.Prunable && w.Modified+w.Untracked > 0 && w.ContentRef != "" {
+		return []string{"git", "-C", repo, "worktree", "remove", "--force", w.Path}
+	}
 	return []string{"git", "-C", repo, "worktree", "remove", w.Path}
 }
 
-// classify decides whether the worktree can go. Only merged work is reclaimable.
+// contentWhere says where the worktree's local changes already are.
+func contentWhere(w *Worktree) string {
+	if w.ContentHistory {
+		return w.ContentRef + "'s history"
+	}
+	return w.ContentRef
+}
+
+// unpushedWork is local commits that neither a remote nor the PR has by hash.
 // A merged branch counts as pushed when HEAD is contained in its PR, because
 // squash-merged branches are deleted from the remote after merge.
-func classify(w *Worktree) {
+func unpushedWork(w *Worktree) bool {
 	inPR := w.PR != nil && (w.PRRel == "same" || w.PRRel == "behind")
-	unpushed := w.Unpushed > 0 && !inPR
+	return w.Unpushed > 0 && !inPR
+}
+
+// hasLocalWork is what the hash and status checks would keep the worktree for.
+func hasLocalWork(w *Worktree) bool { return w.Modified+w.Untracked > 0 || unpushedWork(w) }
+
+// matchContent records which remote ref, if any, already has the worktree's
+// local work by content.
+func matchContent(r *Repo, w *Worktree, remote map[string]bool) {
+	w.ContentRef, w.ContentHistory = contentMatch(r.Path, w, r.Default, remote)
+	w.ContentInDefault = w.ContentRef != "" && w.ContentRef == r.Default
+}
+
+// classify decides whether the worktree can go. Only merged work is reclaimable.
+// Keep means the worktree holds something no remote has: uncommitted files or
+// local commits whose content (not just whose hash) is missing from every
+// candidate ref contentMatch tried.
+func classify(w *Worktree) {
+	covered := w.ContentRef != ""
+	unpushed := unpushedWork(w)
 	switch {
-	case w.Modified+w.Untracked > 0:
+	case w.Modified+w.Untracked > 0 && !covered:
 		var parts []string
 		if w.Modified > 0 {
 			parts = append(parts, fmt.Sprintf("%d modified", w.Modified))
@@ -695,19 +742,32 @@ func classify(w *Worktree) {
 			parts = append(parts, fmt.Sprintf("%d untracked", w.Untracked))
 		}
 		w.Verdict, w.Reason = "keep", "uncommitted: "+strings.Join(parts, ", ")
-	case unpushed:
+	case unpushed && !covered:
 		w.Verdict, w.Reason = "keep", counted(w.Unpushed, "commit exists", "commits exist")+" only locally"
 	case w.PR != nil && w.PR.State == "OPEN":
 		w.Verdict, w.Reason = "open", "PR in review; fully pushed"
 		if w.PR.IsDraft {
 			w.Reason = "draft PR; fully pushed"
 		}
+		if hasLocalWork(w) {
+			w.Reason += "; local changes already on " + contentWhere(w)
+		}
 	case w.PR != nil && w.PR.State == "MERGED":
 		w.Verdict, w.Reason = "merged", "merged: PR merged"
+		if hasLocalWork(w) {
+			w.Reason += "; local changes already on " + contentWhere(w)
+		}
+	case w.ContentInDefault && hasLocalWork(w):
+		w.Verdict, w.Reason = "merged", "merged: every local change is already in "+contentWhere(w)
 	case w.InDefault:
 		w.Verdict, w.Reason = "merged", "merged: no PR, HEAD already in default branch"
 	case w.PR != nil && w.PR.State == "CLOSED":
 		w.Verdict, w.Reason = "unmerged", "PR closed without merging"
+		if hasLocalWork(w) {
+			w.Reason += "; local changes already on " + contentWhere(w)
+		}
+	case covered && hasLocalWork(w):
+		w.Verdict, w.Reason = "unmerged", "no PR; local changes already on "+contentWhere(w)
 	case !w.RemoteBranch:
 		w.Verdict, w.Reason = "unmerged", "no PR; commits only on other remote branches"
 	default:

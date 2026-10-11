@@ -252,6 +252,12 @@ func TestClassify(t *testing.T) {
 		{"closed PR", Worktree{PR: &PR{State: "CLOSED"}, LastCommit: old}, "unmerged", "PR closed without merging"},
 		{"pushed, recent", Worktree{RemoteBranch: true, LastCommit: recent}, "unmerged", "no PR; branch pushed · committed in the last 24h"},
 		{"not on its own remote branch", Worktree{LastCommit: old}, "unmerged", "no PR; commits only on other remote branches"},
+		// Content beats hashes: local work a remote already has is not a reason to keep.
+		{"dirty, content in default", Worktree{Modified: 2, ContentRef: "origin/main", ContentInDefault: true}, "merged", "merged: every local change is already in origin/main"},
+		{"unpushed, content in default", Worktree{Unpushed: 2, LastCommit: old, ContentRef: "origin/main", ContentInDefault: true}, "merged", "merged: every local change is already in origin/main"},
+		{"dirty, content elsewhere", Worktree{Untracked: 1, LastCommit: old, ContentRef: "origin/v2"}, "unmerged", "no PR; local changes already on origin/v2"},
+		{"unpushed, PR diverged, content in PR", Worktree{Unpushed: 1, PR: &PR{State: "MERGED"}, PRRel: "diverged", ContentRef: "abc123"}, "merged", "merged: PR merged; local changes already on abc123"},
+		{"dirty, content in open PR", Worktree{Modified: 1, PR: &PR{State: "OPEN"}, ContentRef: "origin/feat"}, "open", "PR in review; fully pushed; local changes already on origin/feat"},
 	}
 	for _, c := range cases {
 		w := c.w
@@ -277,6 +283,17 @@ func TestJudgeRemoveCommands(t *testing.T) {
 	judge("/r/repo", w)
 	if w.RemoveCmd != "" {
 		t.Errorf("keep got a remove command: %q", w.RemoveCmd)
+	}
+	// Dirty but proven to be in the default branch: git would refuse it, so only this case forces.
+	w = &Worktree{Path: "/r/done", Modified: 1, InDefault: true, ContentRef: "origin/main", ContentInDefault: true}
+	judge("/r/repo", w)
+	if want := "git -C /r/repo worktree remove --force /r/done"; w.Verdict != "merged" || w.RemoveCmd != want {
+		t.Errorf("covered dirty: %s %q, want %q", w.Verdict, w.RemoveCmd, want)
+	}
+	w = &Worktree{Path: "/r/ahead", Unpushed: 1, ContentRef: "origin/main", ContentInDefault: true}
+	judge("/r/repo", w)
+	if want := "git -C /r/repo worktree remove /r/ahead"; w.RemoveCmd != want {
+		t.Errorf("covered clean tree forced: %q", w.RemoveCmd)
 	}
 	for _, w := range []*Worktree{
 		{Path: "/r/gone", Prunable: true, Hazard: "folder is gone, but 1 commit is reachable only from its HEAD"},

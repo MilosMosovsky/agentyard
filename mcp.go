@@ -69,7 +69,7 @@ func mcpInstructions() string {
 	list, _ := json.Marshal(gone)
 	return "agentyard watches every git worktree under the user's code folder and gives each one a verdict: " + help + ".\n" +
 		"Only " + strings.Join(gone, " and ") + " are reclaimable, and remove_worktrees refuses everything else. " +
-		"keep means uncommitted changes, commits that exist only locally, or another checkout inside the folder.\n" +
+		"keep means the worktree holds work no remote has (uncommitted files or local commits whose content is on no remote branch), or another checkout inside the folder.\n" +
 		"Cleanup: worktree_summary, then list_worktrees with verdict " + string(list) + ", then remove_worktrees with dry_run true, " +
 		"then remove_worktrees. Show the user the dry run's ignored files (.env and the like), which removal deletes.\n" +
 		"remove_worktrees re-scans each repository before acting, never forces and never deletes branches.\n" +
@@ -461,7 +461,7 @@ func (m *mcpServer) toolList() []mcpTool {
 		{
 			Name: "remove_worktrees", Title: "Remove reclaimable worktrees",
 			Description: "Removes worktrees that are safe to delete. Each repository is re-scanned first (fetch, status, PR lookup); " +
-				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove (never --force), " +
+				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove (with --force only for a dirty worktree whose every change was just re-proven to be on a remote), " +
 				"and everything else is refused with its reason. Ignored files in a removed worktree (.env, local databases) " +
 				"are deleted with it; each result lists them. Branches are never deleted. Try dry_run first.",
 			InputSchema: schema(map[string]any{
@@ -975,6 +975,14 @@ func (it *mcpRemoval) remove(repo string, w *Worktree) {
 		case strings.TrimSpace(head) != w.Sha:
 			it.refuse("HEAD moved after the fresh scan (a new commit?); list it again")
 			return
+		}
+		// --force skips git's own dirty check, so the content proof that allows it
+		// is redone at the last moment: a file edited since the scan fails it.
+		if w.Modified+w.Untracked > 0 {
+			if ref, _ := contentMatch(repo, w, w.ContentRef, nil); ref == "" || ref != w.ContentRef {
+				it.refuse("its uncommitted files changed after the fresh scan; list it again")
+				return
+			}
 		}
 	}
 	args := removeArgs(repo, w)

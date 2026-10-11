@@ -68,11 +68,21 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 
 | Verdict | Meaning |
 |---|---|
-| **Safe to delete** | PR merged (or HEAD already in the default branch) and the worktree is clean. The only verdict that is safe to delete. |
+| **Safe to delete** | PR merged (or HEAD already in the default branch), and nothing local is missing from the remote: the worktree is clean, or every uncommitted file and local commit is already in the default branch by content. The only verdict that is safe to delete. |
 | **Prunable** | The folder is gone; only git's registration is left, and every commit it had is on a branch, tag or remote. |
-| **Not merged** | Clean and pushed, but never merged (closed PR, or no PR). Needs a human decision. |
+| **Not merged** | Nothing local is missing from the remote, but it was never merged into the default branch (closed PR, no PR, or its changes live on another branch). Needs a human decision. |
 | **Open PR** | The branch has a PR in review. |
-| **Keep** | Uncommitted changes, commits that exist only on this machine, or another checkout inside its ignored folders. |
+| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, or another checkout inside its ignored folders. |
+
+Keep is decided by content, not by commit hash. Commits often reach GitHub another way (rebased,
+squash-merged, ported to another branch) and uncommitted files are often identical to what was pushed
+later, so a hash check alone keeps far more than it needs to. When a worktree has uncommitted files or
+commits no remote has by hash, agentyard snapshots its state (HEAD plus every uncommitted and
+untracked, non-ignored file) and merges it three-way into the default branch, the branch's own remote
+counterpart, its PR head, and the most recently updated remote branches containing its last pushed
+commit. If one of those merges is clean and changes nothing, that ref already has everything, and the
+worktree is judged as if it were clean and pushed. The snapshot uses a copy of the index and a
+throwaway object directory, so the repository itself is never written to.
 
 An interactive treemap shows measured disk usage by worktree or repository. Select a tile for its verdict and path, or jump to its row. Search, verdict, and repository filters update the chart, totals, and list together. Choose several values in the Filter menu; remove any selection individually.
 
@@ -418,9 +428,11 @@ How removal stays safe:
   A worktree whose ignored folders hold another checkout or worktree (say, `.worktrees/` inside it)
   is Keep, because removing it would delete that one too. So is a gone worktree whose detached HEAD
   had commits on no branch, tag or remote.
-- **git does the removing, one path at a time, never with `--force`.** Each runs
-  `git worktree remove <path>`, which refuses a worktree with changes, untracked files or a lock; for a
-  Prunable worktree it drops only that registration. Just before each one, HEAD is read again and a
+- **git does the removing, one path at a time.** Each runs `git worktree remove <path>`, which
+  refuses a worktree with changes, untracked files or a lock; for a Prunable worktree it drops only
+  that registration. The one exception is a dirty worktree whose every change is already in the
+  default branch (see how Keep is decided, above): git would refuse it, so it is removed with `--force` (once, so a lock
+  still stops it), and only after the content check is re-run at that moment. Just before each one, HEAD is read again and a
   worktree that gained a commit since the scan is refused. Branches are never deleted.
 - **Ignored files go with the worktree.** git does not count ignored files as changes, so `.env`,
   local databases or notes in a removed worktree are deleted. Build and dependency output aside, the
