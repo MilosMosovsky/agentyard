@@ -21,6 +21,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", tmp) // os.UserCacheDir
+	// Test repositories' origins are local folders, never GitHub.
+	prFetch = func(repo, _ string, patient bool) error { return fetch(repo, "", patient) }
 	*flagClaudeDir, *flagCodexDir, *flagRoot = tmp+"/.claude", tmp+"/.codex", tmp+"/code"
 	code := m.Run()
 	os.RemoveAll(tmp)

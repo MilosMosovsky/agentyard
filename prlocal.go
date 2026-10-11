@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,10 +50,21 @@ func (c *prLocalCache) validate(prs []*TrackedPR, snap *Snapshot, budget time.Du
 	}
 	live := map[prLocalKey]*PRLocal{}
 	deadline := time.Now().Add(budget)
+	fetched := map[string]bool{}
 	for _, pr := range prs {
 		pr.Local = nil
 		if path := paths[pr.Repo]; path != "" {
-			local, key := c.check(path, pr, deadline)
+			// The scan fetches on its own clock, so GitHub's newest commits may
+			// not be here yet: fetch each repository at most once a pass for them.
+			refresh := func() {
+				if !fetched[path] && time.Now().Before(deadline) {
+					fetched[path] = true
+					if err := prFetch(path, pr.Repo, false); err != nil {
+						log.Printf("prs: fetch %s for local checks: %v", filepath.Base(path), err)
+					}
+				}
+			}
+			local, key := c.check(path, pr, deadline, refresh)
 			pr.Local = local
 			if local.Checked {
 				live[key] = local
@@ -61,7 +74,10 @@ func (c *prLocalCache) validate(prs []*TrackedPR, snap *Snapshot, budget time.Du
 	c.pairs = live
 }
 
-func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*PRLocal, prLocalKey) {
+// prFetch is fetch; tests point it at their local remotes.
+var prFetch = fetch
+
+func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time, refresh func()) (*PRLocal, prLocalKey) {
 	local := &PRLocal{Path: path}
 	key := prLocalKey{path: path}
 	fail := func(note string) (*PRLocal, prLocalKey) {
@@ -74,7 +90,10 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*P
 	if !time.Now().Before(deadline) {
 		return fail("the local validation time limit was reached")
 	}
-	env := []string{"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=", "GIT_NO_REPLACE_OBJECTS=1"}
+	// Legacy grafts and replace refs rewrite history, and system attributes
+	// can pick merge drivers: none may shape the proof.
+	env := []string{"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL=", "GIT_NO_REPLACE_OBJECTS=1",
+		"GIT_GRAFT_FILE=" + os.DevNull, "GIT_ATTR_NOSYSTEM=1"}
 	g := func(args ...string) (string, error) {
 		left := time.Until(deadline)
 		if left <= 0 {
@@ -95,17 +114,27 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*P
 	if strings.TrimSpace(promisor) != "" {
 		return fail("partial clone: missing objects could require a fetch")
 	}
-	local.HeadSha, err = resolve("refs/remotes/origin/" + pr.Branch)
-	if err != nil || local.HeadSha != pr.HeadSha || pr.HeadSha == "" {
-		return fail("the local copy of the branch is not at the PR's head yet")
+	// The proof is against GitHub's own head and base commits, so a local
+	// branch that lags or was force-pushed cannot stand in for either.
+	if pr.HeadSha == "" || pr.BaseSha == "" {
+		return fail("GitHub did not report the PR's head and base commits")
 	}
-	local.BaseSha, err = resolve("refs/remotes/origin/" + pr.BaseRef)
-	if err != nil || pr.BaseRef == "" {
-		return fail("the local copy of base branch " + pr.BaseRef + " is missing or unavailable")
+	have := func(sha string) bool { _, err := resolve(sha); return err == nil }
+	if !have(pr.HeadSha) || !have(pr.BaseSha) {
+		refresh()
 	}
-	key.base, key.head = local.BaseSha, local.HeadSha
-	if cached := c.pairs[key]; cached != nil {
-		return cached, key
+	switch {
+	case !have(pr.HeadSha):
+		return fail("the PR's newest commit is not in the local clone yet")
+	case !have(pr.BaseSha):
+		return fail("the newest commit of base branch " + pr.BaseRef + " is not in the local clone yet")
+	}
+	local.HeadSha, local.BaseSha = pr.HeadSha, pr.BaseSha
+	// Repository settings are read on every check, cached or not: they can
+	// change while the commits stay the same.
+	shallow, err := g("rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return fail("could not check whether the local clone has its whole history")
 	}
 	// A configured driver can discard changes or run arbitrary commands in the
 	// repository. Such a merge cannot prove that the PR is safe to close.
@@ -115,6 +144,14 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*P
 	}
 	if strings.TrimSpace(drivers) != "" {
 		return fail("the repository uses a custom merge driver")
+	}
+	unprovable, err := mergeSettings(g, path)
+	if err != nil {
+		return fail("could not check the repository's merge settings")
+	}
+	key.base, key.head = local.BaseSha, local.HeadSha
+	if cached := c.pairs[key]; cached != nil {
+		return cached, key
 	}
 	out, err := g("rev-list", "--left-right", "--count", local.BaseSha+"..."+local.HeadSha)
 	counts := strings.Fields(out)
@@ -134,6 +171,11 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*P
 		return fail("could not find a shared base for the branches")
 	}
 	ancestor := strings.TrimSpace(out)
+	if strings.TrimSpace(shallow) == "true" {
+		if note := shallowGap(g, local.BaseSha, local.HeadSha); note != "" {
+			return fail(note)
+		}
+	}
 	changed := func(sha string) ([]string, error) {
 		out, err := g("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", ancestor, sha, "--")
 		return strings.Split(strings.TrimSuffix(out, "\x00"), "\x00"), err
@@ -173,7 +215,11 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*P
 	if err != nil {
 		return fail("could not read the base's tree")
 	}
-	out, err = g("merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", local.BaseSha, local.HeadSha)
+	if unprovable == "" {
+		unprovable = treeAttributes(g, local.BaseSha, local.HeadSha)
+	}
+	// Renormalizing would run the repository's clean and smudge filters.
+	out, err = g("-c", "merge.renormalize=false", "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", local.BaseSha, local.HeadSha)
 	if err != nil && !gitExit(err, 1) {
 		return fail("the local merge could not be checked (Git 2.38 or newer is required)")
 	}
@@ -194,7 +240,114 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time) (*P
 			return fail(fmt.Sprintf("the local merge returned %d unexpected paths", len(parts)-1))
 		}
 		local.Superseded = parts[0] == strings.TrimSpace(baseTree)
+		if local.Superseded && unprovable != "" {
+			local.Superseded = false
+			local.Note = "cannot prove it is already in the base: " + unprovable
+		}
 	}
 	local.Checked = true
 	return local, key
+}
+
+// mergeSettings says why a clean merge here would not prove a PR adds
+// nothing: a merge default or attributes outside the commits (a union merge
+// keeps both sides, so a PR's deletion can vanish without a conflict).
+func mergeSettings(g func(...string) (string, error), path string) (string, error) {
+	def, err := g("config", "--get", "merge.default")
+	if err != nil && !gitExit(err, 1) {
+		return "", err
+	}
+	if strings.TrimSpace(def) != "" {
+		return "merge.default is set", nil
+	}
+	common, err := g("rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	files := []string{filepath.Join(strings.TrimSpace(common), "info", "attributes")}
+	if global, err := g("config", "--path", "--get", "core.attributesFile"); err == nil && strings.TrimSpace(global) != "" {
+		files = append(files, strings.TrimSpace(global))
+	} else if err != nil && !gitExit(err, 1) {
+		return "", err
+	} else if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		files = append(files, filepath.Join(xdg, "git", "attributes"))
+	} else if home, err := os.UserHomeDir(); err == nil {
+		files = append(files, filepath.Join(home, ".config", "git", "attributes"))
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		if attrPattern.Match(b) {
+			return tilde(f) + " sets merge or filter attributes", nil
+		}
+	}
+	return "", nil
+}
+
+// treeAttributes is mergeSettings for the .gitattributes files in the two
+// commits; any that mention merge or filter rule the proof out.
+func treeAttributes(g func(...string) (string, error), commits ...string) string {
+	for _, c := range commits {
+		out, err := g("ls-tree", "-r", "-z", "--name-only", c)
+		if err != nil {
+			return "its .gitattributes files could not be read"
+		}
+		for _, p := range strings.Split(out, "\x00") {
+			if p != ".gitattributes" && !strings.HasSuffix(p, "/.gitattributes") {
+				continue
+			}
+			b, err := g("cat-file", "blob", c+":"+p)
+			if err != nil {
+				return "its .gitattributes files could not be read"
+			}
+			if attrPattern.MatchString(b) {
+				return p + " sets merge or filter attributes"
+			}
+		}
+	}
+	return ""
+}
+
+var attrPattern = regexp.MustCompile(`(?i)\b(merge|filter)\b`)
+
+// shallowGap says whether a shallow clone's cut-off lies between the two
+// commits and their merge bases. If it does, a nearer merge base may be hidden
+// behind it, and a merge from an older one can drop a PR's changes; a cut-off
+// further back hides nothing the merge reads.
+func shallowGap(g func(...string) (string, error), base, head string) string {
+	const gap = "shallow clone: its history between the PR and its base is incomplete"
+	common, err := g("rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return gap
+	}
+	b, err := os.ReadFile(filepath.Join(strings.TrimSpace(common), "shallow"))
+	if err != nil {
+		return gap
+	}
+	cut := map[string]bool{}
+	for _, sha := range strings.Fields(string(b)) {
+		cut[sha] = true
+	}
+	bases, err := g("merge-base", "--all", base, head)
+	if err != nil {
+		return gap
+	}
+	args := []string{"rev-list", base, head}
+	for _, sha := range strings.Fields(bases) {
+		args = append(args, "^"+sha) // a cut-off at a merge base hides only older history
+	}
+	between, err := g(args...)
+	if err != nil {
+		return gap
+	}
+	for _, sha := range strings.Fields(between) {
+		if cut[sha] {
+			return gap
+		}
+	}
+	return ""
 }

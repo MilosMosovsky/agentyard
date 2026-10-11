@@ -34,6 +34,7 @@ type TrackedPR struct {
 	Branch         string       `json:"branch"`
 	HeadSha        string       `json:"headSha"`
 	BaseRef        string       `json:"baseRef"`
+	BaseSha        string       `json:"baseSha"`
 	UpdatedAt      time.Time    `json:"updatedAt"`
 	CrossRepo      bool         `json:"crossRepo,omitempty"`
 	Local          *PRLocal     `json:"local,omitempty"`
@@ -125,7 +126,7 @@ const prSearchQuery = `query($q:String!,$after:String){
   search(query:$q,type:ISSUE,first:20,after:$after){
     pageInfo{hasNextPage endCursor}
     nodes{...on PullRequest{
-      id number title url isDraft createdAt headRefName headRefOid baseRefName updatedAt isCrossRepository additions deletions
+      id number title url isDraft createdAt headRefName headRefOid baseRefName baseRefOid updatedAt isCrossRepository additions deletions
       repository{nameWithOwner}
       reviewDecision mergeable mergeStateStatus
       mergeQueueEntry{position}
@@ -172,6 +173,7 @@ type searchPage struct {
 				HeadRefName    string    `json:"headRefName"`
 				HeadRefOid     string    `json:"headRefOid"`
 				BaseRefName    string    `json:"baseRefName"`
+				BaseRefOid     string    `json:"baseRefOid"`
 				UpdatedAt      time.Time `json:"updatedAt"`
 				CrossRepo      bool      `json:"isCrossRepository"`
 				Additions      int       `json:"additions"`
@@ -268,7 +270,7 @@ func (t *prTracker) poll() {
 			}
 			pr := &TrackedPR{ID: n.ID, Repo: n.Repository.NameWithOwner, Number: n.Number, Title: n.Title, URL: n.URL,
 				Branch: n.HeadRefName, IsDraft: n.IsDraft, CreatedAt: n.CreatedAt, Additions: n.Additions, Deletions: n.Deletions,
-				HeadSha: n.HeadRefOid, BaseRef: n.BaseRefName, UpdatedAt: n.UpdatedAt, CrossRepo: n.CrossRepo,
+				HeadSha: n.HeadRefOid, BaseRef: n.BaseRefName, BaseSha: n.BaseRefOid, UpdatedAt: n.UpdatedAt, CrossRepo: n.CrossRepo,
 				ReviewDecision: n.ReviewDecision, Mergeable: n.Mergeable, MergeState: n.MergeState}
 			if n.MergeQueue != nil {
 				pr.QueuePosition = max(n.MergeQueue.Position, 1)

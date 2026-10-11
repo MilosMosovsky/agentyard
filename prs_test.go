@@ -51,18 +51,19 @@ func TestReadyToMergeRequiresPositiveEvidence(t *testing.T) {
 func TestPRPollFieldsAndLocalSnapshot(t *testing.T) {
 	_, repo := gitRepo(t)
 	pr := localPR(t, repo, "main")
+	pr.BaseSha = pr.HeadSha
 	oldGraphQL := graphQL
 	t.Cleanup(func() { graphQL = oldGraphQL })
 	at := time.Now().UTC().Truncate(time.Second)
 	graphQL = func(query string, vars []string, out any) error {
-		if query != prSearchQuery || !strings.Contains(query, "headRefOid baseRefName updatedAt isCrossRepository") || len(vars) != 1 || vars[0] != "q="+flagPRQuery {
+		if query != prSearchQuery || !strings.Contains(query, "headRefOid baseRefName baseRefOid updatedAt isCrossRepository") || len(vars) != 1 || vars[0] != "q="+flagPRQuery {
 			t.Fatalf("unexpected poll query or vars: %s %v", query, vars)
 		}
 		body, err := json.Marshal(map[string]any{"data": map[string]any{
 			"rateLimit": map[string]any{"cost": 1, "remaining": 5000},
 			"search": map[string]any{"nodes": []any{map[string]any{
 				"id": "PR_fixture", "number": 42, "title": "Already landed", "url": "https://github.com/owner/repo/pull/42",
-				"headRefName": "main", "headRefOid": pr.HeadSha, "baseRefName": "main", "updatedAt": at,
+				"headRefName": "main", "headRefOid": pr.HeadSha, "baseRefName": "main", "baseRefOid": pr.BaseSha, "updatedAt": at,
 				"createdAt": at, "isCrossRepository": false, "repository": map[string]any{"nameWithOwner": pr.Repo},
 				"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"committedDate": at}}}},
 			}, map[string]any{"id": "PR_fork", "number": 43, "title": "Fork", "headRefName": "main", "headRefOid": pr.HeadSha,
@@ -81,7 +82,7 @@ func TestPRPollFieldsAndLocalSnapshot(t *testing.T) {
 		t.Fatalf("snapshot %+v", snapshot)
 	}
 	got := snapshot.PRs[0]
-	if got.HeadSha != pr.HeadSha || got.BaseRef != "main" || !got.UpdatedAt.Equal(at) || got.Local == nil || !got.Local.Checked || !got.Local.Superseded {
+	if got.HeadSha != pr.HeadSha || got.BaseRef != "main" || got.BaseSha != pr.BaseSha || !got.UpdatedAt.Equal(at) || got.Local == nil || !got.Local.Checked || !got.Local.Superseded {
 		t.Fatalf("new fields or validation lost: %+v", got)
 	}
 	if fork := snapshot.PRs[1]; !fork.CrossRepo || fork.Local == nil || fork.Local.Checked || !strings.Contains(fork.Local.Note, "fork PR") {

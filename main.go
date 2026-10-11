@@ -186,6 +186,9 @@ func runInput(timeout time.Duration, dir string, env []string, input, name strin
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	// A killed command's children (a filter, ssh) can hold its pipes open;
+	// stop waiting for them soon after.
+	cmd.WaitDelay = 5 * time.Second
 	if input != "" {
 		cmd.Stdin = strings.NewReader(input)
 	}

@@ -23,6 +23,10 @@ func checkLocal(t *testing.T, repo string, pr *TrackedPR) *PRLocal {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if pr.BaseSha == "" { // GitHub's base is the local one unless a test says otherwise
+		out, _ := git(repo, "rev-parse", "refs/remotes/origin/"+pr.BaseRef)
+		pr.BaseSha = strings.TrimSpace(out)
+	}
 	var cache prLocalCache
 	cache.validate([]*TrackedPR{pr}, &Snapshot{Repos: []*Repo{{Path: repo, Slug: pr.Repo}}}, time.Minute)
 	if after := gitT(t, repo, "count-objects", "-v"); after != before {
@@ -83,10 +87,10 @@ func TestPRLocalUnavailable(t *testing.T) {
 		name, note string
 		edit       func(*TrackedPR)
 	}{
-		{"head mismatch", "the local copy of the branch is not at the PR's head yet", func(pr *TrackedPR) { pr.HeadSha = "wrong" }},
-		{"head missing", "the local copy of the branch is not at the PR's head yet", func(pr *TrackedPR) { pr.Branch = "missing" }},
+		{"head not fetched", "the PR's newest commit is not in the local clone yet", func(pr *TrackedPR) { pr.HeadSha = strings.Repeat("ab", 20) }},
+		{"head unknown", "did not report the PR's head", func(pr *TrackedPR) { pr.HeadSha = "" }},
 		{"fork", "fork PR: its branch is not in the local clone", func(pr *TrackedPR) { pr.CrossRepo = true }},
-		{"base missing", "base branch absent is missing", func(pr *TrackedPR) { pr.BaseRef = "absent" }},
+		{"base not fetched", "base branch main is not in the local clone yet", func(pr *TrackedPR) { pr.BaseSha = strings.Repeat("cd", 20) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pr := localPR(t, repo, "main")
@@ -125,6 +129,7 @@ func TestPRLocalUnavailable(t *testing.T) {
 func TestPRLocalCacheAndMovedRefs(t *testing.T) {
 	_, repo := gitRepo(t)
 	pr := localPR(t, repo, "main")
+	pr.BaseSha = pr.HeadSha
 	snap := &Snapshot{Repos: []*Repo{{Path: repo, Slug: pr.Repo}}}
 	var cache prLocalCache
 	cache.validate([]*TrackedPR{pr}, snap, time.Minute)
@@ -135,11 +140,8 @@ func TestPRLocalCacheAndMovedRefs(t *testing.T) {
 	}
 	writeIn(t, repo, "new.txt", "new\n", true)
 	gitT(t, repo, "push", "-q", "origin", "main")
-	cache.validate([]*TrackedPR{pr}, snap, time.Minute)
-	if pr.Local.Checked || len(cache.pairs) != 0 {
-		t.Fatal("cached proof survived a head mismatch")
-	}
 	pr.HeadSha = strings.TrimSpace(gitT(t, repo, "rev-parse", "HEAD"))
+	pr.BaseSha = pr.HeadSha
 	cache.validate([]*TrackedPR{pr}, snap, time.Minute)
 	if !pr.Local.Checked || pr.Local == first || pr.Local.BaseSha == first.BaseSha {
 		t.Fatal("moved pair was not recomputed")
@@ -197,4 +199,146 @@ func TestPRLocalIgnoresReplacementObjects(t *testing.T) {
 	if got := checkLocal(t, repo, pr); !got.Checked || got.Superseded || got.Ahead != 1 {
 		t.Fatalf("replacement hid the PR's work: %+v", got)
 	}
+}
+
+// squashedPR is a PR whose every change main already has, through a squash.
+func squashedPR(t *testing.T) (repo string, pr *TrackedPR) {
+	t.Helper()
+	_, repo = gitRepo(t)
+	gitT(t, repo, "switch", "-q", "-c", "feature")
+	writeIn(t, repo, "README", "feature\n", true)
+	gitT(t, repo, "push", "-q", "origin", "feature")
+	gitT(t, repo, "switch", "-q", "main")
+	gitT(t, repo, "merge", "--squash", "feature")
+	gitT(t, repo, "commit", "-q", "-m", "squashed")
+	gitT(t, repo, "push", "-q", "origin", "main")
+	return repo, localPR(t, repo, "feature")
+}
+
+// Only a merge that cannot have dropped anything proves a PR is already in
+// its base; everything that could fake that proof rules it out.
+func TestPRLocalCloseProofGuards(t *testing.T) {
+	if got := func() *PRLocal { repo, pr := squashedPR(t); return checkLocal(t, repo, pr) }(); !got.Checked || !got.Superseded {
+		t.Fatalf("setup: a squashed PR is not superseded: %+v", got)
+	}
+	unprovable := func(t *testing.T, got *PRLocal, note string) {
+		t.Helper()
+		if got.Superseded || !strings.Contains(got.Note, note) {
+			t.Fatalf("got %+v, want not superseded with %q", got, note)
+		}
+	}
+	t.Run("GitHub's base differs from the local one", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		pr.BaseSha = strings.TrimSpace(gitT(t, repo, "rev-parse", "main~1")) // force-pushed back before the squash
+		if got := checkLocal(t, repo, pr); !got.Checked || got.Superseded || got.BaseSha != pr.BaseSha {
+			t.Fatalf("checked against the local base, not GitHub's: %+v", got)
+		}
+	})
+	t.Run("GitHub's newest commits fetched for the check", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		// The PR moves on GitHub after the last fetch: a commit only the remote has.
+		other := filepath.Join(t.TempDir(), "other")
+		gitT(t, repo, "clone", "-q", "-b", "feature", strings.TrimSpace(gitT(t, repo, "remote", "get-url", "origin")), other)
+		writeIn(t, other, "more.txt", "pushed from elsewhere\n", true)
+		gitT(t, other, "push", "-q", "origin", "feature")
+		pr.HeadSha = strings.TrimSpace(gitT(t, other, "rev-parse", "HEAD"))
+		pr.BaseSha = strings.TrimSpace(gitT(t, repo, "rev-parse", "main"))
+		var cache prLocalCache // not checkLocal: this fetch adds objects, as the scan's would
+		cache.validate([]*TrackedPR{pr}, &Snapshot{Repos: []*Repo{{Path: repo, Slug: pr.Repo}}}, time.Minute)
+		if got := pr.Local; !got.Checked || got.Superseded || got.HeadSha != pr.HeadSha || got.Ahead != 2 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("graft", func(t *testing.T) {
+		_, repo := gitRepo(t)
+		gitT(t, repo, "switch", "-q", "-c", "feature")
+		writeIn(t, repo, "work.txt", "only in the PR\n", true)
+		gitT(t, repo, "push", "-q", "origin", "feature")
+		gitT(t, repo, "switch", "-q", "main")
+		writeIn(t, repo, "other.txt", "base moved\n", true)
+		gitT(t, repo, "push", "-q", "origin", "main")
+		head := strings.TrimSpace(gitT(t, repo, "rev-parse", "feature"))
+		base := strings.TrimSpace(gitT(t, repo, "rev-parse", "main"))
+		// The graft makes the PR's head an ancestor of the base.
+		os.WriteFile(filepath.Join(repo, ".git", "info", "grafts"), []byte(base+" "+head+"\n"), 0o644)
+		if got := checkLocal(t, repo, localPR(t, repo, "feature")); !got.Checked || got.Superseded || got.Ahead != 1 {
+			t.Fatalf("a graft faked the proof: %+v", got)
+		}
+	})
+	t.Run("shallow clone cut between the PR and its base", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		// The cut-off is the PR's own commit: what lies behind it is hidden.
+		os.WriteFile(filepath.Join(repo, ".git", "shallow"), []byte(pr.HeadSha+"\n"), 0o644)
+		if got := checkLocal(t, repo, pr); got.Checked || got.Superseded {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("shallow clone cut on one of two paths to the merge base", func(t *testing.T) {
+		_, repo := gitRepo(t)
+		gitT(t, repo, "switch", "-q", "-c", "feature")
+		writeIn(t, repo, "work.txt", "the PR\n", true)
+		gitT(t, repo, "push", "-q", "origin", "feature")
+		gitT(t, repo, "switch", "-q", "-c", "side", "main")
+		writeIn(t, repo, "side.txt", "side\n", true)
+		gitT(t, repo, "switch", "-q", "main")
+		writeIn(t, repo, "main.txt", "main\n", true)
+		cut := strings.TrimSpace(gitT(t, repo, "rev-parse", "HEAD"))
+		gitT(t, repo, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+		gitT(t, repo, "push", "-q", "origin", "main")
+		// The merge base is still reachable through side.txt's commit, not through main.txt's.
+		os.WriteFile(filepath.Join(repo, ".git", "shallow"), []byte(cut+"\n"), 0o644)
+		if got := checkLocal(t, repo, localPR(t, repo, "feature")); got.Checked || !strings.Contains(got.Note, "history between the PR and its base is incomplete") {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("shallow clone cut further back", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		root := strings.TrimSpace(gitT(t, repo, "rev-list", "--max-parents=0", "HEAD"))
+		os.WriteFile(filepath.Join(repo, ".git", "shallow"), []byte(root+"\n"), 0o644)
+		if got := checkLocal(t, repo, pr); !got.Checked || !got.Superseded {
+			t.Fatalf("a cut-off behind the merge base blocked the proof: %+v", got)
+		}
+	})
+	t.Run("union merge in the base's attributes", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		writeIn(t, repo, ".gitattributes", "* merge=union\n", true)
+		gitT(t, repo, "push", "-q", "origin", "main")
+		pr.BaseSha = ""
+		unprovable(t, checkLocal(t, repo, pr), ".gitattributes sets merge or filter attributes")
+	})
+	t.Run("union merge in info/attributes", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* merge=union\n"), 0o644)
+		unprovable(t, checkLocal(t, repo, pr), "sets merge or filter attributes")
+	})
+	t.Run("merge.default", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		gitT(t, repo, "config", "merge.default", "union")
+		unprovable(t, checkLocal(t, repo, pr), "merge.default")
+	})
+	t.Run("filters never run", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		ran := filepath.Join(repo, "filter-ran")
+		gitT(t, repo, "config", "merge.renormalize", "true")
+		gitT(t, repo, "config", "filter.mark.clean", "touch '"+ran+"'; cat")
+		gitT(t, repo, "config", "filter.mark.smudge", "touch '"+ran+"'; cat")
+		os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* filter=mark\n"), 0o644)
+		unprovable(t, checkLocal(t, repo, pr), "sets merge or filter attributes")
+		if exists(ran) {
+			t.Error("the merge ran a filter")
+		}
+	})
+	t.Run("a cached proof is re-checked against the settings", func(t *testing.T) {
+		repo, pr := squashedPR(t)
+		pr.BaseSha = strings.TrimSpace(gitT(t, repo, "rev-parse", "refs/remotes/origin/main"))
+		snap := &Snapshot{Repos: []*Repo{{Path: repo, Slug: pr.Repo}}}
+		var cache prLocalCache
+		if cache.validate([]*TrackedPR{pr}, snap, time.Minute); !pr.Local.Superseded {
+			t.Fatalf("setup: %+v", pr.Local)
+		}
+		gitT(t, repo, "config", "merge.discard.driver", "true")
+		if cache.validate([]*TrackedPR{pr}, snap, time.Minute); pr.Local.Checked || pr.Local.Superseded {
+			t.Fatalf("the cache kept a proof the settings now rule out: %+v", pr.Local)
+		}
+	})
 }

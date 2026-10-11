@@ -216,14 +216,18 @@ this order; within each lane, stale PRs come first, then the oldest opened PRs. 
 | **Decide** | Finish a draft or close it. |
 | **Waiting** | Wait for running checks, the merge queue, branch protection or missing evidence. |
 
-Local validation runs in the background using only the remote branches fetched by the worktree scan.
-The local head must match GitHub's PR head exactly. Fork branches, missing branches and repositories
-without a local clone are marked as not validated. Each row shows its age, base branch, conflicts,
+Local validation runs in the background after each PR poll, on the exact head and base commits
+GitHub reports. When the local clone does not have them yet, agentyard fetches that repository once
+(the same fetch the worktree scan runs). Fork PRs and repositories without a local clone are marked
+as not validated. Each row shows its age, base branch, conflicts,
 overlap with base changes, and any linked local worktree.
 
-The close lane requires proof: a clean local three-way merge whose resulting tree is identical to
-the base's tree. This catches changes already cherry-picked or squashed into the base. Git 2.38 or
-newer is required; errors, partial clones and custom merge drivers leave the PR unchecked. The merge writes objects
+The close lane requires proof: a clean local three-way merge of GitHub's head into GitHub's base whose
+resulting tree is identical to the base's tree. This catches changes already cherry-picked or squashed
+into the base. Anything that could fake that proof rules it out: errors, partial clones, a shallow
+clone cut between the PR and its base, custom merge drivers, `merge.default`, and merge or filter
+attributes (a union merge can drop a PR's deletion without a conflict). Grafts and replace refs are
+ignored, filters never run, and Git 2.38 or newer is required. The merge writes objects
 only to a temporary directory that is removed afterwards, leaving the repository and index unchanged.
 Results are cached by the repository and both commit SHAs and saved with the PR snapshot.
 
