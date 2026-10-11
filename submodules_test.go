@@ -78,7 +78,7 @@ func TestSubmoduleWorkIsKept(t *testing.T) {
 		writeIn(t, sub, "work.txt", "only here\n", true)
 		// The superproject sees a new gitlink; revert that so only the submodule holds the work.
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
-		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
 		gitT(t, sub, "rev-parse", "--verify", "-q", "refs/heads/work")
 	})
 	t.Run("stash", func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestSubmoduleWorkIsKept(t *testing.T) {
 		if exists(filepath.Join(sub, "lib.txt")) {
 			t.Fatal("setup: deinit left the checkout")
 		}
-		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "README")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "README")
 	})
 }
 
@@ -152,9 +152,12 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		sub := filepath.Join(wt, "sub")
 		gitT(t, sub, "switch", "-q", "--detach")
 		writeIn(t, sub, "tagged.txt", "only in a tag\n", true)
-		gitT(t, sub, "tag", "mine")
+		gitT(t, sub, "tag", "-a", "-m", "inner", "inner")
+		gitT(t, sub, "tag", "-a", "-m", "outer", "outer", "inner") // a tag of a tag
+		gitT(t, sub, "tag", "-d", "inner")
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
-		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+		gitT(t, sub, "reflog", "expire", "--expire=all", "--all")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
 	})
 	t.Run("reflog only", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "subreflog")
@@ -162,7 +165,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		gitT(t, sub, "switch", "-q", "--detach")
 		writeIn(t, sub, "lost.txt", "only in the reflog\n", true)
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
-		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
 	})
 	t.Run("embedded git folder", func(t *testing.T) {
 		base, repo, wt := subRepo(t, "subembedded")
@@ -175,7 +178,34 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		if fi, err := os.Stat(filepath.Join(sub, ".git")); err != nil || !fi.IsDir() {
 			t.Fatalf("setup: sub/.git is not a folder: %v", err)
 		}
-		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+	})
+	t.Run("gitfile into an ignored folder", func(t *testing.T) {
+		base, repo, wt := subRepo(t, "subgitfile")
+		sub := filepath.Join(wt, "sub")
+		os.RemoveAll(sub)
+		writeIn(t, wt, ".gitignore", ".repos/\n", false)
+		os.MkdirAll(filepath.Join(wt, ".repos"), 0o755)
+		gitT(t, wt, "clone", "-q", "--separate-git-dir", filepath.Join(wt, ".repos", "lib"), filepath.Join(base, "lib.git"), sub)
+		gitT(t, sub, "switch", "-q", "-c", "local")
+		writeIn(t, sub, "local.txt", "in .repos/lib only\n", true)
+		gitT(t, sub, "switch", "-q", "main")
+		gitT(t, wt, "add", ".gitignore")
+		gitT(t, wt, "commit", "-q", "-m", "ignore")
+		gitT(t, wt, "push", "-q", "origin", "HEAD:main")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+	})
+	t.Run("pushed only to another remote", func(t *testing.T) {
+		base, repo, wt := subRepo(t, "subbackup")
+		sub := filepath.Join(wt, "sub")
+		backup := filepath.Join(base, "backup.git")
+		gitT(t, base, "init", "-q", "--bare", backup)
+		gitT(t, sub, "remote", "add", "backup", backup)
+		gitT(t, sub, "switch", "-q", "-c", "work")
+		writeIn(t, sub, "work.txt", "on backup only\n", true)
+		gitT(t, sub, "push", "-q", "backup", "work")
+		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
 	})
 	t.Run("inactive but checked out", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "subinactive")
@@ -198,7 +228,7 @@ func TestSubmoduleStaleRemoteRefRefetched(t *testing.T) {
 	gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
 	gitT(t, filepath.Join(base, "lib"), "push", "-q", "origin", "--delete", "work")
 	_, got := removeNow(scanned(t, repo), removeRequest{Paths: []string{wt}})
-	if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, "on no remote") {
+	if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, "on no branch of its origin") {
 		t.Fatalf("stale remote branch: %+v", got[wt])
 	}
 	gitT(t, sub, "rev-parse", "--verify", "-q", "refs/heads/work")
@@ -214,7 +244,7 @@ func TestGoneWorktreeSubmoduleCommitsKept(t *testing.T) {
 	gitDir := strings.TrimSpace(gitT(t, sub, "rev-parse", "--absolute-git-dir"))
 	os.RemoveAll(wt)
 	snap := scanned(t, repo)
-	if w := worktreeIn(t, snap, wt); reclaimable(w.Verdict) || !strings.Contains(w.Reason, "on no remote") {
+	if w := worktreeIn(t, snap, wt); reclaimable(w.Verdict) || !strings.Contains(w.Reason, "on no branch of its origin") {
 		t.Fatalf("gone worktree: %s %q", w.Verdict, w.Reason)
 	}
 	if _, got := removeNow(snap, removeRequest{Paths: []string{wt}}); got[wt] == nil || got[wt].Outcome != "refused" {
@@ -279,6 +309,28 @@ func TestForcedRemovalLastLook(t *testing.T) {
 			gitT(t, w.Path, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init")
 		}
 		refused(t, repo, wt, "submodules changed", "sub/lib.txt", snap)
+	})
+	t.Run("file marked assume-unchanged", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "latehidden")
+		snap := scanned(t, repo)
+		defer func(f func(*Worktree)) { beforeRemove = f }(beforeRemove)
+		beforeRemove = func(w *Worktree) {
+			gitT(t, w.Path, "update-index", "--assume-unchanged", "README")
+			writeIn(t, w.Path, "README", "edited, hidden from status\n", false)
+		}
+		refused(t, repo, wt, "assume-unchanged", "README", snap)
+	})
+	t.Run("file inside an ignored folder", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "lateinignored")
+		gitDir := strings.TrimSpace(gitT(t, wt, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+		os.MkdirAll(filepath.Join(gitDir, "info"), 0o755)
+		os.WriteFile(filepath.Join(gitDir, "info", "exclude"), []byte("local/\n"), 0o644)
+		os.MkdirAll(filepath.Join(wt, "local"), 0o755)
+		writeIn(t, wt, "local/old.txt", "old\n", false)
+		snap := scanned(t, repo)
+		defer func(f func(*Worktree)) { beforeRemove = f }(beforeRemove)
+		beforeRemove = func(w *Worktree) { writeIn(t, w.Path, "local/valuable.txt", "new\n", false) }
+		refused(t, repo, wt, "ignored files changed", "local/valuable.txt", snap)
 	})
 	t.Run("ignored file in a submodule", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "lateignored")

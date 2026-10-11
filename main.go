@@ -385,16 +385,20 @@ func fetchArgs(slug string) []string {
 	return append(args, "fetch", "--prune", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules", "origin")
 }
 
-// fetchGitDir fetches a submodule repository's origin once.
-func fetchGitDir(gitDir string) error {
-	slug := ""
-	dirs := []string{"--git-dir=" + gitDir, "--work-tree=" + gitDir} // see subScan.repo
-	if out, err := run(gitTimeout, "", "git", append(dirs, "remote", "get-url", "origin")...); err == nil {
-		if m := githubRe.FindStringSubmatch(strings.TrimSpace(out)); m != nil {
-			slug = m[1]
-		}
+// fetchGitDir fetches the branches of a submodule repository's origin into
+// refs/remotes/origin/, whatever its configured refspecs, and nothing else:
+// no tags, so no local tag is pruned. url is origin's URL.
+func fetchGitDir(dirs []string, url string) error {
+	from := url
+	args := []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "fetch.pruneTags=false", "-c", "remote.origin.pruneTags=false"}
+	if m := githubRe.FindStringSubmatch(url); m != nil {
+		// HTTPS through gh's token, as fetch does.
+		from = "https://github.com/" + m[1] + ".git"
+		args = append(args, "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")
 	}
-	_, err := run(3*time.Minute, "", "git", append(dirs, fetchArgs(slug)...)...)
+	args = append(args, "fetch", "--prune", "--no-tags", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules",
+		from, "+refs/heads/*:refs/remotes/origin/*")
+	_, err := run(3*time.Minute, "", "git", append(dirs, args...)...)
 	return err
 }
 
@@ -712,17 +716,32 @@ func ignoredContent(wt string) (ignored []string, sum, hazard string) {
 	if more > 0 {
 		ignored = append(ignored, fmt.Sprintf("… %d more", more))
 	}
-	sum = hex.EncodeToString(h.Sum(nil))
 	all, err := git(wt, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
 	if err != nil {
-		return ignored, sum, "cannot check its ignored files for nested checkouts: " + err.Error()
+		return ignored, "", "cannot check its ignored files for nested checkouts: " + err.Error()
 	}
+	h.Write([]byte("\x00\x00"))
 	for _, p := range strings.Split(all, "\x00") {
 		if strings.HasSuffix(p, "/") {
-			return ignored, sum, "another git checkout sits in its ignored folder " + p + ", and removing this worktree would delete it"
+			return ignored, "", "another git checkout sits in its ignored folder " + p + ", and removing this worktree would delete it"
+		}
+		// Every file counts, so one new inside an ignored folder changes the
+		// sum too; build and dependency output, rewritten all the time, does not.
+		if !inSkipDir(p) {
+			h.Write([]byte(p + "\x00"))
 		}
 	}
-	return ignored, sum, ""
+	return ignored, hex.EncodeToString(h.Sum(nil)), ""
+}
+
+// inSkipDir says p lies in build or dependency output (skipDirs).
+func inSkipDir(p string) bool {
+	for _, part := range strings.Split(p, "/") {
+		if skipDirs[part] || part == ".DS_Store" {
+			return true
+		}
+	}
+	return false
 }
 
 // trackedHazard is tracked work that git status cannot see: a file on disk

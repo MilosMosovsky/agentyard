@@ -335,12 +335,24 @@ func lastLook(w *Worktree) string {
 			return "it has uncommitted changes since the fresh scan"
 		}
 	}
+	if hz := trackedHazard(w.Path); hz != "" {
+		return hz
+	}
+	_, isum, hz := ignoredContent(w.Path)
+	if hz != "" {
+		return hz
+	}
 	n, _, sum, hz := submoduleState(w.Path, false)
+	if sum != "" {
+		isum += "+" + sum
+	}
 	switch {
 	case hz != "":
 		return hz
 	case n != w.Submodules || sum != w.submoduleSum:
 		return "its submodules changed after the fresh scan"
+	case isum != w.ignoredSum:
+		return "its ignored files changed after the fresh scan"
 	}
 	return ""
 }

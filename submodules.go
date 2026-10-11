@@ -41,6 +41,10 @@ func submoduleState(wt string, fresh bool) (n int, ignored []string, sum, hazard
 		return 0, nil, "", "cannot find its git folder: " + err.Error()
 	}
 	s := newSubScan(fresh)
+	s.root = wt
+	if real, err := filepath.EvalSymlinks(wt); err == nil {
+		s.root = real
+	}
 	hazard = s.checkouts(wt, "")
 	if hazard == "" {
 		hazard = s.repos(filepath.Join(strings.TrimSpace(gitDir), "modules"))
@@ -66,22 +70,31 @@ func orphanedModules(repo, path string, fresh bool) string {
 	if err != nil {
 		return "cannot find its git folder: " + err.Error()
 	}
-	files, _ := filepath.Glob(filepath.Join(strings.TrimSpace(common), "worktrees", "*", "gitdir"))
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil || filepath.Clean(strings.TrimSpace(string(b))) != filepath.Join(path, ".git") {
-			continue
-		}
-		return newSubScan(fresh).repos(filepath.Join(filepath.Dir(f), "modules"))
+	admin := filepath.Join(strings.TrimSpace(common), "worktrees")
+	entries, err := os.ReadDir(admin)
+	if err != nil {
+		return "cannot read its registration: " + err.Error()
 	}
-	return ""
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(admin, e.Name(), "gitdir"))
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case err != nil:
+			return "cannot read its registration: " + err.Error()
+		case filepath.Clean(strings.TrimSpace(string(b))) == filepath.Join(path, ".git"):
+			return newSubScan(fresh).repos(filepath.Join(admin, e.Name(), "modules"))
+		}
+	}
+	return "cannot find its registration to check the submodule repositories it holds"
 }
 
 type subScan struct {
 	fresh    bool
 	n        int
 	ignored  []string
-	embedded []string // git folders inside a checkout (sub/.git), not under modules/
+	root     string   // the worktree, symlinks resolved
+	embedded []string // repositories inside the worktree's folder (sub/.git, or wherever a gitfile points), not under modules/
 	seen     map[string]bool
 	h        hash.Hash
 }
@@ -108,7 +121,7 @@ func (s *subScan) checkouts(dir, prefix string) string {
 			return "the submodule " + name + "/ has merge conflicts"
 		}
 		sub := filepath.Join(dir, path)
-		dotGit, err := os.Lstat(filepath.Join(sub, ".git"))
+		_, err := os.Lstat(filepath.Join(sub, ".git"))
 		if errors.Is(err, fs.ErrNotExist) {
 			entries, err := os.ReadDir(sub)
 			switch {
@@ -144,8 +157,18 @@ func (s *subScan) checkouts(dir, prefix string) string {
 		}
 		s.h.Write([]byte(name + "\x00" + isum + "\x00"))
 		s.n++
-		if dotGit.IsDir() {
-			s.embedded = append(s.embedded, filepath.Join(sub, ".git"))
+		// Its repository, wherever .git (a folder, a gitfile, a symlink) leads:
+		// one inside the worktree's folder goes with it.
+		gd, err := git(sub, "rev-parse", "--absolute-git-dir")
+		if err != nil {
+			return "cannot find the submodule " + name + "/'s repository: " + err.Error()
+		}
+		gd = strings.TrimSpace(gd)
+		if real, err := filepath.EvalSymlinks(gd); err == nil {
+			gd = real
+		}
+		if rel, err := filepath.Rel(s.root, gd); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+			s.embedded = append(s.embedded, gd)
 		}
 		if hz := s.checkouts(sub, name+"/"); hz != "" {
 			return hz
@@ -183,8 +206,11 @@ func (s *subScan) repos(root string) string {
 	return hazard
 }
 
-// repo checks one submodule repository for commits that no remote-tracking
-// ref has, in HEAD, its refs (tags included) and their reflogs.
+// repo checks one submodule repository for commits that only it has: in
+// HEAD, any ref other than a remote-tracking one (branches, tags, notes) and
+// their reflogs, against origin's branches. Only origin vouches, since only
+// it is fetched: another remote's refs may be stale. The local side is read
+// before the fetch, so nothing the fetch changes can hide it.
 func (s *subScan) repo(gd string) string {
 	key := gd
 	if real, err := filepath.EvalSymlinks(gd); err == nil {
@@ -204,38 +230,44 @@ func (s *subScan) repo(gd string) string {
 	gitc := func(args ...string) (string, error) {
 		return run(gitTimeout, "", "git", append(dirs, args...)...)
 	}
+	if entries, err := os.ReadDir(filepath.Join(gd, "worktrees")); err == nil && len(entries) > 0 {
+		return "the submodule " + name + " has worktrees of its own, and removing this one would delete the repository they use"
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "cannot read the submodule " + name + "'s worktrees: " + err.Error()
+	}
+	refs, err := gitc("for-each-ref", "--format=%(objectname) %(refname)")
+	if err != nil {
+		return "cannot read the submodule " + name + "'s refs: " + err.Error()
+	}
+	// rev-list peels tags, tags of tags too, and skips trees and blobs.
+	keep := []string{"HEAD"}
+	for _, l := range strings.Split(strings.TrimSpace(refs), "\n") {
+		obj, ref, ok := strings.Cut(l, " ")
+		switch {
+		case !ok:
+		case ref == "refs/stash":
+			return "the submodule " + name + " has a stash, and removing the worktree would delete it"
+		case !strings.HasPrefix(ref, "refs/remotes/"):
+			keep = append(keep, obj)
+		}
+	}
+	logged, err := reflogCommits(gd, dirs)
+	if err != nil {
+		return "cannot read the submodule " + name + "'s reflogs: " + err.Error()
+	}
+	keep = append(keep, logged...)
 	if s.fresh {
-		if _, err := gitc("remote", "get-url", "origin"); err == nil {
-			if err := fetchGitDir(gd); err != nil {
+		if url, err := gitc("remote", "get-url", "origin"); err == nil {
+			if err := fetchGitDir(dirs, strings.TrimSpace(url)); err != nil {
 				return "cannot fetch the submodule " + name + " to re-prove its commits are on its remote: " + err.Error()
 			}
 		}
 	}
-	refs, err := gitc("for-each-ref", "--format=%(objectname) %(objecttype) %(*objecttype) %(refname)")
+	origin, err := gitc("for-each-ref", "--format=^%(objectname)", "refs/remotes/origin/")
 	if err != nil {
-		return "cannot read the submodule " + name + "'s refs: " + err.Error()
+		return "cannot read the submodule " + name + "'s remote branches: " + err.Error()
 	}
-	keep, drop := []string{"HEAD"}, []string{}
-	for _, l := range strings.Split(strings.TrimSpace(refs), "\n") {
-		f := strings.Fields(l)
-		if len(f) < 3 {
-			continue
-		}
-		obj, ref := f[0], f[len(f)-1]
-		switch {
-		case ref == "refs/stash":
-			return "the submodule " + name + " has a stash, and removing the worktree would delete it"
-		case strings.HasPrefix(ref, "refs/remotes/"):
-			drop = append(drop, "^"+obj)
-		case f[1] == "commit" || (len(f) == 4 && f[2] == "commit"): // a commit, or a tag of one
-			keep = append(keep, obj)
-		}
-	}
-	logged, err := reflogCommits(filepath.Join(gd, "logs"))
-	if err != nil {
-		return "cannot read the submodule " + name + "'s reflogs: " + err.Error()
-	}
-	input := strings.Join(append(append(keep, logged...), drop...), "\n") + "\n"
+	input := strings.Join(keep, "\n") + "\n" + origin
 	// --ignore-missing: an unborn HEAD, and reflog entries whose commits were
 	// pruned long ago, name nothing to lose.
 	cnt, err := runInput(gitTimeout, "", nil, input, "git", append(dirs, "rev-list", "--count", "--ignore-missing", "--stdin")...)
@@ -244,15 +276,21 @@ func (s *subScan) repo(gd string) string {
 	}
 	if k, _ := strconv.Atoi(strings.TrimSpace(cnt)); k > 0 {
 		return "the submodule " + name + " has " + counted(k, "commit", "commits") +
-			" on no remote (in HEAD, a branch, a tag or a reflog), and removing the worktree would delete them"
+			" on no branch of its origin (in HEAD, a branch, a tag or a reflog), and removing the worktree would delete them"
 	}
 	return ""
 }
 
-// reflogCommits lists the commits the reflogs under dir name, deduplicated,
-// except those of remote-tracking refs: what a remote branch once held is
-// not local work.
-func reflogCommits(dir string) ([]string, error) {
+// reflogCommits lists the commits a repository's reflogs name, except those
+// of remote-tracking refs: what a remote branch once held is not local work.
+// Loose reflogs are read from logs/; a reftable repository's are in its
+// tables, so git lists them all, remote-tracking ones included.
+func reflogCommits(gd string, dirs []string) ([]string, error) {
+	if _, err := os.Stat(filepath.Join(gd, "reftable")); err == nil {
+		out, err := run(gitTimeout, "", "git", append(dirs, "rev-list", "--reflog", "--no-walk")...)
+		return strings.Fields(out), err
+	}
+	dir := filepath.Join(gd, "logs")
 	seen := map[string]bool{}
 	var out []string
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {

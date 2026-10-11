@@ -21,14 +21,17 @@ All notable changes are documented here. The format follows
   from the index's gitlinks, inactive ones included) is checked like a worktree: uncommitted or
   untracked files, assume-unchanged or skip-worktree files, another checkout in its ignored folders.
   Every submodule repository removal would delete (under the worktree's git dir, nested and
-  deinitialized ones included, or embedded as `sub/.git`) is checked for a stash and for commits no
-  remote-tracking ref has in HEAD, a branch, a tag or a reflog; a removal's fresh scan fetches each
-  first. Any of those keeps the worktree, with the reason; otherwise its verdict is the one it would
+  deinitialized ones included, or inside the folder through an embedded `.git` or a gitfile) is
+  checked for a stash, worktrees of its own, and commits in HEAD, a branch, a tag or a reflog that no
+  branch of its origin has; a removal's fresh scan fetches origin's branches first. Any of those keeps the worktree, with the reason; otherwise its verdict is the one it would
   have without them.
 - Such a worktree is removed with `--force`, which git requires for submodules, only by the checked
   removal: the dashboard's Remove or `remove_worktrees`. It gets no copyable command. Just before git
-  deletes it, after any copy is kept, it must still be clean and its submodules unchanged (none newly
-  initialized, no new work, no new ignored file); otherwise it is refused. Submodules' ignored files
+  deletes it, after any copy is kept, it must still be clean, with no file git status cannot see and
+  its submodules unchanged (none newly initialized, no new work), and no new ignored file; otherwise
+  it is refused.
+- A new file inside an already ignored folder (other than build and dependency output) now changes a
+  dry run's plan, so the removal refuses a worktree that gained one. Submodules' ignored files
   are listed with the worktree's own.
 
 ### Fixed
