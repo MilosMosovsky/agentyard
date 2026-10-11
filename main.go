@@ -182,6 +182,23 @@ func runEnv(timeout time.Duration, dir string, env []string, name string, args .
 
 // runInput is runEnv with input on the command's standard input.
 func runInput(timeout time.Duration, dir string, env []string, input, name string, args ...string) (string, error) {
+	return execute(timeout, dir, os.Environ(), env, input, name, args...)
+}
+
+// runIsolated is runEnv without any GIT_ variable this process inherited
+// (GIT_CONFIG_PARAMETERS, GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY…), so only env
+// says which repository and settings git uses.
+func runIsolated(timeout time.Duration, dir string, env []string, name string, args ...string) (string, error) {
+	var base []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			base = append(base, kv)
+		}
+	}
+	return execute(timeout, dir, base, env, "", name, args...)
+}
+
+func execute(timeout time.Duration, dir string, base, env []string, input, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -194,7 +211,7 @@ func runInput(timeout time.Duration, dir string, env []string, input, name strin
 	}
 	// GIT_OPTIONAL_LOCKS=0: `git status` must never take index.lock, or it races
 	// with whatever is committing in that worktree at the same moment.
-	cmd.Env = append(append(os.Environ(),
+	cmd.Env = append(append(base,
 		"GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1", "LC_ALL=C",
 		"GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=10"), env...)
 	var out, stderr bytes.Buffer

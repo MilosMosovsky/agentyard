@@ -261,7 +261,7 @@ func isolatedGit(g func(...string) (string, error), deadline time.Time) (iso fun
 			return "", errors.New("the local validation time limit was reached")
 		}
 		args = append([]string{"-c", "core.attributesFile=" + os.DevNull, "-c", "merge.renormalize=false"}, args...)
-		return runEnv(min(gitTimeout, left), dir, env, "git", args...)
+		return runIsolated(min(gitTimeout, left), dir, env, "git", args...)
 	}
 	if _, err := iso("init", "-q", "--bare", "--template=", dir); err != nil {
 		done()

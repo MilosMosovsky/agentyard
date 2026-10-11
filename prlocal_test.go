@@ -334,6 +334,17 @@ func TestPRLocalMergeIgnoresLocalSettings(t *testing.T) {
 			gitT(t, repo, "config", "core.attributesFile", ".local-attrs")
 		}},
 		{"merge.default", func(t *testing.T, repo string) { gitT(t, repo, "config", "merge.default", "union") }},
+		{"settings inherited from the environment", func(t *testing.T, repo string) {
+			t.Setenv("GIT_CONFIG_COUNT", "2")
+			t.Setenv("GIT_CONFIG_KEY_0", "merge.default")
+			t.Setenv("GIT_CONFIG_VALUE_0", "keep")
+			t.Setenv("GIT_CONFIG_KEY_1", "merge.keep.driver")
+			t.Setenv("GIT_CONFIG_VALUE_1", "touch driver-ran; true")
+		}},
+		{"repository paths inherited from the environment", func(t *testing.T, repo string) {
+			t.Setenv("GIT_COMMON_DIR", filepath.Join(repo, ".git"))
+			t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(repo, ".git", "objects"))
+		}},
 		{"a merge driver that keeps the base", func(t *testing.T, repo string) {
 			gitT(t, repo, "config", "merge.keep.driver", "touch driver-ran; true")
 			os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* merge=keep\n"), 0o644)

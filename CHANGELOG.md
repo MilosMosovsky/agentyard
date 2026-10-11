@@ -6,6 +6,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-11
+
 ### Added
 
 - Merge train in the Pull requests tab: ranked Close, Merge, Rebase, Fix, Review, Decide and Waiting
@@ -280,7 +282,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.6.0
