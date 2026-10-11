@@ -6,7 +6,7 @@
 <title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else}}Worktrees{{end}} · agentyard</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/png" href="/favicon.png">
-{{if .CanRemove}}<meta name="agentyard-remove-token" content="{{.RemoveToken}}">{{end}}
+{{if and .CanRemove (eq .Tab "worktrees")}}<meta name="agentyard-remove-token" content="{{.RemoveToken}}">{{end}}
 <noscript><meta http-equiv="refresh" content="{{.RefreshSec}}"></noscript>
 <script>
 (() => {
@@ -344,6 +344,34 @@ dialog::backdrop { background: var(--backdrop); }
 .message-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 24px; }
 .tool-calls { color: var(--text-2); font-size: 12px; line-height: 20px; }
 .tool-calls .message-text { color: var(--text-1); margin-top: 8px; }
+.remove-button { margin-top: 8px; height: 28px; padding: 0 8px; font-size: 12px; }
+.remove-button .icon, .remove-all .icon { width: 14px; height: 14px; }
+.cleanup-actions { margin-bottom: 4px; }
+.remove-panel { width: 640px; }
+.remove-panel[open] { display: flex; flex-direction: column; gap: 12px; max-height: calc(100dvh - 32px); }
+.remove-panel h2 { font-size: 20px; line-height: 28px; font-weight: 650; letter-spacing: -.3px; overflow-wrap: anywhere; outline: none; }
+.remove-summary { color: var(--text-2); font-size: 13px; line-height: 20px; }
+.remove-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 16px; align-content: start; padding: 4px; margin: -4px; }
+.remove-group-title { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+.remove-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.remove-item { display: grid; gap: 4px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-control); }
+.remove-item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.remove-item-head .row-title, .remove-item .path { overflow-wrap: anywhere; min-width: 0; }
+.remove-item .reason { margin-top: 0; }
+.remove-outcome { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 20px; font-weight: 600; }
+.remove-outcome .icon { width: 14px; height: 14px; }
+.remove-outcome[data-outcome="removed"], .remove-outcome[data-outcome="pruned"] { color: var(--tone-positive); }
+.remove-outcome[data-outcome="refused"] { color: var(--tone-protect); }
+.remove-ignored { margin-top: 8px; padding: 8px 12px; background: var(--bg-inset); border-radius: var(--radius-control); font-size: 13px; line-height: 20px; }
+.remove-ignored strong { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--tone-waiting); }
+.remove-ignored .icon { width: 14px; height: 14px; flex-shrink: 0; }
+.remove-ignored ul { margin: 4px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
+.remove-error { display: flex; align-items: flex-start; gap: 8px; color: var(--tone-protect); font-size: 13px; line-height: 20px; }
+.remove-error .icon { width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
+.remove-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.remove-confirm { color: var(--on-brand); background: var(--brand-fill); border-color: transparent; }
+.remove-confirm:hover:not(:disabled) { background: color-mix(in srgb, var(--brand-fill) 90%, var(--text-1)); }
+.remove-actions .button:disabled { opacity: .6; }
 .copy-panel { width: 560px; max-width: calc(100vw - 32px); padding: 24px; border: 1px solid var(--line); border-radius: var(--radius-panel); box-shadow: var(--shadow-popover); }
 .copy-panel textarea { display: block; width: 100%; height: 144px; margin: 16px 0; padding: 12px; resize: vertical; border: 1px solid var(--line-control); border-radius: var(--radius-control); background: var(--bg-inset); font: 13px/20px var(--font-mono); overflow-wrap: anywhere; }
 
@@ -532,6 +560,8 @@ body[data-tab="sessions"] th:first-child { text-align: center; border-right: 0; 
   .drawer-header { gap: 8px; }
   .drawer-header h2 { max-height: 112px; overflow-y: auto; }
   .copy-panel { padding: 16px; }
+  .remove-button { height: auto; min-height: 44px; }
+  .remove-actions .button { flex: 1 1 auto; }
 }
 @media (min-width: 640px) and (max-width: 1250px) { .storage-grid { grid-template-columns: minmax(0, 1fr) 250px; } .chart-card { padding: 16px; } .kpi-icon { display: none; } .page-aside { display: none; } .storage-region .treemap { height: 290px; } }
 @media (min-width: 640px) and (max-width: 1000px) { .storage-grid { grid-template-columns: 1fr; } .storage-bars { grid-template-columns: 1fr 1fr; margin: 20px 0; } .kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } .kpi:last-child:nth-child(odd) { grid-column: 1 / -1; } }
@@ -1084,6 +1114,8 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1"/><path d="M10.5 5.5v-3h-8v8h3"/></symbol>
 <symbol id="i-chevron-down" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></symbol>
 <symbol id="i-close" viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8"/></symbol>
+<symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5M7 7v4m2-4v4"/></symbol>
+<symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2.5 14 13H2L8 2.5ZM8 6.5v3M8 11.2v.1"/></symbol>
 <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 6a5.5 5.5 0 0 0-9-3L2 5m0-3v3h3M3 10a5.5 5.5 0 0 0 9 3l2-2m-3 0h3v3"/></symbol>
 <symbol id="i-organization" viewBox="0 0 16 16"><rect x="3" y="2" width="10" height="12" rx="1"/><path d="M6 5h1m2 0h1M6 8h1m2 0h1M7 14v-3h2v3"/></symbol>
 <symbol id="i-monitor" viewBox="0 0 16 16"><rect x="1.5" y="2" width="13" height="9" rx="1.5"/><path d="M8 11v3m-3 0h6"/></symbol>
@@ -1154,8 +1186,9 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "wt-changes"}}{{if or .Modified .Untracked}}<div>{{.Modified}} mod</div><div>{{.Untracked}} new</div>{{else}}0{{end}}{{end}}
 {{define "wt-activity"}}<div class="cell-stack">{{template "time" .LastActive}}<span class="meta">Commit {{template "time" .LastCommit}}</span></div>{{end}}
 {{define "wt-data"}}data-item data-key="{{.W.Path}}" data-repo="{{anchorOf .Repo}}" data-title="{{base .W.Path}}" data-active="{{.W.LastActive.Unix}}" data-folder="{{tilde .W.Folder}}" data-size="{{.W.SizeKB}}" data-branch="{{.W.Branch}}" data-verdict="{{.W.Verdict}}" data-search="{{lowerAll (base .W.Path) .W.Path .W.Folder .W.Branch (label .W.Verdict) .W.Reason}}{{with .W.PR}} {{lower .Title}}{{end}}"{{end}}
-{{define "wt-row"}}<tr {{template "wt-data" .}}>{{with .W}}<td>{{template "wt-identity" .}}</td><td>{{template "wt-branch" .}}</td><td>{{template "wt-pr" .}}</td><td>{{template "wt-verdict" .}}</td><td class="n">{{template "wt-changes" .}}</td><td class="n">{{.Unpushed}}</td><td>{{template "wt-activity" .}}</td><td class="n">{{size .SizeKB}}</td>{{end}}</tr>{{end}}
-{{define "wt-card"}}<article class="card" {{template "wt-data" .}}>{{with .W}}<h3 class="path">{{base .Path}}</h3><div>{{template "wt-verdict" .}}</div><div class="path secondary">{{.Path}}</div><div>{{template "wt-branch" .}}</div><div>{{template "wt-pr" .}}</div><dl class="metric-grid numeric"><div><dt>Changes</dt><dd>{{template "wt-changes" .}}</dd></div><div><dt>Unpushed</dt><dd>{{.Unpushed}}</dd></div><div><dt>Last active</dt><dd>{{template "wt-activity" .}}</dd></div><div><dt>Size</dt><dd>{{size .SizeKB}}</dd></div></dl>{{end}}</article>{{end}}
+{{define "remove-button"}}<button type="button" class="button remove-button" data-remove="{{.Path}}" aria-label="Remove {{base .Path}}" aria-haspopup="dialog">{{template "icon" "trash"}}<span>Remove</span></button>{{end}}
+{{define "wt-row"}}<tr {{template "wt-data" .}}>{{with .W}}<td>{{template "wt-identity" .}}</td><td>{{template "wt-branch" .}}</td><td>{{template "wt-pr" .}}</td><td>{{template "wt-verdict" .}}{{if and $.Can .RemoveCmd}}{{template "remove-button" .}}{{end}}</td><td class="n">{{template "wt-changes" .}}</td><td class="n">{{.Unpushed}}</td><td>{{template "wt-activity" .}}</td><td class="n">{{size .SizeKB}}</td>{{end}}</tr>{{end}}
+{{define "wt-card"}}<article class="card" {{template "wt-data" .}}>{{with .W}}<h3 class="path">{{base .Path}}</h3><div>{{template "wt-verdict" .}}{{if and $.Can .RemoveCmd}}{{template "remove-button" .}}{{end}}</div><div class="path secondary">{{.Path}}</div><div>{{template "wt-branch" .}}</div><div>{{template "wt-pr" .}}</div><dl class="metric-grid numeric"><div><dt>Changes</dt><dd>{{template "wt-changes" .}}</dd></div><div><dt>Unpushed</dt><dd>{{.Unpushed}}</dd></div><div><dt>Last active</dt><dd>{{template "wt-activity" .}}</dd></div><div><dt>Size</dt><dd>{{size .SizeKB}}</dd></div></dl>{{end}}</article>{{end}}
 
 {{define "worktrees"}}{{template "head" .}}
 {{if not .Demo}}{{with .WT}}{{template "snapshot-time" .At}}{{end}}{{end}}
@@ -1180,9 +1213,9 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <details class="summary-group" data-summary-section><summary>By folder</summary>{{template "stats" (dict "Title" "Folder" "Kind" "folder" "Groups" .ByFolder)}}</details></div>
 {{range .Repos}}{{$repo := .}}<section class="group" id="{{anchorOf .}}" data-repo-group><div class="group-heading"><h2>{{rel .Path}}</h2><span class="group-count numeric" data-group-count data-noun="worktree worktrees">{{counted (len .Worktrees) "worktree" "worktrees"}}</span>{{if .Slug}}<span class="meta"><a href="https://github.com/{{.Slug}}">{{.Slug}}</a>{{if .Default}}{{$default := .Default}}{{if gt (len $default) 6}}{{if eq (slice $default 0 7) "origin/"}}{{$default = slice $default 7}}{{end}}{{end}} · <a class="branch" href="{{branchLink .Slug $default}}">{{.Default}}</a>{{end}}</span>{{end}}</div>
 {{if .Errors}}<p class="reason">Last successful sync · cached repository results</p><details class="sync-details"><summary>Error details</summary><ul class="error-list path">{{range .Errors}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
-<div class="table-region" tabindex="0" role="region" aria-label="{{rel .Path}} worktrees, scroll horizontally for all columns"><table><caption class="sr-only">Worktrees in {{rel .Path}}</caption><colgroup><col style="width:16.250%"><col style="width:14.375%"><col style="width:19.375%"><col style="width:15.000%"><col style="width:6.250%"><col style="width:6.875%"><col style="width:11.250%"><col style="width:10.625%"></colgroup><thead><tr><th scope="col">Worktree</th><th scope="col">Branch</th><th scope="col">Pull request</th><th scope="col">Verdict</th><th scope="col" class="n">Changes</th><th scope="col" class="n">Unpushed</th><th scope="col">Last active</th><th scope="col" class="n">Size</th></tr></thead><tbody>{{range .Worktrees}}{{template "wt-row" (dict "W" . "Repo" $repo)}}{{end}}</tbody></table></div>
-<div class="phone-cards">{{range .Worktrees}}{{template "wt-card" (dict "W" . "Repo" $repo)}}{{end}}</div>
-{{with reclaimCount .}}<details class="cleanup"><summary>Commands for <span data-cleanup-count data-noun="worktree worktrees">{{counted . "worktree" "worktrees"}}</span> you can remove</summary><p class="command-notes">Commands are copied, never run here.<br>Logical size; space freed can be smaller.</p>{{range $repo.Worktrees}}{{if .RemoveCmd}}<div class="command-line" data-item data-key="{{.Path}}"><code tabindex="0">{{.RemoveCmd}}</code>{{template "copy" (dict "Command" .RemoveCmd)}}</div>{{end}}{{end}}</details>{{end}}
+<div class="table-region" tabindex="0" role="region" aria-label="{{rel .Path}} worktrees, scroll horizontally for all columns"><table><caption class="sr-only">Worktrees in {{rel .Path}}</caption><colgroup><col style="width:16.250%"><col style="width:14.375%"><col style="width:19.375%"><col style="width:15.000%"><col style="width:6.250%"><col style="width:6.875%"><col style="width:11.250%"><col style="width:10.625%"></colgroup><thead><tr><th scope="col">Worktree</th><th scope="col">Branch</th><th scope="col">Pull request</th><th scope="col">Verdict</th><th scope="col" class="n">Changes</th><th scope="col" class="n">Unpushed</th><th scope="col">Last active</th><th scope="col" class="n">Size</th></tr></thead><tbody>{{range .Worktrees}}{{template "wt-row" (dict "W" . "Repo" $repo "Can" $.CanRemove)}}{{end}}</tbody></table></div>
+<div class="phone-cards">{{range .Worktrees}}{{template "wt-card" (dict "W" . "Repo" $repo "Can" $.CanRemove)}}{{end}}</div>
+{{with reclaimCount .}}<details class="cleanup"><summary>Commands for <span data-cleanup-count data-noun="worktree worktrees">{{counted . "worktree" "worktrees"}}</span> you can remove</summary><p class="command-notes">{{if $.CanRemove}}Copy a command to run it yourself, or remove the worktrees from here after you confirm.{{else}}Commands are copied, never run here.{{end}}<br>Logical size; space freed can be smaller.</p>{{if $.CanRemove}}<div class="actions cleanup-actions"><button type="button" class="button remove-all" data-remove-all data-repo-name="{{rel $repo.Path}}" aria-label="Remove all {{counted . "worktree" "worktrees"}} in {{rel $repo.Path}}" aria-haspopup="dialog">{{template "icon" "trash"}}<span data-remove-all-label>Remove all {{.}}</span></button></div>{{end}}{{range $repo.Worktrees}}{{if .RemoveCmd}}<div class="command-line" data-item data-key="{{.Path}}"><code tabindex="0">{{.RemoveCmd}}</code>{{template "copy" (dict "Command" .RemoveCmd)}}</div>{{end}}{{end}}</details>{{end}}
 </section>{{end}}
 {{else if not .Errors}}<div class="state-panel">{{template "icon" "branch"}}<div><h2>No linked worktrees found.</h2><p>Create a worktree in the scanned folders, then sync again.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}
 {{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Scanning worktrees…</h2><p>Results appear when the first scan finishes.</p></div></div>{{end}}
@@ -1261,6 +1294,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 </div></div>
 {{if and .Local (eq .Tab "sessions")}}<dialog id="session-drawer" class="drawer" aria-labelledby="drawer-title"><header class="drawer-header"><div><h2 id="drawer-title" tabindex="-1">Session</h2><p id="drawer-meta" class="meta numeric"></p></div><button type="button" class="icon-button" id="drawer-close" aria-label="Close session">{{template "icon" "close"}}</button></header><div id="drawer-body" class="drawer-body"></div></dialog>{{end}}
 {{if eq .Tab "prs"}}<dialog id="pr-overview" class="pr-overview" aria-labelledby="pr-overview-title" aria-describedby="pr-overview-note"><header class="pr-overview-header"><div><h2 id="pr-overview-title">Repository overview</h2><p id="pr-overview-summary"></p></div><button type="button" class="icon-button" id="pr-overview-close" aria-label="Close overview">{{template "icon" "close"}}</button></header><label class="filter-search pr-overview-search">{{template "icon" "search"}}<input type="search" id="pr-overview-search" placeholder="Find an organization or repository…" aria-label="Find repository in overview" autocomplete="off"></label><div class="pr-matrix-wrap"><table class="pr-matrix" id="pr-matrix"><caption class="sr-only">Open pull requests by repository and status. Select a count to view matching pull requests.</caption><thead></thead><tbody></tbody></table></div><p id="pr-overview-empty" class="pr-overview-empty" hidden>No repositories match your search.</p><p class="pr-overview-note" id="pr-overview-note">Ready means approved, all checks passing and confirmed mergeable. Status counts can overlap; failing checks include drafts.</p></dialog>{{end}}
+{{if and .CanRemove (eq .Tab "worktrees")}}<dialog id="remove-panel" class="copy-panel remove-panel" aria-labelledby="remove-heading" aria-describedby="remove-summary" data-max="{{removeMax}}"><h2 id="remove-heading" tabindex="-1">Remove worktrees</h2><p id="remove-summary" class="remove-summary"></p><div id="remove-body" class="remove-body" tabindex="0" role="region" aria-label="Worktrees"></div><div class="remove-actions"><button type="button" class="button" id="remove-cancel">Cancel</button><button type="button" class="button remove-confirm" id="remove-confirm" hidden></button></div></dialog>{{end}}
 <dialog id="copy-panel" class="copy-panel" aria-labelledby="copy-heading"><h2 id="copy-heading">Select and copy this command.</h2><textarea id="copy-text" readonly aria-label="Command to copy" spellcheck="false"></textarea><button type="button" class="button" id="copy-close">Close</button></dialog>
 <div id="announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <script>
@@ -1290,6 +1324,12 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
   const tab = document.body.dataset.tab;
   const app = $("#app"), search = $("#search"), live = $("#announcements");
   function announce(text) { live.textContent = ""; requestAnimationFrame(() => { live.textContent = text; }); }
+  function size(kb) {
+    const bytes = kb * 1024;
+    if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
+    if (bytes >= 1048576) return Math.floor(bytes / 1048576) + " MB";
+    return bytes ? Math.floor(bytes / 1024) + " KB" : "0";
+  }
 
   // Settings and the head's applyTheme are the only preference owners.
   const settings = $("#settings"), settingsButton = $("#settings-toggle"), shortcuts = $("#shortcuts");
@@ -1612,12 +1652,6 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     const prefix = "agentyard." + tab;
     const query = storage.read("sessionStorage", prefix + ".search", "");
     search.value = typeof query === "string" ? query : "";
-    function size(kb) {
-      const bytes = kb * 1024;
-      if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + " GB";
-      if (bytes >= 1048576) return Math.floor(bytes / 1048576) + " MB";
-      return bytes ? Math.floor(bytes / 1024) + " KB" : "0";
-    }
     // "3 worktrees" for labels that carry data-noun="worktree worktrees", else just the number.
     const nouned = (el, n) => { el.textContent = el.dataset.noun ? n + " " + el.dataset.noun.split(" ")[n === 1 ? 0 : 1] : n; };
     const total = (list, safe = false) => list.reduce((sum, row) => sum + ((!safe || row.dataset.verdict === "merged") ? Number(row.dataset.size || 0) : 0), 0);
@@ -2316,6 +2350,11 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
           const commands = $$(".command-line[data-item]", cleanup).filter(line => !line.hidden).length;
           cleanup.hidden = commands === 0;
           nouned($("[data-cleanup-count]", cleanup), commands);
+          const removeAll = $("[data-remove-all]", cleanup);
+          if (removeAll) {
+            $("[data-remove-all-label]", removeAll).textContent = "Remove all " + commands;
+            removeAll.setAttribute("aria-label", `Remove all ${commands} ${commands === 1 ? "worktree" : "worktrees"} in ${removeAll.dataset.repoName}`);
+          }
         }
       });
       $$("[data-summary]").forEach(group => {
@@ -2367,7 +2406,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     $("#apply-update").addEventListener("click", apply);
     const seconds = Number(document.body.dataset.refresh);
     if (seconds > 0) setInterval(ready, seconds * 1000);
-    return { ready };
+    return { ready, apply };
   })();
 
   // POST/status sync flow, shared by every Sync and Retry control.
@@ -2542,6 +2581,167 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     window.addEventListener("hashchange", fromHash); fromHash();
   }
 
+  // Worktree removal. POST /api/remove is the server's one removal path (the same
+  // one MCP uses); a dry run first, then a confirmation, then the real call.
+  const removePanel = $("#remove-panel");
+  if (removePanel) {
+    const token = $('meta[name="agentyard-remove-token"]')?.content || "";
+    const maxPaths = Number(removePanel.dataset.max) || 50;
+    const heading = $("#remove-heading"), summary = $("#remove-summary"), body = $("#remove-body");
+    const confirmButton = $("#remove-confirm"), cancelButton = $("#remove-cancel");
+    const noun = n => n === 1 ? "worktree" : "worktrees";
+    let trigger = null, run = 0, busy = false, reloadOnClose = false, plan = [];
+    async function removeCall(paths, dryRun) {
+      const response = await fetch("/api/remove", {
+        method: "POST", cache: "no-store",
+        headers: { "Content-Type": "application/json", "X-Agentyard-Token": token },
+        body: JSON.stringify({ paths, dry_run: dryRun })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw Object.assign(new Error(data.error || "The request failed"), { status: response.status });
+      return data;
+    }
+    // The server takes at most maxPaths a call; larger selections go in order and merge.
+    async function removeMany(paths, dryRun) {
+      const merged = { results: [], freedKB: 0, simulated: false, error: null };
+      for (let i = 0; i < paths.length; i += maxPaths) {
+        try {
+          const part = await removeCall(paths.slice(i, i + maxPaths), dryRun);
+          merged.results.push(...part.results); merged.freedKB += part.freedKB || 0; merged.simulated ||= !!part.simulated;
+        } catch (error) {
+          if (!merged.results.length) throw error;
+          merged.error = error; break;
+        }
+      }
+      return merged;
+    }
+    function setBusy(value) {
+      busy = value; confirmButton.disabled = value; cancelButton.disabled = value;
+      removePanel.toggleAttribute("aria-busy", value);
+    }
+    function paragraph(text) { const p = make("p", "secondary"); p.textContent = text; return p; }
+    function errorNote(error) {
+      const note = make("div", "remove-error"); note.setAttribute("role", "alert");
+      note.insertAdjacentHTML("afterbegin", '<svg class="icon" aria-hidden="true"><use href="#i-x-circle"/></svg>');
+      const text = make("span", "", error.message); note.append(text);
+      if (error.status === 403) { note.append(make("span", "", " Reload this page and try again.")); }
+      return note;
+    }
+    function ignoredBox(files) {
+      const box = make("div", "remove-ignored");
+      const label = make("strong"); label.insertAdjacentHTML("afterbegin", '<svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>');
+      label.append(make("span", "", `Also deletes ${files.length === 1 ? "this ignored file" : "these ignored files"}`));
+      const list = make("ul", "path"); files.forEach(file => list.append(make("li", "", file)));
+      box.append(label, list); return box;
+    }
+    function item(result, outcome) {
+      const li = make("li", "remove-item");
+      const head = make("div", "remove-item-head");
+      const name = result.path.split("/").filter(Boolean).pop() || result.path;
+      head.append(make("span", "path row-title", name));
+      if (outcome) {
+        const state = make("span", "remove-outcome"); state.dataset.outcome = result.outcome;
+        const refused = result.outcome === "refused";
+        state.insertAdjacentHTML("afterbegin", `<svg class="icon" aria-hidden="true"><use href="#i-${refused ? "x-circle" : "check-circle"}"/></svg>`);
+        state.append(make("span", "", refused ? "Refused" : result.outcome === "pruned" ? "Pruned" : "Removed"));
+        head.append(state);
+      } else if (result.freedKB) head.append(make("span", "meta numeric", size(result.freedKB)));
+      li.append(head, make("span", "path secondary", result.path), make("span", "reason", result.reason));
+      if (result.ignored?.length) li.append(ignoredBox(result.ignored));
+      return li;
+    }
+    function group(title, results, outcome) {
+      const section = make("section"), list = make("ul", "remove-list");
+      section.append(make("h3", "remove-group-title", title), list);
+      results.forEach(result => list.append(item(result, outcome)));
+      return section;
+    }
+    function show(title, text, nodes, confirmLabel, cancelLabel) {
+      heading.textContent = title; summary.textContent = text; body.replaceChildren(...nodes);
+      confirmButton.hidden = !confirmLabel;
+      if (confirmLabel) { confirmButton.textContent = confirmLabel.text; confirmButton.setAttribute("aria-label", confirmLabel.name); }
+      cancelButton.textContent = cancelLabel;
+      setBusy(false); heading.focus({ preventScroll: true }); announce(title + ". " + text);
+    }
+    function showFailure(error) {
+      show("Couldn't check removal", "Nothing was removed.", [errorNote(error)], null, "Close");
+    }
+    function showPlan(dry) {
+      plan = dry.results.filter(result => result.outcome === "would_remove");
+      const refused = dry.results.filter(result => result.outcome === "refused");
+      const nodes = [];
+      if (plan.length) nodes.push(group(`Will be removed (${plan.length})`, plan, false));
+      if (refused.length) nodes.push(group(`Will not be removed (${refused.length})`, refused, true));
+      if (dry.error) nodes.push(errorNote(dry.error));
+      const kb = plan.reduce((sum, result) => sum + (result.freedKB || 0), 0);
+      const ignored = plan.filter(result => result.ignored?.length).length;
+      let text = plan.length ? `Each folder is deleted with git worktree remove; branches are kept. ${size(kb)} in total (logical size; space freed can be smaller).` : "Every worktree you picked is now refused, so nothing will change.";
+      if (ignored) text += ` ${ignored === 1 ? "1 worktree holds" : ignored + " worktrees hold"} ignored files that will be deleted too.`;
+      if (dry.simulated) text += " Demo data: nothing on disk is touched.";
+      show(plan.length ? `Remove ${plan.length} ${noun(plan.length)}?` : "Nothing to remove", text, nodes,
+        plan.length ? { text: `Remove ${plan.length}`, name: `Remove ${plan.length} ${noun(plan.length)}` } : null, plan.length ? "Cancel" : "Close");
+    }
+    function showOutcome(result) {
+      const gone = result.results.filter(row => row.outcome === "removed" || row.outcome === "pruned");
+      const refused = result.results.filter(row => row.outcome === "refused");
+      const nodes = [];
+      if (gone.length) nodes.push(group(`Removed (${gone.length})`, gone, true));
+      if (refused.length) nodes.push(group(`Not removed (${refused.length})`, refused, true));
+      if (result.error) nodes.push(errorNote(result.error));
+      let text = gone.length ? `Freed ${size(gone.reduce((sum, row) => sum + (row.freedKB || 0), 0))} (logical size; space freed can be smaller). The dashboard is syncing.` : "Nothing was removed.";
+      if (result.simulated) text += " Demo data: nothing on disk was touched.";
+      show(gone.length ? `Removed ${gone.length} ${noun(gone.length)}` : "Nothing was removed", text, nodes, null, "Close");
+    }
+    async function openRemove(paths, from) {
+      if (!paths.length || removePanel.open) return;
+      const current = ++run;
+      trigger = from; reloadOnClose = false; plan = [];
+      heading.textContent = "Checking what removal deletes…"; summary.textContent = "Nothing is removed yet.";
+      body.replaceChildren(); confirmButton.hidden = true; cancelButton.textContent = "Cancel"; setBusy(false);
+      removePanel.setAttribute("aria-busy", "true");
+      removePanel.showModal(); modalBackground(); heading.focus({ preventScroll: true });
+      try {
+        const dry = await removeMany(paths, true);
+        if (current === run && removePanel.open) showPlan(dry);
+      } catch (error) { if (current === run && removePanel.open) showFailure(error); }
+    }
+    confirmButton.addEventListener("click", async () => {
+      if (busy || !plan.length) return;
+      const current = run, paths = plan.map(result => result.path);
+      setBusy(true); heading.textContent = `Removing ${paths.length} ${noun(paths.length)}…`; summary.textContent = "Keep this window open.";
+      announce(heading.textContent);
+      reloadOnClose = true; // whatever happens next, the page's data has to be re-read
+      try {
+        const result = await removeMany(paths, false);
+        if (current === run) showOutcome(result);
+      } catch (error) {
+        if (current === run) show("Couldn't remove", "The result is unknown; the page reloads when you close this.", [errorNote(error)], null, "Close");
+      }
+    });
+    cancelButton.addEventListener("click", () => { if (!busy) removePanel.close(); });
+    removePanel.addEventListener("cancel", event => { if (busy) event.preventDefault(); });
+    removePanel.addEventListener("close", () => {
+      run++; modalBackground();
+      if (reloadOnClose) { refresh.apply(); return; }
+      if (trigger?.isConnected && trigger.getClientRects().length) trigger.focus({ preventScroll: true }); else search?.focus();
+    });
+    // Keep Tab inside the dialog even where the browser would move on to its own UI.
+    removePanel.addEventListener("keydown", event => {
+      if (event.key !== "Tab") return;
+      const stops = $$("button, [tabindex='0']", removePanel).filter(node => !node.disabled && !node.hidden && node.getClientRects().length);
+      if (!stops.length) { event.preventDefault(); return; }
+      const first = stops[0], last = stops[stops.length - 1], active = document.activeElement;
+      if (event.shiftKey && (active === first || active === heading)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
+    });
+    document.addEventListener("click", event => {
+      const one = event.target.closest("[data-remove]");
+      if (one) { openRemove([one.dataset.remove], one); return; }
+      const all = event.target.closest("[data-remove-all]");
+      if (all) openRemove($$(".command-line[data-item]", all.closest("details.cleanup")).filter(line => !line.hidden).map(line => line.dataset.key), all);
+    });
+  }
+
   // A single keyboard handler owns all character shortcuts and Escape behavior.
   let sequence = 0, sequenceTimer = 0;
   function cancelSequence() { sequence = 0; clearTimeout(sequenceTimer); }
@@ -2552,7 +2752,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     if (event.key === "Escape") {
       cancelSequence();
       if (values.collapse(event.target)) { event.preventDefault(); return; }
-      if (copyPanel.open) return;
+      if (copyPanel.open || removePanel?.open) return;
       if (drawer?.open) return;
       if (!settings.hidden) { event.preventDefault(); setSettings(false, true); return; }
       const activeSearch = prHistory.active() ? prHistory.search : search;

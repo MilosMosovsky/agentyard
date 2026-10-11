@@ -1089,7 +1089,8 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return
 	},
-	"counted": counted,
+	"counted":   counted,
+	"removeMax": func() int { return removeMax },
 	"pct": func(a, b uint64) int {
 		if b == 0 {
 			return 0

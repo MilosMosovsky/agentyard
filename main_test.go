@@ -533,3 +533,55 @@ func TestAnchorIsUnique(t *testing.T) {
 		t.Errorf("anchors %q and %q", a, b)
 	}
 }
+
+// Removal controls render only for a viewer on this Mac, only on reclaimable
+// worktrees, and the cleanup note stays truthful either way.
+func TestPageRemoveControls(t *testing.T) {
+	logs := captureLog(t)
+	h, _ := demoHandler(t)
+	s, _, _, _ := newDemo(time.Now())
+	reclaimable := 0
+	for _, r := range s.snap.Load().Repos {
+		for _, w := range r.Worktrees {
+			if w.RemoveCmd != "" {
+				reclaimable++
+			}
+		}
+	}
+	if reclaimable == 0 {
+		t.Fatal("demo has nothing reclaimable")
+	}
+	const never = "Commands are copied, never run here."
+	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `data-remove="`, `<meta name="agentyard-remove-token"`, `id="remove-confirm"`}
+
+	body := get(t, h, "GET", "/", local).Body.String()
+	for _, w := range controls {
+		if !strings.Contains(body, w) {
+			t.Errorf("GET / from this Mac lacks %q", w)
+		}
+	}
+	// One button in the table row and one in the phone card per reclaimable worktree.
+	if got := strings.Count(body, ` data-remove="`); got != 2*reclaimable {
+		t.Errorf("%d Remove buttons for %d reclaimable worktrees", got, reclaimable)
+	}
+	if strings.Contains(body, never) {
+		t.Error("cleanup note still says commands are never run here")
+	}
+
+	for name, c := range map[string]struct{ path, remote string }{
+		"another device": {"/", "192.168.1.20:5000"},
+		"prs tab":        {"/prs", local},
+	} {
+		body := get(t, h, "GET", c.path, c.remote).Body.String()
+		for _, w := range controls {
+			if strings.Contains(body, w) {
+				t.Errorf("%s: GET %s has %q", name, c.path, w)
+			}
+		}
+	}
+	other := get(t, h, "GET", "/", "192.168.1.20:5000").Body.String()
+	if !strings.Contains(other, never) {
+		t.Error("another device: cleanup note lost its wording")
+	}
+	noRenderErrors(t, logs)
+}
