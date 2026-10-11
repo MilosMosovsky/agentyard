@@ -32,7 +32,6 @@ var mcpVersions = []string{"2025-11-25", "2025-06-18", "2024-11-05"}
 const (
 	mcpListLimit = 50
 	mcpListMax   = 500
-	mcpRemoveMax = 50
 	mcpSyncWait  = 3 * time.Minute
 )
 
@@ -72,7 +71,7 @@ func mcpInstructions() string {
 		"keep means the worktree holds work no remote has (uncommitted files or local commits whose content is on no remote branch), or another checkout inside the folder.\n" +
 		"Cleanup: worktree_summary, then list_worktrees with verdict " + string(list) + ", then remove_worktrees with dry_run true, " +
 		"then remove_worktrees. Show the user the dry run's ignored files (.env and the like), which removal deletes.\n" +
-		"remove_worktrees re-scans each repository before acting, never forces and never deletes branches.\n" +
+		"remove_worktrees re-scans each repository before acting, forces only a dirty worktree whose every change it has just re-proven to be on the default branch, and never deletes branches.\n" +
 		"Data is the background agent's last scan: check snapshot.age, and call sync_worktrees when it is old."
 }
 
@@ -138,7 +137,7 @@ func agentSource(listen string) mcpSource {
 			if err != nil {
 				return "the background agent is not answering; the dashboard catches up on its next scan"
 			}
-			return "dashboard sync " + state
+			return syncNote(state)
 		},
 	}
 }
@@ -461,11 +460,11 @@ func (m *mcpServer) toolList() []mcpTool {
 		{
 			Name: "remove_worktrees", Title: "Remove reclaimable worktrees",
 			Description: "Removes worktrees that are safe to delete. Each repository is re-scanned first (fetch, status, PR lookup); " +
-				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove (with --force only for a dirty worktree whose every change was just re-proven to be on a remote), " +
+				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove (with --force only for a dirty worktree whose every change was just re-proven to be on the default branch), " +
 				"and everything else is refused with its reason. Ignored files in a removed worktree (.env, local databases) " +
 				"are deleted with it; each result lists them. Branches are never deleted. Try dry_run first.",
 			InputSchema: schema(map[string]any{
-				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": mcpRemoveMax, "description": "absolute worktree paths, as list_worktrees shows them"},
+				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": removeMax, "description": "absolute worktree paths, as list_worktrees shows them"},
 				"dry_run": map[string]any{"type": "boolean", "default": false, "description": "re-check and report what would go; change nothing"},
 			}, "paths"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false},
@@ -512,37 +511,7 @@ func (m *mcpServer) load() (*Snapshot, mcpMeta, *toolResult) {
 
 // withoutRemoved hides worktrees this process removed after snap was taken,
 // so the AI does not meet them again before the agent's next scan.
-func (m *mcpServer) withoutRemoved(snap *Snapshot) (*Snapshot, int) {
-	hidden := 0
-	repos := make([]*Repo, 0, len(snap.Repos))
-	for _, r := range snap.Repos {
-		c := *r
-		c.Worktrees = nil
-		for _, w := range r.Worktrees {
-			if t, ok := m.gone[filepath.Clean(w.Path)]; ok && snap.At.Before(t) {
-				hidden++
-				continue
-			}
-			c.Worktrees = append(c.Worktrees, w)
-		}
-		repos = append(repos, &c)
-	}
-	if hidden == 0 {
-		return snap, 0
-	}
-	out, _ := summarize(repos, snap.At, snap.Took)
-	out.DiskFree, out.DiskTotal, out.Errors = snap.DiskFree, snap.DiskTotal, snap.Errors
-	names := map[string]string{} // keep the agent's repository names
-	for _, g := range snap.ByRepo {
-		names[g.Anchor] = g.Name
-	}
-	for _, g := range out.ByRepo {
-		if n := names[g.Anchor]; n != "" {
-			g.Name = n
-		}
-	}
-	return out, hidden
-}
+func (m *mcpServer) withoutRemoved(snap *Snapshot) (*Snapshot, int) { return hideRemoved(snap, m.gone) }
 
 // repoNames maps each repository path to the name the dashboard gives it.
 func repoNames(snap *Snapshot) map[string]string {
@@ -808,190 +777,34 @@ func (m *mcpServer) syncTool(raw json.RawMessage) *toolResult {
 
 // ---------------------------------------------------------------- mcp removal
 
-// mcpRemoval is what happened to one requested path.
-type mcpRemoval struct {
-	Path    string   `json:"path"`
-	Outcome string   `json:"outcome"` // removed | pruned | would_remove | refused
-	Verdict string   `json:"verdict,omitempty"`
-	Label   string   `json:"label,omitempty"`
-	Reason  string   `json:"reason"`
-	Ignored []string `json:"ignored,omitempty"` // ignored files removal deletes with the worktree
-	FreedKB int64    `json:"freedKB,omitempty"`
-}
-
-func (it *mcpRemoval) refuse(reason string) { it.Outcome, it.Reason = "refused", reason }
-
-// removeTool removes what a fresh scan still calls reclaimable. The snapshot
-// only says which repository a path belongs to; whether it may go is decided
-// again, now, by the same scanRepo → judge → classify the dashboard uses.
+// removeTool is remove_worktrees: removeWorktrees, with the MCP server's demo
+// refusal and its memory of what it removed.
 func (m *mcpServer) removeTool(raw json.RawMessage) *toolResult {
-	var a struct {
-		Paths  []string `json:"paths"`
-		DryRun bool     `json:"dry_run"`
-	}
-	if err := decodeArgs(raw, &a); err != nil {
+	var q removeRequest
+	if err := decodeArgs(raw, &q); err != nil {
 		return toolFail("%v", err)
 	}
-	switch {
-	case m.src.demo:
+	if m.src.demo {
 		return toolFail("demo data; nothing to remove")
-	case len(a.Paths) == 0:
-		return toolFail("paths is required: the absolute worktree paths to remove")
-	case len(a.Paths) > mcpRemoveMax:
-		return toolFail("at most %d paths per call, got %d", mcpRemoveMax, len(a.Paths))
+	}
+	if err := q.check(); err != nil {
+		return toolFail("%v", err)
 	}
 	snap, meta, fail := m.load()
 	if fail != nil {
 		return fail
 	}
-	results := make([]*mcpRemoval, 0, len(a.Paths))
-	byRepo := map[string][]*mcpRemoval{}
-	var repos []string
-	seen := map[string]bool{}
-	for _, p := range a.Paths {
-		it := &mcpRemoval{Path: p}
-		results = append(results, it)
-		r, _ := find(snap, p)
-		switch clean := filepath.Clean(p); {
-		case !filepath.IsAbs(p):
-			it.refuse("not an absolute path")
-		case r == nil:
-			it.refuse("not a known worktree; list_worktrees shows the known paths")
-		case seen[clean]:
-			it.refuse("listed more than once")
-		default:
-			seen[clean], it.Path = true, clean
-			if byRepo[r.Path] == nil {
-				repos = append(repos, r.Path)
-			}
-			byRepo[r.Path] = append(byRepo[r.Path], it)
-		}
-	}
-	var warnings []string
-	for _, repo := range repos {
-		warnings = append(warnings, removeIn(repo, snap, byRepo[repo], a.DryRun)...)
-	}
-
-	out := struct {
-		Snapshot    mcpMeta       `json:"snapshot"`
-		DryRun      bool          `json:"dryRun"`
-		Results     []*mcpRemoval `json:"results"`
-		Removed     int           `json:"removed"`
-		Pruned      int           `json:"pruned"`
-		WouldRemove int           `json:"wouldRemove"`
-		Refused     int           `json:"refused"`
-		Freed       string        `json:"freed"`
-		FreedKB     int64         `json:"freedKB"`
-		Warnings    []string      `json:"scanWarnings,omitempty"`
-		Dashboard   string        `json:"dashboard,omitempty"`
-	}{Snapshot: meta, DryRun: a.DryRun, Results: results, Warnings: warnings}
+	rep := removeWorktrees(snap, q, removeIn, m.src.poke)
 	now := time.Now()
-	for _, it := range results {
-		switch it.Outcome {
-		case "removed":
-			out.Removed++
-		case "pruned":
-			out.Pruned++
-		case "would_remove":
-			out.WouldRemove++
-		default:
-			out.Refused++
-			continue
-		}
-		out.FreedKB += it.FreedKB
-		if !a.DryRun {
-			m.gone[it.Path] = now
-		}
+	for _, p := range rep.gone {
+		m.gone[p] = now
 	}
-	out.Freed = kbSize(out.FreedKB)
-	if out.Removed+out.Pruned > 0 {
-		out.Dashboard = m.src.poke() // best effort: the agent rescans so the page catches up
-	}
-	res := toolOK(out)
+	res := toolOK(struct {
+		Snapshot mcpMeta `json:"snapshot"`
+		*removeReport
+	}{meta, rep})
 	// An error only when nothing at all went through: a partly refused batch
 	// still did what it could, and its per-path results say what didn't.
-	res.IsError = out.Removed+out.Pruned+out.WouldRemove == 0
+	res.IsError = rep.nothingDone()
 	return res
-}
-
-// beforeRemove runs between the fresh scan and the last HEAD check; tests use
-// it to change a worktree in that window.
-var beforeRemove = func(*Worktree) {}
-
-// removeIn re-scans one repository and removes the requested worktrees that
-// are still reclaimable, returning the fresh scan's warnings.
-//
-// The background agent's scan mutex lives in another process and can't be
-// taken here. That is fine: run() sets GIT_OPTIONAL_LOCKS=0, so a concurrent
-// scan never holds index.lock against a remove, and the remove itself is
-// git's own, which refuses a dirty or locked worktree.
-func removeIn(repo string, snap *Snapshot, items []*mcpRemoval, dryRun bool) (warnings []string) {
-	sizes := &sizeCache{m: map[string]sizeEntry{}}
-	sizes.seed(snap, time.Now()) // the fresh scan re-runs git, not du
-	fresh := scanRepo(repo, sizes)
-	for _, e := range fresh.Errors {
-		warnings = append(warnings, tilde(repo)+": "+e)
-	}
-	live := map[string]*Worktree{}
-	for _, w := range fresh.Worktrees {
-		live[filepath.Clean(w.Path)] = w
-	}
-	for _, it := range items {
-		w := live[it.Path] // never the request's own path: only what git lists now
-		switch {
-		case w == nil && len(fresh.Errors) > 0 && len(fresh.Worktrees) == 0:
-			it.refuse("the fresh scan failed: " + strings.Join(fresh.Errors, "; "))
-			continue
-		case w == nil:
-			it.refuse("a fresh scan no longer lists it as a worktree of " + tilde(repo))
-			continue
-		}
-		it.Verdict, it.Label = w.Verdict, verdictLabel(w.Verdict)
-		switch {
-		case !reclaimable(w.Verdict):
-			it.refuse("a fresh scan says " + it.Label + ": " + w.Reason)
-		case dryRun:
-			it.Outcome, it.Reason, it.Ignored, it.FreedKB = "would_remove", w.Reason, w.Ignored, w.SizeKB
-		default:
-			it.remove(repo, w)
-		}
-	}
-	return warnings
-}
-
-// remove runs w's one removal command. The scan may be minutes old by now,
-// and a commit since then leaves the tree clean, so git would remove it, and
-// a detached HEAD's new commit with it; HEAD is read once more first.
-// (A lock would not help: it doesn't stop commits, and git removes a locked
-// worktree only with --force twice.)
-func (it *mcpRemoval) remove(repo string, w *Worktree) {
-	beforeRemove(w)
-	if !w.Prunable {
-		head, err := git(w.Path, "rev-parse", "HEAD")
-		switch {
-		case err != nil:
-			it.refuse("cannot re-read HEAD: " + err.Error())
-			return
-		case strings.TrimSpace(head) != w.Sha:
-			it.refuse("HEAD moved after the fresh scan (a new commit?); list it again")
-			return
-		}
-		// --force skips git's own dirty check, so the content proof that allows it
-		// is redone at the last moment: a file edited since the scan fails it.
-		if w.Modified+w.Untracked > 0 {
-			if ref, _ := contentMatch(repo, w, w.ContentRef, nil); ref == "" || ref != w.ContentRef {
-				it.refuse("its uncommitted files changed after the fresh scan; list it again")
-				return
-			}
-		}
-	}
-	args := removeArgs(repo, w)
-	if _, err := run(10*time.Minute, "", args[0], args[1:]...); err != nil {
-		it.refuse("git refused: " + err.Error())
-		return
-	}
-	it.Outcome, it.Reason, it.Ignored, it.FreedKB = "removed", w.Reason, w.Ignored, w.SizeKB
-	if w.Prunable {
-		it.Outcome, it.Reason = "pruned", "stale registration removed"
-	}
 }

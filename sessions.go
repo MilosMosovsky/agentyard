@@ -638,11 +638,13 @@ func parseMessages(s *Session, b []byte) []Message {
 // sessionsAllowed keeps transcripts on this Mac: they include tool output, which
 // can hold tokens and customer data. A request from this Mac via its .local
 // name arrives from its LAN address, so compare against every local interface.
-func sessionsAllowed(r *http.Request) bool {
-	if *flagSessionsLAN {
-		return true
-	}
-	ip := clientIP(r.RemoteAddr)
+// -sessions-lan opens them to the network.
+func sessionsAllowed(r *http.Request) bool { return *flagSessionsLAN || fromThisMac(r.RemoteAddr) }
+
+// fromThisMac says the peer is this Mac itself: loopback, or one of its own
+// interface addresses (a browser on this Mac opening agentyard.local).
+func fromThisMac(remote string) bool {
+	ip := clientIP(remote)
 	if !ip.IsValid() {
 		return false
 	}

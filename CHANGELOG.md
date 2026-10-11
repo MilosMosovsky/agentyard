@@ -6,6 +6,24 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `POST /api/remove`: the dashboard can remove worktrees. It takes `{"paths": [...], "dry_run": bool}`
+  (at most 50 paths) and answers with the same per-path outcomes and totals as `remove_worktrees`,
+  through the same code: one fresh scan per repository, only Safe to delete and Prunable, HEAD and
+  content re-checked just before each `git worktree remove`. After a removal it starts a rescan and
+  hides the removed rows until that lands. `agentyard demo` simulates removals from its own data.
+
+### Changed
+
+- The HTTP server is no longer read-only, as 0.6.0 promised it would stay. Removal is answered only for
+  a client on this Mac (loopback or its own addresses; never the LAN, even with `-sessions-lan`), with
+  an `Origin` naming the dashboard (required), the per-process random token the page embeds for this
+  Mac (`X-Agentyard-Token`), a JSON content type and a body of at most 64 KB.
+- `remove_worktrees`' instructions, the README and SECURITY.md no longer say removal never forces: a
+  dirty worktree whose every change is in the default branch is removed with `--force`, after the
+  content check is re-run.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

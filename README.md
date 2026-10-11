@@ -92,10 +92,12 @@ commit, the worktree's index and any uncommitted file. Sizes are `du` logical si
 30 minutes; APFS clones and package-manager hardlinks mean the space you actually free can be smaller.
 
 > [!NOTE]
-> The dashboard never deletes anything: it prints the commands and leaves running them to you. The
-> only thing that can remove a worktree is the [MCP server](#let-your-ai-clean-up)'s
-> `remove_worktrees` tool, when your AI calls it on this Mac, and only for worktrees that a fresh scan
-> still finds Safe to delete or Prunable.
+> Removal has one implementation and two ways in: the dashboard's `POST /api/remove`, answered only
+> for a browser on this Mac (never another device, whatever `--sessions-lan` says), and the
+> [MCP server](#let-your-ai-clean-up)'s `remove_worktrees` tool, when your AI calls it on this Mac.
+> Both remove only worktrees that a fresh scan, taken at that moment, still finds Safe to delete or
+> Prunable; see [how removal stays safe](#how-removal-stays-safe). Other devices get the copy-ready
+> commands only.
 
 ### Pull requests
 
@@ -417,7 +419,9 @@ anything.
 | `remove_worktrees` | Removes the given worktrees if they are still reclaimable; `dry_run` reports what would go. |
 | `sync_worktrees` | Asks the background agent to rescan now and waits for it, up to a few minutes. |
 
-How removal stays safe:
+### How removal stays safe
+
+The same rules hold for the dashboard's `POST /api/remove`, which runs the same code.
 
 - **Re-checked at the moment of removal.** The list the AI saw only says where to look. Before
   removing anything, agentyard re-scans each affected repository (fetch, `git status`, unpushed
@@ -437,8 +441,8 @@ How removal stays safe:
 - **Ignored files go with the worktree.** git does not count ignored files as changes, so `.env`,
   local databases or notes in a removed worktree are deleted. Build and dependency output aside, the
   dry run and every result list them, so you and your AI see them first.
-- **Local only.** The server runs as you, on this Mac, over your AI client's stdin and stdout. The HTTP
-  server gains nothing and stays read-only.
+- **Local only.** The MCP server runs as you, on this Mac, over your AI client's stdin and stdout. The
+  dashboard's endpoint answers only a browser on this Mac; see [Privacy and security](#privacy-and-security).
 
 After a removal it asks the background agent to rescan, so the dashboard catches up.
 
@@ -521,6 +525,25 @@ The page's data is also served as JSON: `/api.json` (worktrees), `/api/prs.json`
 `/api/status` (version, last scan times, whether a sync is running). PR details include up to the first
 100 changed files and the total changed-file count.
 
+`POST /api/remove` is the one write. It is meant for the page, not for scripts: it needs the token
+the page embeds for viewers on this Mac, and the dashboard's own `Origin`.
+
+```
+POST /api/remove
+Origin: http://localhost:4777
+X-Agentyard-Token: <from <meta name="agentyard-remove-token"> on a page served to this Mac>
+Content-Type: application/json
+
+{"paths": ["/Users/you/code/app/.worktrees/fix-login"], "dry_run": true}
+```
+
+It answers `200` with the per-path `results` (`removed`, `pruned`, `would_remove` or `refused`, each
+with its verdict, reason, ignored files and freed size) and the totals `removed`, `pruned`,
+`wouldRemove`, `refused`, `freed` and `freedKB`, as `remove_worktrees` does; `simulated` is true in
+`agentyard demo`. A refused request gets `403` (not this Mac, wrong or missing `Origin` or token),
+`415` (not JSON), `413` (over 64 KB), `400` (unknown fields, no paths, more than 50) or `503` (no
+scan yet), with an `error` message.
+
 ## Privacy and security
 
 agentyard is a local tool with no login and no telemetry. It talks to GitHub through your existing
@@ -533,13 +556,19 @@ agentyard is a local tool with no login and no telemetry. It talks to GitHub thr
 - **Sessions stay on this Mac.** Other devices see a notice and no session ids, unless you opt in with
   `--sessions-lan`.
 - **Sync** refuses cross-origin requests, so another web page cannot trigger scans.
+- **Removal is this Mac's alone.** The dashboard is no longer read-only: `POST /api/remove` removes
+  worktrees, through the same re-checked removal as `agentyard mcp`. It answers only a client on this
+  Mac (loopback or one of its own addresses; never the LAN, even with `--sessions-lan`), only with an
+  `Origin` naming the dashboard itself (a missing one is refused), only with the random token the page
+  embeds for viewers on this Mac (new each time agentyard starts, sent as `X-Agentyard-Token`), and
+  only for a JSON body of at most 64 KB. `agentyard demo` simulates removals and touches nothing.
 - **Only its own names are answered.** Requests must address it as `localhost`, an IP address, its
   `.local` name or this Mac's host name; any other `Host` gets a 403. That stops DNS rebinding, where a
   web page re-points its own domain at `127.0.0.1` to read the dashboard.
-- **The dashboard is read-only.** It never deletes worktrees or branches and never writes to your
-  repositories; the one thing it runs that touches them is `git fetch --prune`. Removal exists only in
-  `agentyard mcp`, a separate process your AI client starts on this Mac: it removes only worktrees a
-  fresh scan finds Safe to delete or Prunable, never forces, and never deletes branches.
+- **What touches your repositories.** Scans run `git fetch --prune`. Removal, from the dashboard on
+  this Mac or from `agentyard mcp`, removes only worktrees a fresh scan finds Safe to delete or
+  Prunable, forces only a dirty worktree whose every change it has just re-proven to be in the default
+  branch, and never deletes branches.
 
 Found a vulnerability? Please report it privately; see [SECURITY.md](SECURITY.md).
 
@@ -579,12 +608,15 @@ every 5 minutes, or on Sync now
 <details>
 <summary><b>Does it delete anything?</b></summary>
 
-Not on its own. The dashboard shows a verdict and the exact `git worktree remove` command for the
-safe-to-delete rows, and you decide; the only command it runs against your repositories is
-`git fetch --prune`. If you connect [`agentyard mcp`](#let-your-ai-clean-up) to your AI, its
-`remove_worktrees` tool can remove worktrees, but only ones a fresh scan, taken at that moment, still
-finds Safe to delete or Prunable, and only through `git worktree remove` (never `--force`). Ignored
-files inside them, such as `.env`, go too, and are listed first. Branches are never deleted.
+Not on its own: nothing is removed unless you, or an AI you connected, ask for it. The dashboard shows
+a verdict and the exact `git worktree remove` command for the safe-to-delete rows; from a browser on
+this Mac it can also remove them for you (`POST /api/remove`), and if you connect
+[`agentyard mcp`](#let-your-ai-clean-up) to your AI, its `remove_worktrees` tool can too. Either way
+only worktrees a fresh scan, taken at that moment, still finds Safe to delete or Prunable go, through
+`git worktree remove` (with `--force` only for a dirty worktree whose every change was just re-proven
+to be in the default branch). Ignored files inside them, such as `.env`, go too, and are listed first.
+Branches are never deleted. Otherwise the only command it runs against your repositories is
+`git fetch --prune`.
 </details>
 
 <details>

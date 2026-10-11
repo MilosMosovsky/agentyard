@@ -1142,6 +1142,18 @@ func hostAllowed(hostport string) bool {
 	return false
 }
 
+// sameOrigin says a request came from a page this server served: its Origin
+// names this host. Browsers send Origin on every cross-origin POST; required
+// also refuses a request without one.
+func sameOrigin(r *http.Request, required bool) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return !required
+	}
+	u, err := url.Parse(o)
+	return err == nil && u.Host == r.Host
+}
+
 // syncer runs an on-demand worktree scan and PR poll. Clicks while one is
 // running join it, and a new one starts at most every syncCooldown so the
 // button can't burn GitHub API budget.
@@ -1196,6 +1208,7 @@ type demoWorld struct {
 // serve builds every route of the dashboard. demo is nil in production.
 func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Handler {
 	y := &syncer{s: s, t: t, x: x, demo: demo != nil}
+	removeToken := newRemoveToken()
 	canSeeSessions := func(r *http.Request) bool { return demo != nil || sessionsAllowed(r) }
 	mux := http.NewServeMux()
 	render := func(w http.ResponseWriter, name string, data any) {
@@ -1215,10 +1228,17 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 		Local      bool // viewer is on this Mac; gates the Sessions tab
 		Demo       bool // synthetic data from "agentyard demo"
 		Version    string
+		// CanRemove: the viewer is on this Mac (never the LAN), so the page may
+		// call POST /api/remove with RemoveToken. In demo mode removal is simulated.
+		CanRemove   bool
+		RemoveToken string
 	}
 	newView := func(tab string, r *http.Request) view {
 		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load(), Local: canSeeSessions(r),
 			Demo: demo != nil, Version: appVersion()}
+		if v.CanRemove = fromThisMac(r.RemoteAddr); v.CanRemove {
+			v.RemoveToken = removeToken
+		}
 		if v.WT != nil {
 			v.Next = v.WT.At.Add(*flagInterval)
 		}
@@ -1293,16 +1313,16 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 	})
 	mux.HandleFunc("GET /api/pr-detail", prDetailHandler(t, demo))
 	mux.HandleFunc("POST /sync", func(w http.ResponseWriter, r *http.Request) {
-		// Only the dashboard's own page may trigger it, not any site the viewer has open.
-		if o := r.Header.Get("Origin"); o != "" {
-			if u, err := url.Parse(o); err != nil || u.Host != r.Host {
-				http.Error(w, "cross-origin", http.StatusForbidden)
-				return
-			}
+		// Only the dashboard's own page may trigger it, not any site the viewer has
+		// open. No Origin is fine: agentyard mcp asks for a sync after a removal.
+		if !sameOrigin(r, false) {
+			http.Error(w, "cross-origin", http.StatusForbidden)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"state": y.start()})
 	})
+	mux.HandleFunc("POST /api/remove", removeHandler(s, y, removeToken, demo != nil))
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		st := map[string]any{"syncing": y.running.Load(), "version": appVersion(), "demo": demo != nil}
 		if wt := s.snap.Load(); wt != nil {
