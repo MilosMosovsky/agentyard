@@ -62,7 +62,8 @@ type removal struct {
 	Modified   int      `json:"modified,omitempty"`
 	Untracked  int      `json:"untracked,omitempty"`
 	ContentRef string   `json:"contentRef,omitempty"`
-	Ignored    []string `json:"ignored,omitempty"` // ignored files removal deletes with the worktree
+	Ignored    []string `json:"ignored,omitempty"`    // ignored files removal deletes with the worktree
+	Submodules int      `json:"submodules,omitempty"` // initialized submodules removal deletes with the worktree
 	FreedKB    int64    `json:"freedKB,omitempty"`
 	Plan       string   `json:"plan,omitempty"`   // a dry run's plan, to pass back in plans
 	Backup     string   `json:"backup,omitempty"` // the ref holding a copy of what a checked removal deleted
@@ -223,8 +224,8 @@ func demoRemoveIn(_ string, snap *Snapshot, items []*removal, dryRun bool) []str
 // request carrying this plan goes ahead only if a fresh scan still agrees.
 func planOf(w *Worktree) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%t\x00%d\x00%d\x00%d\x00%s\x00%t\x00%s\x00%s",
-		w.Path, w.Sha, w.Prunable, w.Modified, w.Untracked, w.Unpushed, w.ContentRef, w.ContentHistory, w.Verdict, w.ignoredSum)
+	fmt.Fprintf(h, "%s\x00%s\x00%t\x00%d\x00%d\x00%d\x00%s\x00%t\x00%s\x00%s\x00%d",
+		w.Path, w.Sha, w.Prunable, w.Modified, w.Untracked, w.Unpushed, w.ContentRef, w.ContentHistory, w.Verdict, w.ignoredSum, w.Submodules)
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
@@ -252,6 +253,7 @@ func (it *removal) admit(w *Worktree, dryRun bool, stale string) bool {
 func (it *removal) describe(w *Worktree) {
 	it.Verdict, it.Label = w.Verdict, verdictLabel(w.Verdict)
 	it.Modified, it.Untracked, it.Ignored, it.FreedKB = w.Modified, w.Untracked, w.Ignored, w.SizeKB
+	it.Submodules = w.Submodules
 	if w.Modified+w.Untracked > 0 {
 		it.ContentRef = contentWhere(w)
 	}
@@ -285,14 +287,26 @@ func (it *removal) remove(repo string, w *Worktree) {
 			it.refuse("HEAD moved after the fresh scan (a new commit?); list it again")
 			return
 		}
-		if checkedRemoval(w) {
+		if w.Submodules > 0 {
+			// --force skips git's own submodule refusal, so their safety is
+			// re-checked at the last moment: an edit or commit since the scan fails it.
+			if n, _, _, hz := submoduleState(w.Path); hz != "" || n != w.Submodules {
+				if hz == "" {
+					hz = "its submodules changed after the fresh scan"
+				}
+				it.refuse(hz + "; list it again")
+				return
+			}
+		}
+		if keepsCopy(w) {
 			ref, err := keepCopy(repo, w)
 			if err != nil {
 				it.refuse(err.Error())
 				return
 			}
-			it.Backup, force = ref, w.Modified+w.Untracked > 0
+			it.Backup = ref
 		}
+		force = forceRemove(w)
 	}
 	args := removeArgs(repo, w, force)
 	if _, err := run(10*time.Minute, "", args[0], args[1:]...); err != nil {

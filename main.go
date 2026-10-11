@@ -85,6 +85,9 @@ type Worktree struct {
 	LastCommit   time.Time `json:"lastCommit"`
 	LastActive   time.Time `json:"lastActive"` // newest of commit, index and changed-file mtimes
 	Prunable     bool      `json:"prunable"`
+	// Submodules counts initialized submodules, each checked to hold no work
+	// its remote lacks; git removes such a worktree only with --force.
+	Submodules int `json:"submodules,omitempty"`
 	// ContentRef is the remote ref whose tree already holds all of the worktree's
 	// local work (uncommitted files and unpushed commits); see contentMatch.
 	// ContentInDefault says that ref is the default branch.
@@ -102,7 +105,7 @@ type Worktree struct {
 	RemoveCmd string `json:"removeCmd,omitempty"`
 
 	headOnly   bool   // detached, with commits no branch, tag or remote has
-	ignoredSum string // digest of every ignored entry, for removal plans
+	ignoredSum string // digest of every ignored entry, submodules' too, for removal plans
 }
 
 type Repo struct {
@@ -199,7 +202,10 @@ func runEnv(timeout time.Duration, dir string, env []string, name string, args .
 	return out.String(), nil
 }
 
-func git(dir string, args ...string) (string, error) { return run(30*time.Second, dir, "git", args...) }
+// gitTimeout bounds one git command in a scan.
+const gitTimeout = 30 * time.Second
+
+func git(dir string, args ...string) (string, error) { return run(gitTimeout, dir, "git", args...) }
 
 // gitOK reports a command's exit status as a bool (for --is-ancestor, cat-file -e …).
 func gitOK(dir string, args ...string) bool { _, err := git(dir, args...); return err == nil }
@@ -611,6 +617,15 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		if w.Hazard == "" {
 			w.Hazard = trackedHazard(e.path)
 		}
+		if w.Hazard == "" {
+			var ign []string
+			var sum string
+			w.Submodules, ign, sum, w.Hazard = submoduleState(e.path)
+			w.Ignored = append(w.Ignored, ign...)
+			if sum != "" {
+				w.ignoredSum += "+" + sum
+			}
+		}
 		judge(r.Path, w)
 	}
 	return w
@@ -679,16 +694,10 @@ func ignoredContent(wt string) (ignored []string, sum, hazard string) {
 	return ignored, sum, ""
 }
 
-// trackedHazard is tracked work that git status cannot see or that lives
-// beyond the worktree's own files: an initialized submodule (its files and
-// commits are another repository's, and status shows them as one line), or a
-// file on disk marked assume-unchanged or skip-worktree (status skips it).
+// trackedHazard is tracked work that git status cannot see: a file on disk
+// marked assume-unchanged or skip-worktree (status skips it). Submodules, whose
+// files and commits are another repository's, are submoduleState's.
 func trackedHazard(wt string) string {
-	if dir, err := git(wt, "rev-parse", "--absolute-git-dir"); err != nil {
-		return "cannot find its git folder: " + err.Error()
-	} else if _, err := os.Stat(filepath.Join(strings.TrimSpace(dir), "modules")); err == nil {
-		return "it holds submodule repositories, and removing it would delete their work"
-	}
 	out, err := git(wt, "ls-files", "-z", "-v", "-s")
 	if err != nil {
 		return "cannot list its tracked files: " + err.Error()
@@ -701,8 +710,6 @@ func trackedHazard(wt string) string {
 		}
 		onDisk := func(p string) bool { _, err := os.Lstat(filepath.Join(wt, p)); return err == nil }
 		switch tag := f[0]; {
-		case f[1] == "160000" && onDisk(filepath.Join(path, ".git")):
-			return "it contains the initialized submodule " + path + "/, and removing it would delete the submodule's own work"
 		case tag != strings.ToUpper(tag) && onDisk(path):
 			return path + " is marked assume-unchanged, so git cannot see edits to it"
 		case tag == "S" && onDisk(path):
@@ -741,14 +748,24 @@ func judge(repo string, w *Worktree) {
 }
 
 // checkedRemoval says a reclaimable worktree may go only through
-// removal.remove, which re-proves its content, keeps a copy under
-// refs/agentyard/removed/ and only then removes it: it has uncommitted files
-// (git would refuse them, so removal needs --force) or a detached HEAD with
-// commits nothing else holds. Such a worktree gets no copyable command: run
-// later, a command would skip every one of those checks.
+// removal.remove, which re-checks it at that moment and removes it with
+// --force where git would refuse: it has uncommitted files (re-proven to be in
+// the default branch, with a copy kept under refs/agentyard/removed/), a
+// detached HEAD with commits nothing else holds (copy kept too), or
+// initialized submodules (each re-checked for work its remote lacks). Such a
+// worktree gets no copyable command: run later, a command would skip every one
+// of those checks.
 func checkedRemoval(w *Worktree) bool {
-	return !w.Prunable && (w.Modified+w.Untracked > 0 || w.headOnly)
+	return !w.Prunable && (keepsCopy(w) || w.Submodules > 0)
 }
+
+// keepsCopy says a checked removal first snapshots the worktree under
+// refs/agentyard/removed/: what it deletes is not all in a remote branch's tip.
+func keepsCopy(w *Worktree) bool { return w.Modified+w.Untracked > 0 || w.headOnly }
+
+// forceRemove says git needs --force for w, which only removal.remove passes,
+// after its checks: uncommitted files or submodules make git refuse otherwise.
+func forceRemove(w *Worktree) bool { return w.Modified+w.Untracked > 0 || w.Submodules > 0 }
 
 // removeArgs is the one command that removes a reclaimable worktree: the
 // dashboard prints it and the removal runs it. Without force git still

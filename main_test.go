@@ -577,7 +577,7 @@ func TestPageRemoveControls(t *testing.T) {
 		t.Fatalf("demo lacks a reclaimable worktree with (%d) and without (%d) a command", removable, checked)
 	}
 	const never = "Commands are copied, never run here."
-	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `data-remove="`, `<meta name="agentyard-remove-token"`, `id="remove-confirm"`}
+	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `class="button remove-all remove-safe" data-remove-safe`, `data-remove="`, `<meta name="agentyard-remove-token"`, `id="remove-confirm"`}
 
 	body := get(t, h, "GET", "/", local).Body.String()
 	for _, w := range controls {

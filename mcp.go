@@ -73,6 +73,7 @@ func mcpInstructions() string {
 		"then remove_worktrees with each dry-run result's plan in plans. Show the user the dry run's ignored files (.env and the like), which removal deletes, " +
 		"and any uncommitted files it discards (modified, untracked, contentRef).\n" +
 		"remove_worktrees re-scans each repository before acting and never deletes branches. It forces only a dirty worktree whose every change it has just re-proven to be in the default branch, " +
+		"or one whose submodules it has just re-checked to hold nothing their remote lacks (their checkouts go with it), " +
 		"and keeps a copy of such a worktree (and of a detached HEAD's own commits) under the ref in each result's backup.\n" +
 		"Data is the background agent's last scan: check snapshot.age, and call sync_worktrees when it is old."
 }
@@ -465,7 +466,8 @@ func (m *mcpServer) toolList() []mcpTool {
 				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove, " +
 				"and everything else is refused with its reason. A worktree with uncommitted files goes only if every change was just re-proven to be in the default branch; " +
 				"git needs --force for it, so its files and HEAD are first kept under the ref the result names in backup " +
-				"(restore: git worktree add <folder> <backup> && git -C <folder> reset HEAD~1). Ignored files in a removed worktree (.env, local databases) " +
+				"(restore: git worktree add <folder> <backup> && git -C <folder> reset HEAD~1). A worktree with initialized submodules (submodules in the result) " +
+				"also needs --force; its submodules are re-checked just before, and deleted with it. Ignored files in a removed worktree (.env, local databases) " +
 				"are deleted with it and kept nowhere; each result lists them. Branches are never deleted. Run dry_run first and pass its plans back.",
 			InputSchema: schema(map[string]any{
 				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": removeMax, "description": "absolute worktree paths, exactly as list_worktrees shows them"},

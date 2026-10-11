@@ -6,6 +6,29 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-11
+
+### Added
+
+- Remove all safe: a button under the Safe-to-delete figure opens the remove dialog for every visible
+  Safe to delete and Prunable worktree, across repositories, and follows the search and filters.
+- Results from `POST /api/remove` and `remove_worktrees` carry `submodules`, the number of initialized
+  submodules a removal deletes with the worktree; the dialog says so.
+
+### Changed
+
+- A worktree with submodules is no longer Keep just for having them. Each initialized submodule is
+  checked like a worktree (uncommitted or untracked files, assume-unchanged or skip-worktree files,
+  another checkout in its ignored folders), and every submodule git folder under the worktree's git
+  dir, nested and deinitialized ones included, is checked for a stash or for HEAD or branch commits on
+  no remote. Any of those keeps the worktree, with the reason; otherwise its verdict is the one it
+  would have without them.
+- Such a worktree is removed with `--force`, which git requires for submodules, only by the checked
+  removal: the dashboard's Remove or `remove_worktrees`. It gets no copyable command, and its
+  submodules are re-checked just before git deletes it; one that changed since the fresh scan is
+  refused. Submodules' ignored files are listed with the worktree's own, and a new one changes the
+  dry run's plan.
+
 ## [0.7.0] - 2026-10-11
 
 ### Added
@@ -227,7 +250,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.5.0

@@ -72,7 +72,7 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 | **Prunable** | The folder is gone; only git's registration is left, and every commit it had is on a branch, tag or remote. |
 | **Not merged** | Nothing local is missing from the remote, but it was never merged into the default branch (closed PR, no PR, or its changes live on another branch). Needs a human decision. |
 | **Open PR** | The branch has a PR in review. |
-| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, an initialized submodule, or files git status cannot see (assume-unchanged, skip-worktree). |
+| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, a submodule holding work its remote lacks (changes, untracked files, a stash, or commits on no remote), or files git status cannot see (assume-unchanged, skip-worktree). |
 
 Keep is decided by content, not by commit hash. Commits often reach GitHub another way (rebased,
 squash-merged, ported to another branch) and uncommitted files are often identical to what was pushed
@@ -450,9 +450,15 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
 - **Only Safe to delete and Prunable.** Keep, Open PR and Not merged are always refused, with the
   reason. A path must exactly match a worktree git lists right now; the main working tree never does.
   A worktree whose ignored folders hold another checkout or worktree anywhere (`.worktrees/`, or deep
-  under `node_modules/`) is Keep, because removing it would delete that one too. So is one holding an
-  initialized submodule, or a file on disk marked assume-unchanged or skip-worktree, whose edits git
-  status cannot see, and a gone worktree whose detached HEAD had commits on no branch, tag or remote.
+  under `node_modules/`) is Keep, because removing it would delete that one too. So is one with a
+  file on disk marked assume-unchanged or skip-worktree, whose edits git status cannot see, and a gone
+  worktree whose detached HEAD had commits on no branch, tag or remote.
+- **Submodules are checked like worktrees.** Removing a worktree deletes its submodule checkouts and
+  every submodule git folder under its own git dir, nested ones and deinitialized ones included. So a
+  submodule with uncommitted or untracked files, a stash, a file git status cannot see, or a branch or
+  HEAD with commits on no remote keeps the worktree, and its ignored files are listed as the
+  worktree's own. A clean one does not: git refuses such a worktree without `--force`, so it gets no
+  copyable command, and the checked removal re-checks every submodule just before forcing it.
   Paths must be given exactly as listed; one with `..`, `//` or a trailing `/` is refused.
 - **What you confirmed is what goes.** A dry run returns a plan for each worktree. Passed back (the
   dashboard always does), it makes the removal refuse a worktree that changed in between, such as one
@@ -651,7 +657,8 @@ this Mac it can also remove them for you (`POST /api/remove`), and if you connec
 [`agentyard mcp`](#let-your-ai-clean-up) to your AI, its `remove_worktrees` tool can too. Either way
 only worktrees a fresh scan, taken at that moment, still finds Safe to delete or Prunable go, through
 `git worktree remove` (with `--force` only for a dirty worktree whose every change was just re-proven
-to be in the default branch, after a copy is kept under `refs/agentyard/removed/`). Ignored files
+to be in the default branch, after a copy is kept under `refs/agentyard/removed/`, or for one whose
+submodules were just re-checked to hold nothing their remote lacks). Ignored files
 inside them, such as `.env`, go too, and are listed first. Branches are never deleted. Otherwise the
 only command it runs against your repositories is `git fetch --prune`.
 </details>

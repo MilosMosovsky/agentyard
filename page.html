@@ -350,6 +350,7 @@ dialog::backdrop { background: var(--backdrop); }
 .remove-button { margin-top: 8px; height: 28px; padding: 0 8px; font-size: 12px; }
 .remove-button .icon, .remove-all .icon { width: 14px; height: 14px; }
 .cleanup-actions { margin-bottom: 4px; }
+.remove-safe { margin-top: 12px; height: 32px; padding: 0 10px; font-size: 13px; align-self: flex-start; }
 .remove-panel { width: 640px; }
 .remove-panel[open] { display: flex; flex-direction: column; gap: 12px; max-height: calc(100dvh - 32px); }
 .remove-panel h2 { font-size: 20px; line-height: 28px; font-weight: 650; letter-spacing: -.3px; overflow-wrap: anywhere; outline: none; }
@@ -1200,7 +1201,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <section class="kpi-region" aria-label="Worktree totals"><p class="meta kpi-context" id="filtered-label" hidden>Filtered results</p><div class="kpis" style="--cells:4">
 <div class="kpi"><span class="kpi-icon">{{template "icon" "branch"}}</span><span class="kpi-value numeric" data-kpi="all">{{with .WT}}{{with .Total}}{{.Count}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Linked worktrees</span><span class="kpi-note">Across your local repositories</span></div>
 <div class="kpi"><span class="kpi-icon">{{template "icon" "disk"}}</span><span class="kpi-value numeric" data-kpi="size">{{with .WT}}{{with .Total}}{{size .SizeKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Total on disk</span><span class="kpi-note">Logical worktree size</span></div>
-<div class="kpi"><span class="kpi-icon">{{template "icon" "check-circle"}}</span><span class="kpi-value numeric" data-kpi="safe">{{with .WT}}{{with .Total}}{{size .ReclaimKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Safe-to-delete size</span><span class="kpi-note">Logical size; space freed can be smaller.</span></div>
+<div class="kpi"><span class="kpi-icon">{{template "icon" "check-circle"}}</span><span class="kpi-value numeric" data-kpi="safe">{{with .WT}}{{with .Total}}{{size .ReclaimKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Safe-to-delete size</span><span class="kpi-note">Logical size; space freed can be smaller.</span>{{if .CanRemove}}{{with .WT}}{{with .Total}}{{if .ReclaimKB}}<button type="button" class="button remove-all remove-safe" data-remove-safe aria-label="Remove all safe-to-delete worktrees" aria-haspopup="dialog">{{template "icon" "trash"}}<span data-remove-safe-label>Remove all safe</span></button>{{end}}{{end}}{{end}}{{end}}</div>
 <div class="kpi"><span class="kpi-icon">{{template "icon" "monitor"}}</span><span class="kpi-value numeric">{{with .WT}}{{bytes .DiskFree}}{{else}}—{{end}}</span><span class="kpi-label">Free on this Mac</span>{{with .WT}}<span class="kpi-note numeric">of {{bytes .DiskTotal}} · {{pct .DiskFree .DiskTotal}}% used</span><span class="disk-meter bar-track" aria-hidden="true" style="margin-top:10px"><span class="bar-fill" style="width:{{pct .DiskFree .DiskTotal}}%"></span></span>{{end}}</div>
 </div>{{if not .WT}}<p class="meta kpi-context">Waiting for first sync</p>{{end}}</section>
 
@@ -1305,6 +1306,17 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  // Every worktree the page currently offers to remove, once each (a table row
+  // and its phone card share a path); rows hidden by a filter are left out.
+  const safePaths = () => [...new Set($$("[data-remove]").filter(button => !button.closest("[hidden]")).map(button => button.dataset.remove))];
+  function labelRemoveSafe() {
+    const button = $("[data-remove-safe]");
+    if (!button) return;
+    const n = safePaths().length;
+    button.hidden = n === 0;
+    $("[data-remove-safe-label]", button).textContent = `Remove all ${n} safe`;
+    button.setAttribute("aria-label", `Remove all ${n} safe-to-delete ${n === 1 ? "worktree" : "worktrees"}`);
+  }
   const storage = {
     read(area, key, fallback) { try { return JSON.parse(window[area].getItem(key)) ?? fallback; } catch { return fallback; } },
     write(area, key, value) { try { window[area].setItem(key, JSON.stringify(value)); } catch {} }
@@ -2361,6 +2373,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
           }
         }
       });
+      labelRemoveSafe();
       $$("[data-summary]").forEach(group => {
         const subset = visible.filter(row => (group.dataset.summary === "project" ? row.dataset.repo : row.dataset.folder) === group.dataset.groupKey);
         group.hidden = filtered && subset.length === 0;
@@ -2696,6 +2709,8 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       const dirty = plan.filter(result => result.modified || result.untracked).length;
       let text = plan.length ? `Each folder is deleted with git worktree remove; branches are kept. ${size(dry.freedKB)} in total (logical size; space freed can be smaller).` : "Every worktree you picked is now refused, so nothing will change.";
       if (dirty) text += ` ${dirty === 1 ? "1 worktree has" : dirty + " worktrees have"} uncommitted files already in the default branch; they are discarded, after a copy is kept under refs/agentyard/removed/.`;
+      const subs = plan.filter(result => result.submodules).length;
+      if (subs) text += ` ${subs === 1 ? "1 worktree has" : subs + " worktrees have"} submodules, re-checked to hold nothing their remote lacks; their checkouts are deleted with it.`;
       if (ignored) text += ` ${ignored === 1 ? "1 worktree holds" : ignored + " worktrees hold"} ignored files that will be deleted too.`;
       if (dry.simulated) text += " Demo data: nothing on disk is touched.";
       show(plan.length ? `Remove ${plan.length} ${noun(plan.length)}?` : "Nothing to remove", text, nodes,
@@ -2762,6 +2777,8 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       if (one) { openRemove([one.dataset.remove], one); return; }
       const all = event.target.closest("[data-remove-all]");
       if (all) openRemove($$(".command-line[data-item]", all.closest("details.cleanup")).filter(line => !line.hidden).map(line => line.dataset.key), all);
+      const safe = event.target.closest("[data-remove-safe]");
+      if (safe) openRemove(safePaths(), safe);
     });
   }
 
