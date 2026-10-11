@@ -99,13 +99,25 @@ dashboard's Remove or `remove_worktrees`. Rows and repositories are sorted by la
 commit, the worktree's index and any uncommitted file. Sizes are `du` logical sizes, refreshed every
 30 minutes; APFS clones and package-manager hardlinks mean the space you actually free can be smaller.
 
-> [!NOTE]
-> Removal has one implementation and two ways in: the dashboard's `POST /api/remove`, answered only
-> for a browser on this Mac (never another device, whatever `--sessions-lan` says), and the
-> [MCP server](#let-your-ai-clean-up)'s `remove_worktrees` tool, when your AI calls it on this Mac.
-> Both remove only worktrees that a fresh scan, taken at that moment, still finds Safe to delete or
-> Prunable; see [how removal stays safe](#how-removal-stays-safe). Other devices get the copy-ready
-> commands only.
+#### Removing from the dashboard
+
+On the Mac that runs agentyard, a Safe to delete or Prunable row has a **Remove** button, and each
+repository's cleanup panel has **Remove all**. Other devices on your network see the copy-ready
+commands only, whatever `--sessions-lan` says.
+
+1. Pressing Remove opens a dialog and runs a **dry run**: nothing is removed yet. It lists what will
+   go, what will not and why, the ignored files that go with the folder (`.env` and the like), and,
+   for a worktree with uncommitted files, which files are discarded, the ref that already has them
+   and the ref where a copy is kept.
+2. **Confirm** removes them. The worktrees are re-checked first (see
+   [how removal stays safe](#how-removal-stays-safe)); one that changed since the dry run is refused,
+   not removed. The result lists each outcome and the space freed, and the rows disappear once the
+   rescan lands.
+
+What is deleted is the worktree folder and git's registration of it, ignored files included. Branches
+are never deleted. Removal has one implementation and two ways in: this dialog (`POST /api/remove`,
+answered only for a browser on this Mac) and the [MCP server](#let-your-ai-clean-up)'s
+`remove_worktrees` tool. `agentyard demo` shows the same dialog and removes nothing.
 
 ### Pull requests
 

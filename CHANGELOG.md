@@ -6,57 +6,92 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-11
+
 ### Added
 
-- `POST /api/remove`: the dashboard can remove worktrees. It takes `{"paths": [...], "dry_run": bool}`
-  (at most 50 paths) and answers with the same per-path outcomes and totals as `remove_worktrees`,
-  through the same code: one fresh scan per repository, only Safe to delete and Prunable, HEAD and
-  content re-checked just before each `git worktree remove`. After a removal it starts a rescan and
-  hides the removed rows until that lands. `agentyard demo` simulates removals from its own data.
-
-- Dry runs return a `plan` per worktree; passed back in `plans`, it makes the removal refuse a worktree
+- Remove worktrees from the dashboard. Reclaimable rows get a Remove button and each repository's
+  cleanup panel a Remove all. Either opens a confirm dialog that first runs a dry run and lists what
+  will go, what will not (with the reason), the ignored files that go with the folder (`.env` and the
+  like), and for a dirty worktree the uncommitted files discarded, where they already are, and the
+  ref that keeps a copy. Confirming removes; the result lists each outcome and the space freed.
+  `agentyard demo` simulates removals from its own data and touches nothing.
+- `POST /api/remove`, the endpoint behind it. It takes `{"paths": [...], "dry_run": bool}` (at most
+  50 paths) and answers with the same per-path outcomes and totals as `remove_worktrees`, through the
+  same code: one fresh scan per repository, only Safe to delete and Prunable, HEAD and content
+  re-checked just before each `git worktree remove`. After a removal it starts a rescan and hides the
+  removed rows until that lands.
+- Dry runs return a `plan` per worktree. Passed back in `plans`, it makes the removal refuse a worktree
   that changed since (a new ignored file such as `.env`, other changes, another verdict). The dashboard
   always sends it; `remove_worktrees` takes it too.
 - Results say what a removal discards: `modified` and `untracked` counts with the `contentRef` that has
   them, the ignored files, and, for a checked removal, the `backup` ref holding a copy.
+- Rows that only the checked removal may delete (a dirty worktree, a detached HEAD whose commits exist
+  nowhere else) are listed in the cleanup panel without a copy-ready command, with a note saying why.
 
 ### Changed
 
 - Keep is decided by content, not by commit hash: a worktree whose uncommitted files and local commits
   are already on a remote ref by content (rebased, squash-merged, pushed later, ported) is no longer
   Keep. It is Safe to delete only when they are in the default branch itself; on another branch or a
-  PR head it is Not merged. The comparison fails closed, to Keep: on a submodule or nested repository
-  among the changes, on a changed path with a clean/smudge `filter` or a custom `merge` driver (so
-  dirty files tracked by Git LFS stay Keep), on a staged version the disk no longer has, on a file mode
-  the remote never had, on more than 1000 changed paths, and on more than 5000 untracked files or
-  64 MB of them (they would be hashed on every scan).
-- The HTTP server is no longer read-only, as 0.6.0 promised it would stay. Removal is answered only for
-  a client on this Mac (loopback or its own addresses; never the LAN, even with `-sessions-lan`), with
-  an `Origin` naming the dashboard (required), the per-process random token the page embeds for this
-  Mac (`X-Agentyard-Token`), a JSON content type and a body of at most 64 KB. Every response forbids
-  framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so no page can disguise the Remove
-  button.
-- Removal no longer never forces. A dirty worktree whose every change is in the default branch needs
-  `--force`, so it goes only through the checked removal: the content proof is re-run on a snapshot
-  of the worktree, that snapshot (HEAD plus every uncommitted and untracked, non-ignored file) is kept
-  under `refs/agentyard/removed/<time>-<name>-<id>`, and the files and HEAD are read once more just
-  before git deletes them. The same copy is kept for a detached HEAD whose commits are on no branch,
-  tag or remote. Neither kind gets a copy-ready command any more (a copied command would skip every
-  check); the dashboard lists them without one. Restore with
+  PR head it is Not merged.
+- The comparison fails closed, to Keep: on a submodule or nested repository among the changes, on a
+  changed path with a clean/smudge `filter` or a custom `merge` driver (so dirty files tracked by Git
+  LFS stay Keep), on a staged version the disk no longer has, on a file mode the remote never had, on
+  more than 1000 changed paths, and on more than 5000 untracked files or 64 MB of them (they would be
+  hashed on every scan).
+- A worktree is also Keep when it holds an initialized submodule, a file on disk marked
+  assume-unchanged or skip-worktree (git status cannot see its edits), or a nested repository anywhere
+  in its ignored folders, including under `node_modules/` or `vendor/` and with a differently cased
+  `.GIT`.
+- **The HTTP server is no longer read-only**, as 0.6.0 promised it would stay. `POST /api/remove` is its
+  one write, and exactly this is allowed, from where:
+  - only a client on this Mac (loopback or one of its own interface addresses; never the LAN, even with
+    `-sessions-lan`), on top of the existing private-address and `Host` checks;
+  - only with an `Origin` naming the dashboard's own host (a missing `Origin` is refused);
+  - only with the random per-process token (`X-Agentyard-Token`) that the page embeds, and only in pages
+    served to this Mac; it changes each time agentyard starts;
+  - only for `application/json` and a body of at most 64 KB; unknown fields are refused;
+  - requests are handled one at a time. Other devices on the LAN get no Remove button and no token.
+- `--force` is now used, only for a dirty worktree whose every change a fresh scan has just proven to be
+  in the default branch by content (git refuses such a worktree without it). 0.6.0 and the commits
+  before this release never forced. It runs only inside the checked removal: the content proof is
+  re-run on a snapshot of the worktree, that snapshot (HEAD plus every uncommitted and untracked,
+  non-ignored file) is kept under `refs/agentyard/removed/<time>-<name>-<id>`, and the files and HEAD are
+  read once more just before git deletes them. The same copy is kept for a detached HEAD whose commits
+  are on no branch, tag or remote. A lock still stops it, since `--force` is passed once. Restore with
   `git worktree add <folder> <ref> && git -C <folder> reset HEAD~1`; delete with `git update-ref -d`.
-- A removal's fresh scan fetches once instead of retrying for about 40 seconds, and if that fetch
-  fails, checked removals are refused: stale remote-tracking refs cannot prove anything.
-- A worktree is Keep when it holds an initialized submodule, a file on disk marked assume-unchanged
-  or skip-worktree (git status cannot see its edits), or a nested repository anywhere in its ignored
-  folders, including under `node_modules/` or `vendor/` and with a differently cased `.GIT`.
+  Clean worktrees, and Prunable ones, are removed without `--force`.
+- Copy-ready commands never contain `--force`. Dirty worktrees and such detached HEADs get none, since
+  a copied command would skip every check; they go only through the dashboard's Remove or
+  `remove_worktrees`.
+- A removal's fresh scan fetches once instead of retrying for about 40 seconds, and if that fetch fails,
+  removals that rely on remote refs are refused (clean merged worktrees still go): stale remote-tracking
+  refs cannot prove anything.
 - Paths must be passed exactly as listed: one with `..`, `//` or a trailing `/` is refused.
-- Removed rows stay hidden from every scan that began before the removal, through one shared owner
-  for the dashboard and `agentyard mcp`.
+- Removed rows stay hidden from every scan that began before the removal, through one shared owner for
+  the dashboard and `agentyard mcp`.
+- The README, SECURITY.md and the MCP server's instructions no longer say removal never forces or that the
+  server is read-only.
 
 ### Fixed
 
 - The removal dialog keeps keyboard focus while it removes, labels each Remove button with the full
-  path, and shows the server's freed totals.
+  path, and shows the server's freed totals instead of adding them up itself.
+
+### Security notes
+
+- Every response now sends `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`,
+  so no other page can frame the dashboard and disguise its Remove button.
+- Removal is a write to your repositories from a web page. The guards above (this Mac only, `Origin`,
+  token, JSON, `Host` check) are what stand between another web page or device and your worktrees.
+- Known limits, stated in the README and SECURITY.md:
+  - A file saved in the last milliseconds between the final re-read and git's delete is lost; the copy
+    under `refs/agentyard/removed/` cannot hold it.
+  - Ignored files (`.env`, local databases) are never in the copy. A new file inside an already-ignored
+    folder does not change a dry run's plan.
+  - A removal request has no deadline: a slow fetch or a huge worktree can keep it open for minutes,
+    and the page's request cannot be cancelled.
 
 ## [0.6.0] - 2026-10-10
 
@@ -192,7 +227,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.6.0
 [0.5.0]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.5.0
 [0.4.1]: https://github.com/MilosMosovsky/agentyard/releases/tag/v0.4.1
