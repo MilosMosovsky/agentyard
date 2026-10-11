@@ -70,8 +70,10 @@ func mcpInstructions() string {
 		"Only " + strings.Join(gone, " and ") + " are reclaimable, and remove_worktrees refuses everything else. " +
 		"keep means the worktree holds work no remote has (uncommitted files or local commits whose content is on no remote branch), or another checkout inside the folder.\n" +
 		"Cleanup: worktree_summary, then list_worktrees with verdict " + string(list) + ", then remove_worktrees with dry_run true, " +
-		"then remove_worktrees. Show the user the dry run's ignored files (.env and the like), which removal deletes.\n" +
-		"remove_worktrees re-scans each repository before acting, forces only a dirty worktree whose every change it has just re-proven to be on the default branch, and never deletes branches.\n" +
+		"then remove_worktrees with each dry-run result's plan in plans. Show the user the dry run's ignored files (.env and the like), which removal deletes, " +
+		"and any uncommitted files it discards (modified, untracked, contentRef).\n" +
+		"remove_worktrees re-scans each repository before acting and never deletes branches. It forces only a dirty worktree whose every change it has just re-proven to be in the default branch, " +
+		"and keeps a copy of such a worktree (and of a detached HEAD's own commits) under the ref in each result's backup.\n" +
 		"Data is the background agent's last scan: check snapshot.age, and call sync_worktrees when it is old."
 }
 
@@ -95,11 +97,11 @@ type mcpSource struct {
 type mcpServer struct {
 	src   mcpSource
 	tools []mcpTool
-	gone  map[string]time.Time // paths this process removed, hidden from older snapshots
+	gone  removedPaths // paths this process removed, hidden from snapshots begun before
 }
 
 func newMCPServer(src mcpSource) *mcpServer {
-	m := &mcpServer{src: src, gone: map[string]time.Time{}}
+	m := &mcpServer{src: src}
 	m.tools = m.toolList()
 	return m
 }
@@ -460,12 +462,16 @@ func (m *mcpServer) toolList() []mcpTool {
 		{
 			Name: "remove_worktrees", Title: "Remove reclaimable worktrees",
 			Description: "Removes worktrees that are safe to delete. Each repository is re-scanned first (fetch, status, PR lookup); " +
-				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove (with --force only for a dirty worktree whose every change was just re-proven to be on the default branch), " +
-				"and everything else is refused with its reason. Ignored files in a removed worktree (.env, local databases) " +
-				"are deleted with it; each result lists them. Branches are never deleted. Try dry_run first.",
+				"only worktrees whose fresh verdict is " + gone + " are removed, one by one with git worktree remove, " +
+				"and everything else is refused with its reason. A worktree with uncommitted files goes only if every change was just re-proven to be in the default branch; " +
+				"git needs --force for it, so its files and HEAD are first kept under the ref the result names in backup " +
+				"(restore: git worktree add <folder> <backup> && git -C <folder> reset HEAD~1). Ignored files in a removed worktree (.env, local databases) " +
+				"are deleted with it and kept nowhere; each result lists them. Branches are never deleted. Run dry_run first and pass its plans back.",
 			InputSchema: schema(map[string]any{
-				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": removeMax, "description": "absolute worktree paths, as list_worktrees shows them"},
+				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": removeMax, "description": "absolute worktree paths, exactly as list_worktrees shows them"},
 				"dry_run": map[string]any{"type": "boolean", "default": false, "description": "re-check and report what would go; change nothing"},
+				"plans": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+					"description": "path → the plan its dry-run result gave; a path whose worktree changed since (new ignored files, other changes) is refused"},
 			}, "paths"),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false},
 			run:         m.removeTool,
@@ -511,7 +517,7 @@ func (m *mcpServer) load() (*Snapshot, mcpMeta, *toolResult) {
 
 // withoutRemoved hides worktrees this process removed after snap was taken,
 // so the AI does not meet them again before the agent's next scan.
-func (m *mcpServer) withoutRemoved(snap *Snapshot) (*Snapshot, int) { return hideRemoved(snap, m.gone) }
+func (m *mcpServer) withoutRemoved(snap *Snapshot) (*Snapshot, int) { return m.gone.hide(snap) }
 
 // repoNames maps each repository path to the name the dashboard gives it.
 func repoNames(snap *Snapshot) map[string]string {
@@ -795,10 +801,7 @@ func (m *mcpServer) removeTool(raw json.RawMessage) *toolResult {
 		return fail
 	}
 	rep := removeWorktrees(snap, q, removeIn, m.src.poke)
-	now := time.Now()
-	for _, p := range rep.gone {
-		m.gone[p] = now
-	}
+	m.gone.add(rep.gone, time.Now())
 	res := toolOK(struct {
 		Snapshot mcpMeta `json:"snapshot"`
 		*removeReport

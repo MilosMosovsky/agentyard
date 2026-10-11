@@ -258,6 +258,10 @@ func TestClassify(t *testing.T) {
 		{"dirty, content elsewhere", Worktree{Untracked: 1, LastCommit: old, ContentRef: "origin/v2"}, "unmerged", "no PR; local changes already on origin/v2"},
 		{"unpushed, PR diverged, content in PR", Worktree{Unpushed: 1, PR: &PR{State: "MERGED"}, PRRel: "diverged", ContentRef: "abc123"}, "merged", "merged: PR merged; local changes already on abc123"},
 		{"dirty, content in open PR", Worktree{Modified: 1, PR: &PR{State: "OPEN"}, ContentRef: "origin/feat"}, "open", "PR in review; fully pushed; local changes already on origin/feat"},
+		// Uncommitted files are deleted with the worktree: Safe to delete only when they are in the default branch.
+		{"HEAD in default, dirty, content on another branch", Worktree{Untracked: 1, InDefault: true, LastCommit: old, ContentRef: "origin/experiment"}, "unmerged", "no PR; local changes already on origin/experiment"},
+		{"PR merged, dirty, content on its branch", Worktree{Modified: 1, PR: &PR{State: "MERGED"}, PRRel: "same", LastCommit: old, ContentRef: "origin/feat"}, "unmerged", "PR merged, but uncommitted changes are only on origin/feat, not in the default branch"},
+		{"PR merged, dirty, content in default", Worktree{Modified: 1, PR: &PR{State: "MERGED"}, PRRel: "same", ContentRef: "origin/main", ContentInDefault: true}, "merged", "merged: PR merged; local changes already on origin/main"},
 	}
 	for _, c := range cases {
 		w := c.w
@@ -284,11 +288,29 @@ func TestJudgeRemoveCommands(t *testing.T) {
 	if w.RemoveCmd != "" {
 		t.Errorf("keep got a remove command: %q", w.RemoveCmd)
 	}
-	// Dirty but proven to be in the default branch: git would refuse it, so only this case forces.
+	// Dirty but proven to be in the default branch: reclaimable, but only through
+	// the checked removal, so there is no command to copy (it would need --force).
 	w = &Worktree{Path: "/r/done", Modified: 1, InDefault: true, ContentRef: "origin/main", ContentInDefault: true}
 	judge("/r/repo", w)
-	if want := "git -C /r/repo worktree remove --force /r/done"; w.Verdict != "merged" || w.RemoveCmd != want {
-		t.Errorf("covered dirty: %s %q, want %q", w.Verdict, w.RemoveCmd, want)
+	if w.Verdict != "merged" || w.RemoveCmd != "" {
+		t.Errorf("covered dirty: %s %q, want merged with no command", w.Verdict, w.RemoveCmd)
+	}
+	// Covered elsewhere, HEAD in the default branch: not Safe to delete.
+	w = &Worktree{Path: "/r/exp", Untracked: 1, InDefault: true, ContentRef: "origin/experiment"}
+	judge("/r/repo", w)
+	if w.Verdict != "unmerged" || w.RemoveCmd != "" {
+		t.Errorf("dirty, content on another branch: %s %q", w.Verdict, w.RemoveCmd)
+	}
+	// A detached HEAD's own commits: no copyable command either.
+	w = &Worktree{Path: "/r/det", Branch: "(detached)", Unpushed: 2, ContentRef: "origin/main", ContentInDefault: true, headOnly: true}
+	judge("/r/repo", w)
+	if w.Verdict != "merged" || w.RemoveCmd != "" {
+		t.Errorf("detached with its own commits: %s %q", w.Verdict, w.RemoveCmd)
+	}
+	for _, force := range []bool{false, true} {
+		if got := strings.Contains(strings.Join(removeArgs("/r/repo", w, force), " "), "--force"); got != force {
+			t.Errorf("removeArgs force=%v gave --force=%v", force, got)
+		}
 	}
 	w = &Worktree{Path: "/r/ahead", Unpushed: 1, ContentRef: "origin/main", ContentInDefault: true}
 	judge("/r/repo", w)
@@ -540,16 +562,19 @@ func TestPageRemoveControls(t *testing.T) {
 	logs := captureLog(t)
 	h, _ := demoHandler(t)
 	s, _, _, _ := newDemo(time.Now())
-	reclaimable := 0
+	removable, checked := 0, 0
 	for _, r := range s.snap.Load().Repos {
 		for _, w := range r.Worktrees {
-			if w.RemoveCmd != "" {
-				reclaimable++
+			if reclaimable(w.Verdict) {
+				removable++
+				if w.RemoveCmd == "" {
+					checked++
+				}
 			}
 		}
 	}
-	if reclaimable == 0 {
-		t.Fatal("demo has nothing reclaimable")
+	if removable == 0 || checked == 0 {
+		t.Fatalf("demo lacks a reclaimable worktree with (%d) and without (%d) a command", removable, checked)
 	}
 	const never = "Commands are copied, never run here."
 	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `data-remove="`, `<meta name="agentyard-remove-token"`, `id="remove-confirm"`}
@@ -561,8 +586,15 @@ func TestPageRemoveControls(t *testing.T) {
 		}
 	}
 	// One button in the table row and one in the phone card per reclaimable worktree.
-	if got := strings.Count(body, ` data-remove="`); got != 2*reclaimable {
-		t.Errorf("%d Remove buttons for %d reclaimable worktrees", got, reclaimable)
+	if got := strings.Count(body, ` data-remove="`); got != 2*removable {
+		t.Errorf("%d Remove buttons for %d reclaimable worktrees", got, removable)
+	}
+	// A worktree only the checked removal may take is listed without a command.
+	if got := strings.Count(body, `class="command-line command-checked"`); got != checked {
+		t.Errorf("%d command-less cleanup lines for %d checked removals", got, checked)
+	}
+	if strings.Contains(body, "--force") {
+		t.Error("the page prints a --force command")
 	}
 	if strings.Contains(body, never) {
 		t.Error("cleanup note still says commands are never run here")

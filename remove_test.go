@@ -112,7 +112,7 @@ func removeFixture(t *testing.T) (h http.Handler, s *scanner, wt func(string) st
 	}
 	os.WriteFile(filepath.Join(wt("dirty"), "notes.txt"), []byte("keep me\n"), 0o644)
 	s = &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
-	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes)}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes, true)}, time.Now(), 0)
 	s.snap.Store(snap)
 	if _, w := find(snap, wt("clean")); w == nil || w.Verdict != "merged" {
 		t.Fatalf("setup: clean is %+v", w)
@@ -278,5 +278,47 @@ func TestRemoveEndpointDemo(t *testing.T) {
 	}
 	if strings.Contains(get(t, h, "GET", "/api.json", local).Body.String(), merged) {
 		t.Errorf("api.json still lists the removed worktree")
+	}
+}
+
+// The dashboard's removal of a worktree with uncommitted files already in the
+// default branch: the dry run says what it discards and gives a plan, and the
+// removal with that plan keeps a copy before forcing it away. No page frames it.
+func TestRemoveEndpointCheckedRemoval(t *testing.T) {
+	quietGH(t)
+	base, repo := gitRepo(t)
+	wt := filepath.Join(base, "wt", "covered")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "covered", wt)
+	writeIn(t, wt, "b.txt", "pushed later\n", false)
+	writeIn(t, repo, "b.txt", "pushed later\n", true)
+	gitT(t, repo, "push", "-q", "origin", "main")
+	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
+	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes, true)}, time.Now(), 0)
+	s.snap.Store(snap)
+	h := serve(s, &prTracker{}, &sessionIndex{byPath: map[string]*Session{}}, nil)
+
+	page := get(t, h, "GET", "/", local)
+	if page.Header().Get("X-Frame-Options") != "DENY" || !strings.Contains(page.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+		t.Errorf("the dashboard can be framed: %v", page.Header())
+	}
+	if strings.Contains(page.Body.String(), "--force") {
+		t.Errorf("the page offers a --force command")
+	}
+	call := removeCall{local, pageOrigin, pageToken(t, h, local), "application/json", removeBody(true, wt)}
+	_, dry := call.post(t, h)
+	d := byPath(t, dry)[wt]
+	if d["outcome"] != "would_remove" || d["untracked"] != 1.0 || d["contentRef"] != "origin/main" || d["plan"] == nil {
+		t.Fatalf("dry run: %v", d)
+	}
+	b, _ := json.Marshal(removeRequest{Paths: []string{wt}, Plans: map[string]string{wt: d["plan"].(string)}})
+	call.body = string(b)
+	_, res := call.post(t, h)
+	defer waitSynced(t, h)
+	r := byPath(t, res)[wt]
+	if r["outcome"] != "removed" || exists(wt) {
+		t.Fatalf("removal: %v", r)
+	}
+	if got := gitT(t, repo, "show", r["backup"].(string)+":b.txt"); got != "pushed later\n" {
+		t.Errorf("the copy lacks the uncommitted file: %q", got)
 	}
 }

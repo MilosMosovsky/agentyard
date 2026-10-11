@@ -25,15 +25,26 @@ with `--lan`. Session ids are validated and shell-quoted in the copied resume co
   with `-sessions-lan`), the `Origin` header names the dashboard's own host (a missing `Origin` is
   refused), the `X-Agentyard-Token` header carries the random token generated when the process starts
   and embedded only in pages served to this Mac, the body is `application/json`, and the body is at
-  most 64 KB. Requests are handled one at a time. `agentyard demo` answers with simulated outcomes
-  and never touches the disk. Otherwise the server writes nothing to your repositories; it does run
-  `git fetch --prune` in repos that have worktrees.
+  most 64 KB. Requests are handled one at a time. Every response carries `X-Frame-Options: DENY` and
+  `Content-Security-Policy: frame-ancestors 'none'`, so no other page can frame the dashboard and
+  disguise its Remove button. `agentyard demo` answers with simulated outcomes and never touches the
+  disk. Apart from removals and the `refs/agentyard/removed/` refs they keep, the server writes
+  nothing to your repositories; it does run `git fetch --prune` in repos that have worktrees.
 - **One guarded removal path.** The dashboard endpoint and `agentyard mcp`'s `remove_worktrees` tool
   run the same code. `agentyard mcp` is a separate process that your AI client starts on this machine
   and talks to over stdin/stdout, running as you; it never listens on the network. Removal re-scans
   the repository first and removes only worktrees whose fresh verdict is Safe to delete or Prunable,
-  one at a time with `git worktree remove`, adding `--force` only for a dirty worktree whose every
-  change was re-proven, at that moment, to be in the default branch. Anything else, and any path git
+  one at a time with `git worktree remove`. A dirty worktree is reclaimable only when every change is
+  in the default branch by content; git refuses it, so it is removed with `--force`, and only after
+  the content proof is re-run on a snapshot that is first kept under `refs/agentyard/removed/`. The
+  same copy is kept before removing a detached HEAD whose commits are on no branch, tag or remote. The
+  files and HEAD are read again right before git deletes them, which narrows, but does not close, the
+  window in which a write is lost: a file saved after that last look and before git's delete is gone,
+  and so are ignored files, which no copy holds. The proof fails closed (Keep) on submodules, nested
+  repositories, clean/smudge filters, custom merge drivers, staged versions the disk lacks,
+  assume-unchanged or skip-worktree files, and when the fresh scan's fetch fails. Such worktrees get
+  no copy-ready command, since a copied command would skip all of this. A dry run returns a plan per
+  path; a removal passing it refuses a worktree that changed since. Anything else, and any path git
   does not list as a worktree at that moment, is refused. Ignored files inside a removed worktree
   (`.env` and the like) are deleted with it and listed in every result. Branches are never deleted.
   `agentyard mcp` reads its listings from the agent at the address it is given, the installed agent's

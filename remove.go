@@ -7,7 +7,9 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +34,10 @@ const (
 type removeRequest struct {
 	Paths  []string `json:"paths"`
 	DryRun bool     `json:"dry_run"`
+	// Plans holds, per path, the plan a dry run gave it. A path whose fresh
+	// plan differs (new ignored files, other changes, another verdict) is
+	// refused, so what goes is what the dry run showed.
+	Plans map[string]string `json:"plans,omitempty"`
 }
 
 // check is the request as a whole; each path is judged by removeWorktrees.
@@ -46,13 +53,20 @@ func (q removeRequest) check() error {
 
 // removal is what happened to one requested path.
 type removal struct {
-	Path    string   `json:"path"`
-	Outcome string   `json:"outcome"` // removed | pruned | would_remove | refused
-	Verdict string   `json:"verdict,omitempty"`
-	Label   string   `json:"label,omitempty"`
-	Reason  string   `json:"reason"`
-	Ignored []string `json:"ignored,omitempty"` // ignored files removal deletes with the worktree
-	FreedKB int64    `json:"freedKB,omitempty"`
+	Path    string `json:"path"`
+	Outcome string `json:"outcome"` // removed | pruned | would_remove | refused
+	Verdict string `json:"verdict,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Reason  string `json:"reason"`
+	// Uncommitted files removal discards, and the ref that already has them.
+	Modified   int      `json:"modified,omitempty"`
+	Untracked  int      `json:"untracked,omitempty"`
+	ContentRef string   `json:"contentRef,omitempty"`
+	Ignored    []string `json:"ignored,omitempty"` // ignored files removal deletes with the worktree
+	FreedKB    int64    `json:"freedKB,omitempty"`
+	Plan       string   `json:"plan,omitempty"`   // a dry run's plan, to pass back in plans
+	Backup     string   `json:"backup,omitempty"` // the ref holding a copy of what a checked removal deleted
+	expect     string   // the plan the request passed for this path
 }
 
 func (it *removal) refuse(reason string) { it.Outcome, it.Reason = "refused", reason }
@@ -96,12 +110,16 @@ func removeWorktrees(snap *Snapshot, q removeRequest, act repoRemover, poke func
 		switch clean := filepath.Clean(p); {
 		case !filepath.IsAbs(p):
 			it.refuse("not an absolute path")
+		case clean != p:
+			// No "..", "//" or trailing "/": through a symlink those can name
+			// another folder than the one the cleaned path does.
+			it.refuse("not in canonical form; pass the path exactly as list_worktrees shows it")
 		case r == nil:
 			it.refuse("not a known worktree; list_worktrees shows the known paths")
 		case seen[clean]:
 			it.refuse("listed more than once")
 		default:
-			seen[clean], it.Path = true, clean
+			seen[clean], it.expect = true, q.Plans[p]
 			if byRepo[r.Path] == nil {
 				repos = append(repos, r.Path)
 			}
@@ -139,9 +157,13 @@ func removeWorktrees(snap *Snapshot, q removeRequest, act repoRemover, poke func
 // syncNote is what a removal reports about the dashboard's rescan.
 func syncNote(state string) string { return "dashboard sync " + state }
 
-// beforeRemove runs between the fresh scan and the last HEAD check; tests use
-// it to change a worktree in that window.
-var beforeRemove = func(*Worktree) {}
+// beforeRemove runs between the fresh scan and the last HEAD check, and
+// beforeExec between the copy a checked removal keeps and its last look at
+// the files; tests use them to change a worktree in those windows.
+var (
+	beforeRemove = func(*Worktree) {}
+	beforeExec   = func(*Worktree) {}
+)
 
 // removeIn re-scans one repository and removes the requested worktrees that
 // are still reclaimable, returning the fresh scan's warnings.
@@ -149,14 +171,21 @@ var beforeRemove = func(*Worktree) {}
 // It takes no scanner lock: for the MCP server the background agent's lives
 // in another process, and the dashboard's would stall its scheduled scans for
 // the whole removal. That is fine: run() sets GIT_OPTIONAL_LOCKS=0, so a
-// concurrent scan never holds index.lock against a remove, and the remove
-// itself is git's own, which refuses a dirty or locked worktree.
+// concurrent scan never holds index.lock against a remove.
+//
+// The fresh scan fetches once, without the scheduled scan's retries. If that
+// fetch fails, the remote-tracking refs may be stale (a branch deleted on the
+// remote is still listed), so nothing whose safety rests on them goes.
 func removeIn(repo string, snap *Snapshot, items []*removal, dryRun bool) (warnings []string) {
 	sizes := &sizeCache{m: map[string]sizeEntry{}}
 	sizes.seed(snap, time.Now()) // the fresh scan re-runs git, not du
-	fresh := scanRepo(repo, sizes)
+	fresh := scanRepo(repo, sizes, false)
+	stale := ""
 	for _, e := range fresh.Errors {
 		warnings = append(warnings, tilde(repo)+": "+e)
+		if strings.HasPrefix(e, "fetch:") {
+			stale = e
+		}
 	}
 	live := map[string]*Worktree{}
 	for _, w := range fresh.Worktrees {
@@ -169,7 +198,7 @@ func removeIn(repo string, snap *Snapshot, items []*removal, dryRun bool) (warni
 			it.refuse("the fresh scan failed: " + strings.Join(fresh.Errors, "; "))
 		case w == nil:
 			it.refuse("a fresh scan no longer lists it as a worktree of " + tilde(repo))
-		case it.admit(w, dryRun):
+		case it.admit(w, dryRun, stale):
 			it.remove(repo, w)
 		}
 	}
@@ -183,31 +212,54 @@ func demoRemoveIn(_ string, snap *Snapshot, items []*removal, dryRun bool) []str
 	for _, it := range items {
 		if _, w := find(snap, it.Path); w == nil {
 			it.refuse("a fresh scan no longer lists it")
-		} else if it.admit(w, dryRun) {
+		} else if it.admit(w, dryRun, "") {
 			it.done(w)
 		}
 	}
 	return nil
 }
 
+// planOf digests what a removal of w would delete and why it may: a later
+// request carrying this plan goes ahead only if a fresh scan still agrees.
+func planOf(w *Worktree) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%t\x00%d\x00%d\x00%d\x00%s\x00%t\x00%s\x00%s",
+		w.Path, w.Sha, w.Prunable, w.Modified, w.Untracked, w.Unpushed, w.ContentRef, w.ContentHistory, w.Verdict, w.ignoredSum)
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
 // admit applies w's verdict: a refusal, a dry run's would_remove, or true
-// when w should be removed now.
-func (it *removal) admit(w *Worktree, dryRun bool) bool {
-	it.Verdict, it.Label = w.Verdict, verdictLabel(w.Verdict)
+// when w should be removed now. stale is the fresh scan's fetch error, if any.
+func (it *removal) admit(w *Worktree, dryRun bool, stale string) bool {
+	it.describe(w)
+	plan := planOf(w)
 	switch {
 	case !reclaimable(w.Verdict):
 		it.refuse("a fresh scan says " + it.Label + ": " + w.Reason)
+	case stale != "" && checkedRemoval(w):
+		it.refuse("the fresh scan could not fetch, so it cannot re-prove this worktree's local work is on the remote (" + stale + "); try again")
+	case it.expect != "" && it.expect != plan:
+		it.refuse("it changed since the dry run (" + w.Reason + "); check it again before removing")
 	case dryRun:
-		it.Outcome, it.Reason, it.Ignored, it.FreedKB = "would_remove", w.Reason, w.Ignored, w.SizeKB
+		it.Outcome, it.Reason, it.Plan = "would_remove", w.Reason, plan
 	default:
 		return true
 	}
 	return false
 }
 
+// describe copies what removing w deletes into the result.
+func (it *removal) describe(w *Worktree) {
+	it.Verdict, it.Label = w.Verdict, verdictLabel(w.Verdict)
+	it.Modified, it.Untracked, it.Ignored, it.FreedKB = w.Modified, w.Untracked, w.Ignored, w.SizeKB
+	if w.Modified+w.Untracked > 0 {
+		it.ContentRef = contentWhere(w)
+	}
+}
+
 // done records w as gone.
 func (it *removal) done(w *Worktree) {
-	it.Outcome, it.Reason, it.Ignored, it.FreedKB = "removed", w.Reason, w.Ignored, w.SizeKB
+	it.Outcome, it.Reason = "removed", w.Reason
 	if w.Prunable {
 		it.Outcome, it.Reason = "pruned", "stale registration removed"
 	}
@@ -218,8 +270,11 @@ func (it *removal) done(w *Worktree) {
 // a detached HEAD's new commit with it; HEAD is read once more first.
 // (A lock would not help: it doesn't stop commits, and git removes a locked
 // worktree only with --force twice.)
+//
+// A checked removal (see checkedRemoval) first keeps a copy: keepCopy.
 func (it *removal) remove(repo string, w *Worktree) {
 	beforeRemove(w)
+	force := false
 	if !w.Prunable {
 		head, err := git(w.Path, "rev-parse", "HEAD")
 		switch {
@@ -230,33 +285,124 @@ func (it *removal) remove(repo string, w *Worktree) {
 			it.refuse("HEAD moved after the fresh scan (a new commit?); list it again")
 			return
 		}
-		// --force skips git's own dirty check, so the content proof that allows it
-		// is redone at the last moment: a file edited since the scan fails it.
-		if w.Modified+w.Untracked > 0 {
-			if ref, _ := contentMatch(repo, w, w.ContentRef, nil); ref == "" || ref != w.ContentRef {
-				it.refuse("its uncommitted files changed after the fresh scan; list it again")
+		if checkedRemoval(w) {
+			ref, err := keepCopy(repo, w)
+			if err != nil {
+				it.refuse(err.Error())
 				return
 			}
+			it.Backup, force = ref, w.Modified+w.Untracked > 0
 		}
 	}
-	args := removeArgs(repo, w)
+	args := removeArgs(repo, w, force)
 	if _, err := run(10*time.Minute, "", args[0], args[1:]...); err != nil {
-		it.refuse("git refused: " + err.Error())
+		reason := "git refused: " + err.Error()
+		if it.Backup != "" {
+			reason += "; a copy of its files is kept at " + it.Backup
+		}
+		it.refuse(reason)
 		return
 	}
 	it.done(w)
 }
 
-// hideRemoved drops the worktrees in gone that were removed after snap was
-// taken, so nobody meets them again before the next scan.
-func hideRemoved(snap *Snapshot, gone map[string]time.Time) (*Snapshot, int) {
+var refUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
+
+// keepCopy is what makes a checked removal recoverable. It snapshots the
+// worktree into the repository's own object store (HEAD plus every
+// uncommitted and untracked, non-ignored file, with HEAD as parent, so a
+// detached HEAD's commits stay reachable too) and points a new ref under
+// refs/agentyard/removed/ at it. For uncommitted files it proves once more,
+// on that snapshot, that every change is in the default branch, as the fresh
+// scan said. Last, it reads the files and HEAD again: anything changed since
+// the snapshot refuses the removal.
+//
+// That last look narrows the window in which a write is lost; it does not
+// close it. A file written between it and git's delete is gone, and so are
+// ignored files, which no snapshot holds. Everything else is in the ref:
+//
+//	git worktree add <folder> <ref> && git -C <folder> reset HEAD~1
+func keepCopy(repo string, w *Worktree) (string, error) {
+	p, err := newProbe(w, true)
+	if err != nil {
+		return "", errors.New("cannot snapshot its files to keep a copy: " + err.Error())
+	}
+	defer p.done()
+	if w.Modified+w.Untracked > 0 {
+		if ref, _ := p.match(repo, w.ContentRef, nil); !w.ContentInDefault || ref != w.ContentRef {
+			return "", errors.New("its uncommitted files changed after the fresh scan; list it again")
+		}
+	}
+	name := "refs/agentyard/removed/" + time.Now().UTC().Format("20060102-150405") + "-" +
+		strings.Trim(refUnsafe.ReplaceAllString(filepath.Base(w.Path), "-"), "-") + "-" + p.work[:8]
+	if _, err := git(repo, "update-ref", "-m", "agentyard: before removing "+w.Path, name, p.work, ""); err != nil {
+		return "", errors.New("cannot keep a copy of its files: " + err.Error())
+	}
+	beforeExec(w)
+	tree, err := p.reread()
+	head, herr := git(w.Path, "rev-parse", "HEAD")
+	if err != nil || herr != nil || tree != p.workTree || strings.TrimSpace(head) != w.Sha {
+		git(repo, "update-ref", "-d", name, p.work)
+		return "", errors.New("it changed while it was being removed; list it again")
+	}
+	return name, nil
+}
+
+// removedPaths are worktrees this process removed. A snapshot begun before a
+// removal still lists that worktree, so hide drops it from such snapshots
+// until one begun afterwards replaces them. The dashboard's scanner and the
+// MCP server each hold one; it is the only place a removed row is hidden.
+type removedPaths struct {
+	mu sync.Mutex
+	m  map[string]time.Time
+}
+
+const removedKept = 24 * time.Hour // long past any scan begun before the removal
+
+func (g *removedPaths) add(paths []string, at time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.m == nil {
+		g.m = map[string]time.Time{}
+	}
+	for p, t := range g.m {
+		if time.Since(t) > removedKept {
+			delete(g.m, p)
+		}
+	}
+	for _, p := range paths {
+		g.m[filepath.Clean(p)] = at
+	}
+}
+
+// hide returns snap without the worktrees removed after it began, and how
+// many it dropped; snap itself when there are none.
+func (g *removedPaths) hide(snap *Snapshot) (*Snapshot, int) {
+	if snap == nil {
+		return nil, 0
+	}
+	began := snap.Started
+	if began.IsZero() {
+		began = snap.At
+	}
+	g.mu.Lock()
+	gone := map[string]bool{}
+	for p, t := range g.m {
+		if began.Before(t) {
+			gone[p] = true
+		}
+	}
+	g.mu.Unlock()
+	if len(gone) == 0 {
+		return snap, 0
+	}
 	hidden := 0
 	repos := make([]*Repo, 0, len(snap.Repos))
 	for _, r := range snap.Repos {
 		c := *r
 		c.Worktrees = nil
 		for _, w := range r.Worktrees {
-			if t, ok := gone[filepath.Clean(w.Path)]; ok && snap.At.Before(t) {
+			if gone[filepath.Clean(w.Path)] {
 				hidden++
 				continue
 			}
@@ -268,7 +414,7 @@ func hideRemoved(snap *Snapshot, gone map[string]time.Time) (*Snapshot, int) {
 		return snap, 0
 	}
 	out, _ := summarize(repos, snap.At, snap.Took)
-	out.DiskFree, out.DiskTotal, out.Errors = snap.DiskFree, snap.DiskTotal, snap.Errors
+	out.Started, out.DiskFree, out.DiskTotal, out.Errors = snap.Started, snap.DiskFree, snap.DiskTotal, snap.Errors
 	names := map[string]string{} // keep the repository names the scan gave
 	for _, g := range snap.ByRepo {
 		names[g.Anchor] = g.Name
@@ -346,15 +492,15 @@ func removeHandler(s *scanner, y *syncer, token string, demo bool) http.HandlerF
 		rep := removeWorktrees(snap, q, act, func() string { return syncNote(y.start()) })
 		rep.Simulated = demo
 		if len(rep.gone) > 0 {
-			// Until the rescan lands, the page shows the scan without them. If a
-			// scan landed meanwhile, it stands, and the rescan above follows it.
-			now := time.Now()
-			gone := map[string]time.Time{}
-			for _, p := range rep.gone {
-				gone[p] = now
-			}
-			if out, n := hideRemoved(snap, gone); n > 0 {
-				s.snap.CompareAndSwap(snap, out)
+			// Every snapshot begun before now hides them, whether it is the one
+			// shown now or a scan that lands later (scan applies s.gone too).
+			s.gone.add(rep.gone, time.Now())
+			for {
+				cur := s.snap.Load()
+				out, n := s.gone.hide(cur)
+				if n == 0 || s.snap.CompareAndSwap(cur, out) {
+					break
+				}
 			}
 		}
 		answer(http.StatusOK, rep)

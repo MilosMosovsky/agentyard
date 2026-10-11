@@ -72,7 +72,7 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 | **Prunable** | The folder is gone; only git's registration is left, and every commit it had is on a branch, tag or remote. |
 | **Not merged** | Nothing local is missing from the remote, but it was never merged into the default branch (closed PR, no PR, or its changes live on another branch). Needs a human decision. |
 | **Open PR** | The branch has a PR in review. |
-| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, or another checkout inside its ignored folders. |
+| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, an initialized submodule, or files git status cannot see (assume-unchanged, skip-worktree). |
 
 Keep is decided by content, not by commit hash. Commits often reach GitHub another way (rebased,
 squash-merged, ported to another branch) and uncommitted files are often identical to what was pushed
@@ -81,13 +81,21 @@ commits no remote has by hash, agentyard snapshots its state (HEAD plus every un
 untracked, non-ignored file) and merges it three-way into the default branch, the branch's own remote
 counterpart, its PR head, and the most recently updated remote branches containing its last pushed
 commit. If one of those merges is clean and changes nothing, that ref already has everything, and the
-worktree is judged as if it were clean and pushed. The snapshot uses a copy of the index and a
-throwaway object directory, so the repository itself is never written to.
+worktree is judged as if it were clean and pushed, except that uncommitted files make it Safe to
+delete only when they are in the default branch itself (elsewhere it is Not merged). The staged
+version is checked as well when it differs from the file on disk, and the history fallback (a file
+reverted to a version pushed earlier) compares file modes too. Anything git's comparison cannot vouch
+for keeps the worktree: a submodule or nested repository among the changes, a changed file with a
+clean/smudge filter (Git LFS included) or a custom merge driver, more than 1000 changed paths, or
+more than 5000 untracked files or 64 MB of them. The snapshot uses a copy of the index and a
+throwaway object directory, so a scan never writes to the repository.
 
 An interactive treemap shows measured disk usage by worktree or repository. Select a tile for its verdict and path, or jump to its row. Search, verdict, and repository filters update the chart, totals, and list together. Choose several values in the Filter menu; remove any selection individually.
 
 Totals are grouped by repository and by folder, with ready-to-copy `git worktree remove` commands for
-the safe-to-delete rows. Rows and repositories are sorted by last activity: the newest of the last
+the safe-to-delete rows. A row with uncommitted files, or a detached HEAD holding commits nothing else
+has, gets no command: a copied command would skip the checks below, so it goes only through the
+dashboard's Remove or `remove_worktrees`. Rows and repositories are sorted by last activity: the newest of the last
 commit, the worktree's index and any uncommitted file. Sizes are `du` logical sizes, refreshed every
 30 minutes; APFS clones and package-manager hardlinks mean the space you actually free can be smaller.
 
@@ -429,15 +437,29 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
   uncommitted file or a local commit since the last scan is refused.
 - **Only Safe to delete and Prunable.** Keep, Open PR and Not merged are always refused, with the
   reason. A path must exactly match a worktree git lists right now; the main working tree never does.
-  A worktree whose ignored folders hold another checkout or worktree (say, `.worktrees/` inside it)
-  is Keep, because removing it would delete that one too. So is a gone worktree whose detached HEAD
-  had commits on no branch, tag or remote.
+  A worktree whose ignored folders hold another checkout or worktree anywhere (`.worktrees/`, or deep
+  under `node_modules/`) is Keep, because removing it would delete that one too. So is one holding an
+  initialized submodule, or a file on disk marked assume-unchanged or skip-worktree, whose edits git
+  status cannot see, and a gone worktree whose detached HEAD had commits on no branch, tag or remote.
+  Paths must be given exactly as listed; one with `..`, `//` or a trailing `/` is refused.
+- **What you confirmed is what goes.** A dry run returns a plan for each worktree. Passed back (the
+  dashboard always does), it makes the removal refuse a worktree that changed in between, such as one
+  that gained an ignored `.env`. If the fresh scan cannot fetch, the checked removals described next,
+  which depend on remote refs, are refused.
 - **git does the removing, one path at a time.** Each runs `git worktree remove <path>`, which
   refuses a worktree with changes, untracked files or a lock; for a Prunable worktree it drops only
-  that registration. The one exception is a dirty worktree whose every change is already in the
-  default branch (see how Keep is decided, above): git would refuse it, so it is removed with `--force` (once, so a lock
-  still stops it), and only after the content check is re-run at that moment. Just before each one, HEAD is read again and a
-  worktree that gained a commit since the scan is refused. Branches are never deleted.
+  that registration. Just before each one, HEAD is read again and a worktree that gained a commit
+  since the scan is refused. Branches are never deleted.
+- **A copy first, whenever git alone would not be safe.** A dirty worktree whose every change is
+  already in the default branch (see how Keep is decided, above) needs `--force`, since git refuses
+  changes. Before that, agentyard snapshots it (HEAD plus every uncommitted and untracked, non-ignored
+  file), re-proves the content on that snapshot, and keeps it under
+  `refs/agentyard/removed/<time>-<name>-<id>`; it does the same for a detached HEAD whose commits are on
+  no branch, tag or remote. It then reads the files and HEAD once more and refuses if anything
+  changed. That narrows the window in which a write is lost, but cannot close it: a file saved after
+  that last look and before git deletes the folder is gone. The result names the ref; restore with
+  `git worktree add <folder> <ref> && git -C <folder> reset HEAD~1`, and delete it with
+  `git update-ref -d <ref>` when you no longer need it. `--force` is used once, so a lock still stops it.
 - **Ignored files go with the worktree.** git does not count ignored files as changes, so `.env`,
   local databases or notes in a removed worktree are deleted. Build and dependency output aside, the
   dry run and every result list them, so you and your AI see them first.
@@ -568,7 +590,10 @@ agentyard is a local tool with no login and no telemetry. It talks to GitHub thr
 - **What touches your repositories.** Scans run `git fetch --prune`. Removal, from the dashboard on
   this Mac or from `agentyard mcp`, removes only worktrees a fresh scan finds Safe to delete or
   Prunable, forces only a dirty worktree whose every change it has just re-proven to be in the default
-  branch, and never deletes branches.
+  branch, keeps a copy of such a worktree (and of a detached HEAD's own commits) under
+  `refs/agentyard/removed/`, and never deletes branches.
+- **No framing.** Every response says `X-Frame-Options: DENY` and `frame-ancestors 'none'`, so another
+  page cannot frame the dashboard and trick you into clicking Remove.
 
 Found a vulnerability? Please report it privately; see [SECURITY.md](SECURITY.md).
 
@@ -614,9 +639,9 @@ this Mac it can also remove them for you (`POST /api/remove`), and if you connec
 [`agentyard mcp`](#let-your-ai-clean-up) to your AI, its `remove_worktrees` tool can too. Either way
 only worktrees a fresh scan, taken at that moment, still finds Safe to delete or Prunable go, through
 `git worktree remove` (with `--force` only for a dirty worktree whose every change was just re-proven
-to be in the default branch). Ignored files inside them, such as `.env`, go too, and are listed first.
-Branches are never deleted. Otherwise the only command it runs against your repositories is
-`git fetch --prune`.
+to be in the default branch, after a copy is kept under `refs/agentyard/removed/`). Ignored files
+inside them, such as `.env`, go too, and are listed first. Branches are never deleted. Otherwise the
+only command it runs against your repositories is `git fetch --prune`.
 </details>
 
 <details>

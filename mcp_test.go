@@ -181,7 +181,7 @@ func TestMCPQueriesDemo(t *testing.T) {
 	}
 
 	infra, _, _ := callTool(t, m, "list_worktrees", map[string]any{"repo": "INFRA"})
-	if infra["matched"].(float64) != 3 {
+	if infra["matched"].(float64) != 4 {
 		t.Errorf("repo filter: %v", infra["matched"])
 	}
 	for _, r := range infra["worktrees"].([]any) {
@@ -321,7 +321,7 @@ func TestMCPRemoveSafety(t *testing.T) {
 		os.RemoveAll(wt(name))
 	}
 
-	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}})}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)}, time.Now(), 0)
 	want := map[string]string{"clean": "merged", "dirty": "merged", "modified": "merged", "late": "merged",
 		"envy": "merged", "headmove": "merged", "stale": "merged", "local": "keep", "pushed": "unmerged",
 		"outer": "keep", "outer2": "keep", "detached": "keep", "gone": "prunable", "gone2": "prunable", "lockedgone": "prunable"}
@@ -376,7 +376,7 @@ func TestMCPRemoveSafety(t *testing.T) {
 	}
 
 	traversal := wt("clean") + "/../../repo"
-	duplicate := wt("dirty") + "/../clean"
+	duplicate := wt("clean")
 	res, text, isErr := callTool(t, m, "remove_worktrees", map[string]any{"paths": []string{
 		wt("clean"), duplicate, wt("dirty"), wt("modified"), wt("late"), wt("local"), wt("pushed"), wt("envy"),
 		wt("outer"), wt("outer2"), wt("detached"), wt("headmove"), wt("gone"), wt("lockedgone"), wt("stale"),
@@ -394,7 +394,6 @@ func TestMCPRemoveSafety(t *testing.T) {
 		}
 	}
 	check(wt("clean"), "removed", "merged", "")
-	// The second spelling of clean normalises to the same worktree.
 	if dup := res["results"].([]any)[1].(map[string]any); dup["path"] != duplicate || dup["outcome"] != "refused" || dup["reason"] != "listed more than once" {
 		t.Errorf("duplicate: %v", dup)
 	}
@@ -412,7 +411,7 @@ func TestMCPRemoveSafety(t *testing.T) {
 	check(wt("lockedgone"), "refused", "prunable", "git refused: ")
 	check(wt("stale"), "refused", "", "a fresh scan no longer lists it")
 	check(repo, "refused", "", "not a known worktree")
-	check(filepath.Clean(traversal), "refused", "", "not a known worktree")
+	check(traversal, "refused", "", "not in canonical form")
 	check("wt/clean", "refused", "", "not an absolute path")
 	if res["removed"].(float64) != 2 || res["pruned"].(float64) != 1 || res["refused"].(float64) != 15 {
 		t.Errorf("totals: %v %v %v", res["removed"], res["pruned"], res["refused"])
@@ -468,7 +467,7 @@ func TestUnreadableWorktreeIsKept(t *testing.T) {
 	gitT(t, repo, "worktree", "add", "-q", "-b", "shut", filepath.Join(shut, "wt"))
 	os.Chmod(shut, 0)
 	t.Cleanup(func() { os.Chmod(shut, 0o755) })
-	r := scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}})
+	r := scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)
 	if len(r.Worktrees) != 1 || r.Worktrees[0].Verdict != "keep" || !strings.Contains(r.Worktrees[0].Reason, "cannot read the folder") {
 		t.Errorf("unreadable worktree: %+v", r.Worktrees)
 	}

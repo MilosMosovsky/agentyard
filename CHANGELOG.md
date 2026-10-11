@@ -14,15 +14,49 @@ All notable changes are documented here. The format follows
   content re-checked just before each `git worktree remove`. After a removal it starts a rescan and
   hides the removed rows until that lands. `agentyard demo` simulates removals from its own data.
 
+- Dry runs return a `plan` per worktree; passed back in `plans`, it makes the removal refuse a worktree
+  that changed since (a new ignored file such as `.env`, other changes, another verdict). The dashboard
+  always sends it; `remove_worktrees` takes it too.
+- Results say what a removal discards: `modified` and `untracked` counts with the `contentRef` that has
+  them, the ignored files, and, for a checked removal, the `backup` ref holding a copy.
+
 ### Changed
 
+- Keep is decided by content, not by commit hash: a worktree whose uncommitted files and local commits
+  are already on a remote ref by content (rebased, squash-merged, pushed later, ported) is no longer
+  Keep. It is Safe to delete only when they are in the default branch itself; on another branch or a
+  PR head it is Not merged. The comparison fails closed, to Keep: on a submodule or nested repository
+  among the changes, on a changed path with a clean/smudge `filter` or a custom `merge` driver (so
+  dirty files tracked by Git LFS stay Keep), on a staged version the disk no longer has, on a file mode
+  the remote never had, on more than 1000 changed paths, and on more than 5000 untracked files or
+  64 MB of them (they would be hashed on every scan).
 - The HTTP server is no longer read-only, as 0.6.0 promised it would stay. Removal is answered only for
   a client on this Mac (loopback or its own addresses; never the LAN, even with `-sessions-lan`), with
   an `Origin` naming the dashboard (required), the per-process random token the page embeds for this
-  Mac (`X-Agentyard-Token`), a JSON content type and a body of at most 64 KB.
-- `remove_worktrees`' instructions, the README and SECURITY.md no longer say removal never forces: a
-  dirty worktree whose every change is in the default branch is removed with `--force`, after the
-  content check is re-run.
+  Mac (`X-Agentyard-Token`), a JSON content type and a body of at most 64 KB. Every response forbids
+  framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so no page can disguise the Remove
+  button.
+- Removal no longer never forces. A dirty worktree whose every change is in the default branch needs
+  `--force`, so it goes only through the checked removal: the content proof is re-run on a snapshot
+  of the worktree, that snapshot (HEAD plus every uncommitted and untracked, non-ignored file) is kept
+  under `refs/agentyard/removed/<time>-<name>-<id>`, and the files and HEAD are read once more just
+  before git deletes them. The same copy is kept for a detached HEAD whose commits are on no branch,
+  tag or remote. Neither kind gets a copy-ready command any more (a copied command would skip every
+  check); the dashboard lists them without one. Restore with
+  `git worktree add <folder> <ref> && git -C <folder> reset HEAD~1`; delete with `git update-ref -d`.
+- A removal's fresh scan fetches once instead of retrying for about 40 seconds, and if that fetch
+  fails, checked removals are refused: stale remote-tracking refs cannot prove anything.
+- A worktree is Keep when it holds an initialized submodule, a file on disk marked assume-unchanged
+  or skip-worktree (git status cannot see its edits), or a nested repository anywhere in its ignored
+  folders, including under `node_modules/` or `vendor/` and with a differently cased `.GIT`.
+- Paths must be passed exactly as listed: one with `..`, `//` or a trailing `/` is refused.
+- Removed rows stay hidden from every scan that began before the removal, through one shared owner
+  for the dashboard and `agentyard mcp`.
+
+### Fixed
+
+- The removal dialog keeps keyboard focus while it removes, labels each Remove button with the full
+  path, and shows the server's freed totals.
 
 ## [0.6.0] - 2026-10-10
 

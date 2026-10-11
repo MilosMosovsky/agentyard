@@ -77,7 +77,7 @@ func TestContentAwareKeep(t *testing.T) {
 	gitT(t, repo, "switch", "-q", "main")
 
 	before := looseObjects(t, repo)
-	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}})}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)}, time.Now(), 0)
 	if after := looseObjects(t, repo); after != before {
 		t.Errorf("the content check wrote objects into the repository: %s -> %s", before, after)
 	}
@@ -144,7 +144,7 @@ func TestContentRevertToPushedVersion(t *testing.T) {
 	writeIn(t, wt("reverted"), "README", "hi\n", false) // the first commit's content
 	os.Remove(filepath.Join(wt("deleted"), ".gitignore"))
 
-	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}})}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)}, time.Now(), 0)
 	if _, w := find(snap, wt("reverted")); w == nil || w.Verdict != "merged" || !strings.Contains(w.Reason, "already in origin/main's history") {
 		t.Errorf("revert to a pushed version: %+v", w)
 	}

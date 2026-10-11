@@ -8,7 +8,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -93,7 +95,14 @@ type Worktree struct {
 	Hazard           string   `json:"hazard,omitempty"`         // work a removal would lose that status can't see
 	Verdict          string   `json:"verdict"`
 	Reason           string   `json:"reason"`
-	RemoveCmd        string   `json:"removeCmd,omitempty"`
+	// RemoveCmd is the copyable command that removes it, set only for a
+	// reclaimable worktree git itself would remove safely. One with
+	// uncommitted files or with commits only its HEAD holds has none: only the
+	// checked removal (removal.remove) may take it.
+	RemoveCmd string `json:"removeCmd,omitempty"`
+
+	headOnly   bool   // detached, with commits no branch, tag or remote has
+	ignoredSum string // digest of every ignored entry, for removal plans
 }
 
 type Repo struct {
@@ -114,6 +123,7 @@ type Group struct {
 }
 
 type Snapshot struct {
+	Started   time.Time     `json:"started,omitempty"` // when the scan began; At is when it ended
 	At        time.Time     `json:"at"`
 	Took      time.Duration `json:"took"`
 	Repos     []*Repo       `json:"repos"`
@@ -329,7 +339,7 @@ func listWorktrees(repo string) ([]wtEntry, error) {
 	return list, nil
 }
 
-func fetch(repo, slug string) error {
+func fetch(repo, slug string, patient bool) error {
 	args := []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false"}
 	if slug != "" {
 		// HTTPS through gh's token: the SSH key is not SSO-authorised for every org.
@@ -342,7 +352,11 @@ func fetch(repo, slug string) error {
 	// Retry: a DNS blip (e.g. a VPN re-establishing its tunnel) fails a
 	// fetch for a few seconds and would otherwise leave the repo stale for a cycle.
 	var err error
-	for attempt, wait := range []time.Duration{0, 10 * time.Second, 30 * time.Second} {
+	waits := []time.Duration{0, 10 * time.Second, 30 * time.Second}
+	if !patient {
+		waits = waits[:1]
+	}
+	for attempt, wait := range waits {
 		time.Sleep(wait)
 		if _, err = run(3*time.Minute, repo, "git", args...); err == nil {
 			return nil
@@ -420,7 +434,10 @@ func branchURL(slug, branch string) string {
 	return "https://github.com/" + slug + "/tree/" + strings.Join(parts, "/")
 }
 
-func scanRepo(path string, sizes *sizeCache) *Repo {
+// scanRepo scans one repository. patient retries a failed fetch for about 40
+// seconds; a removal's fresh scan is not patient, and a failed fetch makes it
+// refuse anything whose safety depends on remote refs.
+func scanRepo(path string, sizes *sizeCache, patient bool) *Repo {
 	r := &Repo{Path: path}
 	if out, err := git(path, "remote", "get-url", "origin"); err == nil {
 		if m := githubRe.FindStringSubmatch(strings.TrimSpace(out)); m != nil {
@@ -435,7 +452,7 @@ func scanRepo(path string, sizes *sizeCache) *Repo {
 	if len(entries) == 0 {
 		return r
 	}
-	if err := fetch(path, r.Slug); err != nil {
+	if err := fetch(path, r.Slug, patient); err != nil {
 		r.Errors = append(r.Errors, "fetch: "+err.Error())
 	}
 	r.Default = defaultBranch(path)
@@ -555,6 +572,11 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 	if out, err := git(e.path, "rev-list", "--count", e.sha, "--not", "--remotes"); err == nil {
 		w.Unpushed, _ = strconv.Atoi(strings.TrimSpace(out))
 	}
+	if e.branch == "(detached)" && w.Unpushed > 0 {
+		// Removing the worktree deletes HEAD's reflog, the only thing holding these.
+		out, err := git(e.path, "rev-list", "--count", e.sha, "--not", "--branches", "--tags", "--remotes")
+		w.headOnly = err != nil || strings.TrimSpace(out) != "0"
+	}
 	if r.Default != "" {
 		w.InDefault = gitOK(r.Path, "merge-base", "--is-ancestor", e.sha, r.Default)
 	}
@@ -585,7 +607,10 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 	judge(r.Path, w)
 	if reclaimable(w.Verdict) {
 		// Only now: the walk is worth its cost just for worktrees that could go.
-		w.Ignored, w.Hazard = ignoredContent(e.path)
+		w.Ignored, w.ignoredSum, w.Hazard = ignoredContent(e.path)
+		if w.Hazard == "" {
+			w.Hazard = trackedHazard(e.path)
+		}
 		judge(r.Path, w)
 	}
 	return w
@@ -608,22 +633,26 @@ func orphaned(repo, sha string) string {
 	return ""
 }
 
-const (
-	ignoredShown = 20     // ignored entries kept per worktree
-	ignoredWalk  = 100000 // entries walked looking for a nested .git
-)
+const ignoredShown = 20 // ignored entries kept per worktree
 
 // ignoredContent is what `git worktree remove` deletes without asking:
-// ignored files, which git status never shows. skipDirs output is left out
-// as regenerable. A .git anywhere under an ignored folder is another
-// checkout or worktree whose work would go too, so it is a hazard.
-func ignoredContent(wt string) (ignored []string, hazard string) {
+// ignored files, which git status never shows. skipDirs output is left out of
+// the list as regenerable, but not out of the checks. sum is a digest of every
+// ignored entry, so a removal plan notices one that appeared since.
+//
+// Another checkout or worktree anywhere in an ignored folder would go too, so
+// it is a hazard. git finds those itself: listing ignored files one by one, it
+// stops at each nested repository and lists it as "path/", whatever the case
+// of its .git and however deep under node_modules or vendor it sits.
+func ignoredContent(wt string) (ignored []string, sum, hazard string) {
 	out, err := git(wt, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory")
 	if err != nil {
-		return nil, "cannot list its ignored files: " + err.Error()
+		return nil, "", "cannot list its ignored files: " + err.Error()
 	}
-	more, walked := 0, 0
+	h := sha256.New()
+	more := 0
 	for _, p := range strings.Split(out, "\x00") {
+		h.Write([]byte(p + "\x00"))
 		name := strings.TrimSuffix(p, "/")
 		if base := filepath.Base(name); name == "" || skipDirs[base] || base == ".DS_Store" {
 			continue
@@ -633,30 +662,54 @@ func ignoredContent(wt string) (ignored []string, hazard string) {
 		} else {
 			more++
 		}
-		if hazard != "" || !strings.HasSuffix(p, "/") {
-			continue
-		}
-		filepath.WalkDir(filepath.Join(wt, name), func(q string, d fs.DirEntry, err error) error {
-			rel, _ := filepath.Rel(wt, q)
-			switch walked++; {
-			case err != nil:
-				hazard = "cannot check its ignored folder " + rel + ": " + err.Error()
-			case walked > ignoredWalk:
-				hazard = "too many ignored files under " + name + "/ to check for nested checkouts"
-			case d.Name() == ".git":
-				hazard = "another git checkout sits in its ignored folder " + filepath.Dir(rel) + "/, and removing this worktree would delete it"
-			case d.IsDir() && skipDirs[d.Name()]:
-				return fs.SkipDir
-			default:
-				return nil
-			}
-			return fs.SkipAll
-		})
 	}
 	if more > 0 {
 		ignored = append(ignored, fmt.Sprintf("… %d more", more))
 	}
-	return ignored, hazard
+	sum = hex.EncodeToString(h.Sum(nil))
+	all, err := git(wt, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
+	if err != nil {
+		return ignored, sum, "cannot check its ignored files for nested checkouts: " + err.Error()
+	}
+	for _, p := range strings.Split(all, "\x00") {
+		if strings.HasSuffix(p, "/") {
+			return ignored, sum, "another git checkout sits in its ignored folder " + p + ", and removing this worktree would delete it"
+		}
+	}
+	return ignored, sum, ""
+}
+
+// trackedHazard is tracked work that git status cannot see or that lives
+// beyond the worktree's own files: an initialized submodule (its files and
+// commits are another repository's, and status shows them as one line), or a
+// file on disk marked assume-unchanged or skip-worktree (status skips it).
+func trackedHazard(wt string) string {
+	if dir, err := git(wt, "rev-parse", "--absolute-git-dir"); err != nil {
+		return "cannot find its git folder: " + err.Error()
+	} else if _, err := os.Stat(filepath.Join(strings.TrimSpace(dir), "modules")); err == nil {
+		return "it holds submodule repositories, and removing it would delete their work"
+	}
+	out, err := git(wt, "ls-files", "-z", "-v", "-s")
+	if err != nil {
+		return "cannot list its tracked files: " + err.Error()
+	}
+	for _, rec := range strings.Split(out, "\x00") {
+		meta, path, ok := strings.Cut(rec, "\t") // "<tag> <mode> <object> <stage>\t<path>"
+		f := strings.Fields(meta)
+		if !ok || len(f) < 2 {
+			continue
+		}
+		onDisk := func(p string) bool { _, err := os.Lstat(filepath.Join(wt, p)); return err == nil }
+		switch tag := f[0]; {
+		case f[1] == "160000" && onDisk(filepath.Join(path, ".git")):
+			return "it contains the initialized submodule " + path + "/, and removing it would delete the submodule's own work"
+		case tag != strings.ToUpper(tag) && onDisk(path):
+			return path + " is marked assume-unchanged, so git cannot see edits to it"
+		case tag == "S" && onDisk(path):
+			return path + " is marked skip-worktree but is on disk, so git cannot see edits to it"
+		}
+	}
+	return ""
 }
 
 // judge gives a scanned worktree its verdict and, when it can go, the command
@@ -675,25 +728,36 @@ func judge(repo string, w *Worktree) {
 	if !reclaimable(w.Verdict) {
 		return
 	}
-	args := removeArgs(repo, w)
-	for i, a := range args {
-		args[i] = shellQuote(a)
+	if !checkedRemoval(w) {
+		args := removeArgs(repo, w, false)
+		for i, a := range args {
+			args[i] = shellQuote(a)
+		}
+		w.RemoveCmd = strings.Join(args, " ")
 	}
-	w.RemoveCmd = strings.Join(args, " ")
 	if len(w.Ignored) > 0 {
 		w.Reason += " · removing also deletes ignored " + strings.Join(w.Ignored, ", ")
 	}
 }
 
+// checkedRemoval says a reclaimable worktree may go only through
+// removal.remove, which re-proves its content, keeps a copy under
+// refs/agentyard/removed/ and only then removes it: it has uncommitted files
+// (git would refuse them, so removal needs --force) or a detached HEAD with
+// commits nothing else holds. Such a worktree gets no copyable command: run
+// later, a command would skip every one of those checks.
+func checkedRemoval(w *Worktree) bool {
+	return !w.Prunable && (w.Modified+w.Untracked > 0 || w.headOnly)
+}
+
 // removeArgs is the one command that removes a reclaimable worktree: the
-// dashboard prints it and agentyard mcp runs it. A clean worktree goes without
-// --force, so git still refuses changes, untracked files and locks. A dirty one
-// is reclaimable only when contentMatch proved every change is on a remote, and
-// git refuses changes, so that one case needs --force (once: a locked worktree
-// is still refused). For a prunable worktree it drops just that registration,
-// where `worktree prune` would take every stale one.
-func removeArgs(repo string, w *Worktree) []string {
-	if !w.Prunable && w.Modified+w.Untracked > 0 && w.ContentRef != "" {
+// dashboard prints it and the removal runs it. Without force git still
+// refuses changes, untracked files and locks. force is for removal.remove
+// alone, after its checks (once: a locked worktree is still refused). For a
+// prunable worktree it drops just that registration, where `worktree prune`
+// would take every stale one.
+func removeArgs(repo string, w *Worktree, force bool) []string {
+	if force {
 		return []string{"git", "-C", repo, "worktree", "remove", "--force", w.Path}
 	}
 	return []string{"git", "-C", repo, "worktree", "remove", w.Path}
@@ -729,11 +793,17 @@ func matchContent(r *Repo, w *Worktree, remote map[string]bool) {
 // Keep means the worktree holds something no remote has: uncommitted files or
 // local commits whose content (not just whose hash) is missing from every
 // candidate ref contentMatch tried.
+//
+// Uncommitted files are deleted with the worktree, so they may make it Safe
+// to delete only when they are in the default branch itself; elsewhere
+// (another branch, a PR head) they are not merged, whatever HEAD is.
 func classify(w *Worktree) {
 	covered := w.ContentRef != ""
 	unpushed := unpushedWork(w)
+	dirty := w.Modified+w.Untracked > 0
+	settled := !dirty || w.ContentInDefault // no uncommitted file outside the default branch
 	switch {
-	case w.Modified+w.Untracked > 0 && !covered:
+	case dirty && !covered:
 		var parts []string
 		if w.Modified > 0 {
 			parts = append(parts, fmt.Sprintf("%d modified", w.Modified))
@@ -752,15 +822,17 @@ func classify(w *Worktree) {
 		if hasLocalWork(w) {
 			w.Reason += "; local changes already on " + contentWhere(w)
 		}
-	case w.PR != nil && w.PR.State == "MERGED":
+	case w.PR != nil && w.PR.State == "MERGED" && settled:
 		w.Verdict, w.Reason = "merged", "merged: PR merged"
 		if hasLocalWork(w) {
 			w.Reason += "; local changes already on " + contentWhere(w)
 		}
 	case w.ContentInDefault && hasLocalWork(w):
 		w.Verdict, w.Reason = "merged", "merged: every local change is already in "+contentWhere(w)
-	case w.InDefault:
+	case w.InDefault && settled:
 		w.Verdict, w.Reason = "merged", "merged: no PR, HEAD already in default branch"
+	case w.PR != nil && w.PR.State == "MERGED":
+		w.Verdict, w.Reason = "unmerged", "PR merged, but uncommitted changes are only on "+contentWhere(w)+", not in the default branch"
 	case w.PR != nil && w.PR.State == "CLOSED":
 		w.Verdict, w.Reason = "unmerged", "PR closed without merging"
 		if hasLocalWork(w) {
@@ -793,6 +865,7 @@ type scanner struct {
 	repos []string
 	cycle int
 	snap  atomic.Pointer[Snapshot]
+	gone  removedPaths // removed by POST /api/remove; hidden from scans begun before
 }
 
 func (s *scanner) scan() *Snapshot {
@@ -814,7 +887,7 @@ func (s *scanner) scan() *Snapshot {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = scanRepo(p, s.sizes)
+			results[i] = scanRepo(p, s.sizes, true)
 		}()
 	}
 	wg.Wait()
@@ -825,6 +898,8 @@ func (s *scanner) scan() *Snapshot {
 	if syscall.Statfs(home, &st) == nil {
 		snap.DiskFree, snap.DiskTotal = st.Bavail*uint64(st.Bsize), st.Blocks*uint64(st.Bsize)
 	}
+	snap.Started = start
+	snap, _ = s.gone.hide(snap)
 	s.snap.Store(snap)
 	saveCache("worktrees.json", snap)
 	debug.FreeOSMemory()
@@ -1083,14 +1158,15 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	},
 	"reclaimCount": func(r *Repo) (n int) {
 		for _, w := range r.Worktrees {
-			if w.RemoveCmd != "" {
+			if reclaimable(w.Verdict) {
 				n++
 			}
 		}
 		return
 	},
-	"counted":   counted,
-	"removeMax": func() int { return removeMax },
+	"reclaimable": reclaimable,
+	"counted":     counted,
+	"removeMax":   func() int { return removeMax },
 	"pct": func(a, b uint64) int {
 		if b == 0 {
 			return 0
@@ -1344,6 +1420,10 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 			http.Error(w, "forbidden: unknown host name "+strconv.Quote(r.Host), http.StatusForbidden)
 			return
 		}
+		// No page may frame the dashboard: a framed Remove button could be
+		// clicked through a disguise, with the page's own token and origin.
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 		mux.ServeHTTP(w, r)
 	})
 }
