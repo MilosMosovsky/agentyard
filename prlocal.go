@@ -136,19 +136,6 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time, ref
 	if err != nil {
 		return fail("could not check whether the local clone has its whole history")
 	}
-	// A configured driver can discard changes or run arbitrary commands in the
-	// repository. Such a merge cannot prove that the PR is safe to close.
-	drivers, err := g("config", "--get-regexp", `^merge\..*\.driver$`)
-	if err != nil && !gitExit(err, 1) {
-		return fail("could not check the repository's merge settings")
-	}
-	if strings.TrimSpace(drivers) != "" {
-		return fail("the repository uses a custom merge driver")
-	}
-	unprovable, err := mergeSettings(g, path)
-	if err != nil {
-		return fail("could not check the repository's merge settings")
-	}
 	key.base, key.head = local.BaseSha, local.HeadSha
 	if cached := c.pairs[key]; cached != nil {
 		return cached, key
@@ -171,6 +158,14 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time, ref
 		return fail("could not find a shared base for the branches")
 	}
 	ancestor := strings.TrimSpace(out)
+	unprovable := ""
+	// With several merge bases git merges them into a made-up ancestor first,
+	// where a binary file's conflict resolves silently: no proof from that.
+	if all, err := g("merge-base", "--all", local.BaseSha, local.HeadSha); err != nil {
+		return fail("could not find a shared base for the branches")
+	} else if len(strings.Fields(all)) > 1 {
+		unprovable = "it has several merge bases with the base branch"
+	}
 	if strings.TrimSpace(shallow) == "true" {
 		if note := shallowGap(g, local.BaseSha, local.HeadSha); note != "" {
 			return fail(note)
@@ -200,26 +195,19 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time, ref
 	sort.Strings(local.Overlap)
 	local.OverlapN = len(local.Overlap)
 	local.Overlap = local.Overlap[:min(20, len(local.Overlap))]
-	common, err := g("rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return fail("could not locate the repository's objects")
-	}
-	objects, err := os.MkdirTemp("", "agentyard-pr-objects-")
-	if err != nil {
-		return fail("could not create a temporary directory for the local merge")
-	}
-	defer os.RemoveAll(objects)
-	env = append(env, "GIT_OBJECT_DIRECTORY="+objects,
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES="+strconv.Quote(filepath.Join(strings.TrimSpace(common), "objects")))
-	baseTree, err := g("rev-parse", local.BaseSha+"^{tree}")
-	if err != nil {
-		return fail("could not read the base's tree")
-	}
 	if unprovable == "" {
 		unprovable = treeAttributes(g, local.BaseSha, local.HeadSha)
 	}
-	// Renormalizing would run the repository's clean and smudge filters.
-	out, err = g("-c", "merge.renormalize=false", "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", local.BaseSha, local.HeadSha)
+	iso, done, err := isolatedGit(g, deadline)
+	if err != nil {
+		return fail("could not set up the local merge: " + err.Error())
+	}
+	defer done()
+	baseTree, err := iso("rev-parse", local.BaseSha+"^{tree}")
+	if err != nil {
+		return fail("could not read the base's tree")
+	}
+	out, err = iso("merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", local.BaseSha, local.HeadSha)
 	if err != nil && !gitExit(err, 1) {
 		return fail("the local merge could not be checked (Git 2.38 or newer is required)")
 	}
@@ -249,47 +237,51 @@ func (c *prLocalCache) check(path string, pr *TrackedPR, deadline time.Time, ref
 	return local, key
 }
 
-// mergeSettings says why a clean merge here would not prove a PR adds
-// nothing: a merge default or attributes outside the commits (a union merge
-// keeps both sides, so a PR's deletion can vanish without a conflict).
-func mergeSettings(g func(...string) (string, error), path string) (string, error) {
-	def, err := g("config", "--get", "merge.default")
-	if err != nil && !gitExit(err, 1) {
-		return "", err
-	}
-	if strings.TrimSpace(def) != "" {
-		return "merge.default is set", nil
-	}
+// isolatedGit runs git in a throwaway bare repository that borrows the
+// clone's objects, with no config or attributes file but its own: nothing in
+// the clone or the user's settings (merge drivers, merge.default, attributes
+// in the work tree, info/ or a global file, filters) can shape the merge, and
+// what the merge writes lands in the throwaway repository.
+func isolatedGit(g func(...string) (string, error), deadline time.Time) (iso func(...string) (string, error), done func(), err error) {
 	common, err := g("rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
-	files := []string{filepath.Join(strings.TrimSpace(common), "info", "attributes")}
-	if global, err := g("config", "--path", "--get", "core.attributesFile"); err == nil && strings.TrimSpace(global) != "" {
-		files = append(files, strings.TrimSpace(global))
-	} else if err != nil && !gitExit(err, 1) {
-		return "", err
-	} else if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		files = append(files, filepath.Join(xdg, "git", "attributes"))
-	} else if home, err := os.UserHomeDir(); err == nil {
-		files = append(files, filepath.Join(home, ".config", "git", "attributes"))
+	dir, err := os.MkdirTemp("", "agentyard-pr-merge-")
+	if err != nil {
+		return nil, nil, err
 	}
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
-			return "", err
+	done = func() { os.RemoveAll(dir) }
+	env := []string{"GIT_DIR=" + dir, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_ATTR_NOSYSTEM=1", "GIT_GRAFT_FILE=" + os.DevNull, "GIT_NO_REPLACE_OBJECTS=1",
+		"GIT_NO_LAZY_FETCH=1", "GIT_ALLOW_PROTOCOL="}
+	iso = func(args ...string) (string, error) {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return "", errors.New("the local validation time limit was reached")
 		}
-		if attrPattern.Match(b) {
-			return tilde(f) + " sets merge or filter attributes", nil
-		}
+		args = append([]string{"-c", "core.attributesFile=" + os.DevNull, "-c", "merge.renormalize=false"}, args...)
+		return runEnv(min(gitTimeout, left), dir, env, "git", args...)
 	}
-	return "", nil
+	if _, err := iso("init", "-q", "--bare", "--template=", dir); err != nil {
+		done()
+		return nil, nil, err
+	}
+	alternates := filepath.Join(dir, "objects", "info", "alternates")
+	if err := os.MkdirAll(filepath.Dir(alternates), 0o755); err != nil {
+		done()
+		return nil, nil, err
+	}
+	if err := os.WriteFile(alternates, []byte(filepath.Join(strings.TrimSpace(common), "objects")+"\n"), 0o644); err != nil {
+		done()
+		return nil, nil, err
+	}
+	return iso, done, nil
 }
 
-// treeAttributes is mergeSettings for the .gitattributes files in the two
-// commits; any that mention merge or filter rule the proof out.
+// treeAttributes says whether the .gitattributes files in the two commits
+// could change how they merge (a merge driver, a filter, the binary macro);
+// any that could rule the proof out.
 func treeAttributes(g func(...string) (string, error), commits ...string) string {
 	for _, c := range commits {
 		out, err := g("ls-tree", "-r", "-z", "--name-only", c)
@@ -312,7 +304,7 @@ func treeAttributes(g func(...string) (string, error), commits ...string) string
 	return ""
 }
 
-var attrPattern = regexp.MustCompile(`(?i)\b(merge|filter)\b`)
+var attrPattern = regexp.MustCompile(`(?i)\b(merge|filter|binary)\b`)
 
 // shallowGap says whether a shallow clone's cut-off lies between the two
 // commits and their merge bases. If it does, a nearer merge base may be hidden

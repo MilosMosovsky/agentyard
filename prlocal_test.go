@@ -111,15 +111,6 @@ func TestPRLocalUnavailable(t *testing.T) {
 	if pr.Local.Checked || !strings.Contains(pr.Local.Note, "time limit") {
 		t.Fatalf("got %+v", pr.Local)
 	}
-	gitT(t, repo, "config", "merge.discard.driver", "touch should-not-exist; true")
-	pr = localPR(t, repo, "main")
-	if got := checkLocal(t, repo, pr); got.Checked || !strings.Contains(got.Note, "custom merge driver") {
-		t.Fatalf("got %+v", got)
-	}
-	if exists(filepath.Join(repo, "should-not-exist")) {
-		t.Fatal("custom driver ran")
-	}
-	gitT(t, repo, "config", "--unset", "merge.discard.driver")
 	gitT(t, repo, "config", "remote.origin.promisor", "true")
 	if got := checkLocal(t, repo, localPR(t, repo, "main")); got.Checked || !strings.Contains(got.Note, "partial clone") {
 		t.Fatalf("partial clone was not refused: %+v", got)
@@ -306,29 +297,7 @@ func TestPRLocalCloseProofGuards(t *testing.T) {
 		pr.BaseSha = ""
 		unprovable(t, checkLocal(t, repo, pr), ".gitattributes sets merge or filter attributes")
 	})
-	t.Run("union merge in info/attributes", func(t *testing.T) {
-		repo, pr := squashedPR(t)
-		os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* merge=union\n"), 0o644)
-		unprovable(t, checkLocal(t, repo, pr), "sets merge or filter attributes")
-	})
-	t.Run("merge.default", func(t *testing.T) {
-		repo, pr := squashedPR(t)
-		gitT(t, repo, "config", "merge.default", "union")
-		unprovable(t, checkLocal(t, repo, pr), "merge.default")
-	})
-	t.Run("filters never run", func(t *testing.T) {
-		repo, pr := squashedPR(t)
-		ran := filepath.Join(repo, "filter-ran")
-		gitT(t, repo, "config", "merge.renormalize", "true")
-		gitT(t, repo, "config", "filter.mark.clean", "touch '"+ran+"'; cat")
-		gitT(t, repo, "config", "filter.mark.smudge", "touch '"+ran+"'; cat")
-		os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* filter=mark\n"), 0o644)
-		unprovable(t, checkLocal(t, repo, pr), "sets merge or filter attributes")
-		if exists(ran) {
-			t.Error("the merge ran a filter")
-		}
-	})
-	t.Run("a cached proof is re-checked against the settings", func(t *testing.T) {
+	t.Run("a cached proof still needs GitHub's commits", func(t *testing.T) {
 		repo, pr := squashedPR(t)
 		pr.BaseSha = strings.TrimSpace(gitT(t, repo, "rev-parse", "refs/remotes/origin/main"))
 		snap := &Snapshot{Repos: []*Repo{{Path: repo, Slug: pr.Repo}}}
@@ -336,9 +305,88 @@ func TestPRLocalCloseProofGuards(t *testing.T) {
 		if cache.validate([]*TrackedPR{pr}, snap, time.Minute); !pr.Local.Superseded {
 			t.Fatalf("setup: %+v", pr.Local)
 		}
-		gitT(t, repo, "config", "merge.discard.driver", "true")
+		gitT(t, repo, "config", "remote.origin.promisor", "true")
 		if cache.validate([]*TrackedPR{pr}, snap, time.Minute); pr.Local.Checked || pr.Local.Superseded {
-			t.Fatalf("the cache kept a proof the settings now rule out: %+v", pr.Local)
+			t.Fatalf("the cache skipped the clone's checks: %+v", pr.Local)
 		}
 	})
+}
+
+// Nothing outside the two commits shapes the merge that proves a PR is in
+// its base. Each setting here would make git keep the base's side of a
+// conflict, so a PR whose emptied file the base still has would look merged.
+func TestPRLocalMergeIgnoresLocalSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(t *testing.T, repo string)
+	}{
+		{"union in info/attributes", func(t *testing.T, repo string) {
+			os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* merge=union\n"), 0o644)
+		}},
+		{"binary macro in info/attributes", func(t *testing.T, repo string) {
+			os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* binary\n"), 0o644)
+		}},
+		{"untracked .gitattributes in the work tree", func(t *testing.T, repo string) {
+			os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("* merge=union\n"), 0o644)
+		}},
+		{"relative core.attributesFile", func(t *testing.T, repo string) {
+			os.WriteFile(filepath.Join(repo, ".local-attrs"), []byte("* merge=union\n"), 0o644)
+			gitT(t, repo, "config", "core.attributesFile", ".local-attrs")
+		}},
+		{"merge.default", func(t *testing.T, repo string) { gitT(t, repo, "config", "merge.default", "union") }},
+		{"a merge driver that keeps the base", func(t *testing.T, repo string) {
+			gitT(t, repo, "config", "merge.keep.driver", "touch driver-ran; true")
+			os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* merge=keep\n"), 0o644)
+		}},
+		{"a filter with renormalize", func(t *testing.T, repo string) {
+			gitT(t, repo, "config", "merge.renormalize", "true")
+			gitT(t, repo, "config", "filter.mark.clean", "touch filter-ran; cat")
+			gitT(t, repo, "config", "filter.mark.smudge", "touch filter-ran; cat")
+			os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("* filter=mark\n"), 0o644)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, repo := gitRepo(t)
+			writeIn(t, repo, "f.txt", "one\ntwo\n", true)
+			gitT(t, repo, "push", "-q", "origin", "main")
+			gitT(t, repo, "switch", "-q", "-c", "feature")
+			writeIn(t, repo, "f.txt", "", true) // the PR empties it
+			gitT(t, repo, "push", "-q", "origin", "feature")
+			gitT(t, repo, "switch", "-q", "main")
+			writeIn(t, repo, "f.txt", "one\ntwo\nthree\n", true) // the base edits it
+			gitT(t, repo, "push", "-q", "origin", "main")
+			tc.set(t, repo)
+			if got := checkLocal(t, repo, localPR(t, repo, "feature")); !got.Checked || got.Superseded || got.ConflictsN != 1 {
+				t.Fatalf("a local setting shaped the merge: %+v", got)
+			}
+			for _, f := range []string{"driver-ran", "filter-ran"} {
+				if exists(filepath.Join(repo, f)) {
+					t.Errorf("%s: the merge ran the repository's commands", f)
+				}
+			}
+		})
+	}
+}
+
+// A criss-cross history has several merge bases, which git first merges into
+// a made-up ancestor; a clean result there is no proof.
+func TestPRLocalSeveralMergeBases(t *testing.T) {
+	_, repo := gitRepo(t)
+	gitT(t, repo, "switch", "-q", "-c", "feature")
+	writeIn(t, repo, "b.txt", "b\n", true)
+	b1 := strings.TrimSpace(gitT(t, repo, "rev-parse", "HEAD"))
+	gitT(t, repo, "switch", "-q", "main")
+	writeIn(t, repo, "a.txt", "a\n", true)
+	a1 := strings.TrimSpace(gitT(t, repo, "rev-parse", "HEAD"))
+	gitT(t, repo, "merge", "-q", "--no-ff", "-m", "main takes feature", b1)
+	gitT(t, repo, "switch", "-q", "feature")
+	gitT(t, repo, "merge", "-q", "--no-ff", "-m", "feature takes main", a1)
+	gitT(t, repo, "push", "-q", "origin", "main", "feature")
+	if bases := strings.Fields(gitT(t, repo, "merge-base", "--all", "main", "feature")); len(bases) != 2 {
+		t.Fatalf("setup: %d merge bases", len(bases))
+	}
+	got := checkLocal(t, repo, localPR(t, repo, "feature"))
+	if !got.Checked || got.Superseded || !strings.Contains(got.Note, "several merge bases") {
+		t.Fatalf("got %+v", got)
+	}
 }

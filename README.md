@@ -224,10 +224,12 @@ overlap with base changes, and any linked local worktree.
 
 The close lane requires proof: a clean local three-way merge of GitHub's head into GitHub's base whose
 resulting tree is identical to the base's tree. This catches changes already cherry-picked or squashed
-into the base. Anything that could fake that proof rules it out: errors, partial clones, a shallow
-clone cut between the PR and its base, custom merge drivers, `merge.default`, and merge or filter
-attributes (a union merge can drop a PR's deletion without a conflict). Grafts and replace refs are
-ignored, filters never run, and Git 2.38 or newer is required. The merge writes objects
+into the base. The merge runs in a throwaway bare repository that borrows the clone's objects and
+reads no config or attributes file, so nothing in the clone or your git settings (merge drivers,
+`merge.default`, attribute files, filters) can shape it; grafts and replace refs are ignored too.
+Anything that could still fake the proof rules it out: errors, partial clones, a shallow clone cut
+between the PR and its base, several merge bases, and merge, filter or binary attributes in either
+commit (a union merge can drop a PR's deletion without a conflict). Git 2.38 or newer is required. The merge writes objects
 only to a temporary directory that is removed afterwards, leaving the repository and index unchanged.
 Results are cached by the repository and both commit SHAs and saved with the PR snapshot.
 

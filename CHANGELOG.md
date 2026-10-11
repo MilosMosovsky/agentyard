@@ -13,10 +13,10 @@ All notable changes are documented here. The format follows
 - Read-only MCP tools `merge_train` and `get_pr`, with snapshot source and age, lane counts, local
   evidence, PR descriptions and changed files, and an offline detail notice.
 - Background PR validation on the head and base commits GitHub reports: ahead/behind, conflicting
-  files, overlap with base changes, and proof that a clean merge adds nothing to the base. Anything
-  that could fake the proof (shallow history cut in between, grafts, merge drivers, union or filter
-  attributes) rules it out. Validation writes only temporary objects; results are cached and saved
-  with PR snapshots.
+  files, overlap with base changes, and proof that a clean merge adds nothing to the base. The merge
+  runs in a throwaway repository with no config or attributes of the clone's or yours; anything that
+  could still fake the proof (a shallow cut in between, several merge bases, merge or filter
+  attributes in the commits) rules it out. Results are cached and saved with PR snapshots.
 - Demo examples for every lane, including superseded changes, stale review with overlap and a fork PR.
 
 ### Changed
