@@ -206,7 +206,7 @@ func runInput(timeout time.Duration, dir string, env []string, input, name strin
 				msg = l
 			}
 		}
-		return out.String(), fmt.Errorf("%s %s: %v %s", name, args[0], err, msg)
+		return out.String(), fmt.Errorf("%s %s: %w %s", name, args[0], err, msg)
 	}
 	return out.String(), nil
 }
@@ -1178,8 +1178,10 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return
 	},
-	"lower":      strings.ToLower,
-	"branchLink": func(slug, branch string) string { return branchURL(slug, branch) },
+	"lower":            strings.ToLower,
+	"branchLink":       func(slug, branch string) string { return branchURL(slug, branch) },
+	"trainSections":    trainSections,
+	"trainActionCount": trainActionCount,
 	"countState": func(prs []*TrackedPR, state string) (n int) {
 		for _, p := range prs {
 			if p.State == state {
@@ -1329,9 +1331,8 @@ func (y *syncer) start() string {
 	y.running.Store(true)
 	go func() {
 		var wg sync.WaitGroup
-		wg.Add(3)
-		go func() { defer wg.Done(); y.s.scan() }()
-		go func() { defer wg.Done(); y.t.refresh() }()
+		wg.Add(2)
+		go func() { defer wg.Done(); y.s.scan(); y.t.refresh() }()
 		go func() { defer wg.Done(); y.x.refresh(0) }()
 		wg.Wait()
 		y.mu.Lock()
@@ -1351,6 +1352,7 @@ type demoWorld struct {
 
 // serve builds every route of the dashboard. demo is nil in production.
 func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Handler {
+	t.worktrees = func() *Snapshot { return s.snap.Load() }
 	y := &syncer{s: s, t: t, x: x, demo: demo != nil}
 	removeToken := newRemoveToken()
 	canSeeSessions := func(r *http.Request) bool { return demo != nil || sessionsAllowed(r) }
@@ -1368,6 +1370,7 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 		WT         *Snapshot
 		PR         *PRSnapshot
 		PRs        []*TrackedPR
+		Train      []TrainItem
 		Sessions   []*Session
 		Local      bool // viewer is on this Mac; gates the Sessions tab
 		Demo       bool // synthetic data from "agentyard demo"
@@ -1397,20 +1400,8 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 	mux.HandleFunc("GET /prs", func(w http.ResponseWriter, r *http.Request) {
 		v := newView("prs", r)
 		if v.PR != nil {
-			// Point each PR at its local worktree, if one has that branch checked out.
-			local := map[string]string{}
-			if v.WT != nil {
-				for _, repo := range v.WT.Repos {
-					for _, wt := range repo.Worktrees {
-						local[repo.Slug+"\x00"+wt.Branch] = wt.Path
-					}
-				}
-			}
-			for _, pr := range v.PR.PRs {
-				row := *pr
-				row.Worktree = local[pr.Repo+"\x00"+pr.Branch]
-				v.PRs = append(v.PRs, &row)
-			}
+			v.PRs = joinPRWorktrees(v.PR.PRs, v.WT)
+			v.Train = mergeTrain(v.PRs, time.Now(), trainStaleDays)
 		}
 		render(w, "prs", v)
 	})

@@ -90,6 +90,46 @@ func TestDemoPages(t *testing.T) {
 	noRenderErrors(t, logs)
 }
 
+func TestMergeTrainPage(t *testing.T) {
+	logs := captureLog(t)
+	h, _ := demoHandler(t)
+	body := get(t, h, "GET", "/prs?view=train", local).Body.String()
+	if !strings.Contains(body, `id="pr-train-tab"`) || !strings.Contains(body, "pull requests needing action") {
+		t.Fatal("missing merge train subview or count")
+	}
+	start := strings.Index(body, `<section class="pr-train"`)
+	if start < 0 {
+		t.Fatal("missing train")
+	}
+	end := strings.Index(body[start:], `<footer class="footer"`)
+	if end < 0 {
+		end = strings.Index(body[start:], "</main>")
+	}
+	if end < 0 {
+		t.Fatal("missing end of train")
+	}
+	train := body[start : start+end]
+	for _, tag := range []string{"<form", "<button", "onclick=", "border-left", "box-shadow"} {
+		if strings.Contains(train, tag) {
+			t.Errorf("train contains action or stripe: %s", tag)
+		}
+	}
+	last := -1
+	for _, lane := range trainLanes() {
+		pos := strings.Index(train, `data-lane="`+lane.Key+`"`)
+		if pos <= last || !strings.Contains(train, templateEscape(lane.Label)) {
+			t.Errorf("missing or unordered lane %s", lane.Key)
+		}
+		last = pos
+	}
+	for _, want := range []string{"stale", "open 38d · idle 21d", "base: main", "2 conflicts", "2 files also changed in base", "api/.claude/worktrees/fix-auth-race"} {
+		if !strings.Contains(train, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	noRenderErrors(t, logs)
+}
+
 // templateEscape is how html/template prints s in text (quotes, angle brackets, &).
 func templateEscape(s string) string {
 	return strings.NewReplacer("&", "&amp;", "'", "&#39;", `"`, "&#34;", "<", "&lt;", ">", "&gt;").Replace(s)

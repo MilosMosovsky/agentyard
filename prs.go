@@ -32,6 +32,11 @@ type TrackedPR struct {
 	Title          string       `json:"title"`
 	URL            string       `json:"url"`
 	Branch         string       `json:"branch"`
+	HeadSha        string       `json:"headSha"`
+	BaseRef        string       `json:"baseRef"`
+	UpdatedAt      time.Time    `json:"updatedAt"`
+	CrossRepo      bool         `json:"crossRepo,omitempty"`
+	Local          *PRLocal     `json:"local,omitempty"`
 	IsDraft        bool         `json:"isDraft"`
 	CreatedAt      time.Time    `json:"createdAt"`
 	LastCommit     time.Time    `json:"lastCommit"`
@@ -111,6 +116,8 @@ type prTracker struct {
 	snap      atomic.Pointer[PRSnapshot]
 	historyMu sync.Mutex
 	history   atomic.Pointer[PRHistorySnapshot]
+	worktrees func() *Snapshot
+	local     prLocalCache
 }
 
 const prSearchQuery = `query($q:String!,$after:String){
@@ -118,7 +125,7 @@ const prSearchQuery = `query($q:String!,$after:String){
   search(query:$q,type:ISSUE,first:20,after:$after){
     pageInfo{hasNextPage endCursor}
     nodes{...on PullRequest{
-      id number title url isDraft createdAt headRefName additions deletions
+      id number title url isDraft createdAt headRefName headRefOid baseRefName updatedAt isCrossRepository additions deletions
       repository{nameWithOwner}
       reviewDecision mergeable mergeStateStatus
       mergeQueueEntry{position}
@@ -163,6 +170,10 @@ type searchPage struct {
 				IsDraft        bool      `json:"isDraft"`
 				CreatedAt      time.Time `json:"createdAt"`
 				HeadRefName    string    `json:"headRefName"`
+				HeadRefOid     string    `json:"headRefOid"`
+				BaseRefName    string    `json:"baseRefName"`
+				UpdatedAt      time.Time `json:"updatedAt"`
+				CrossRepo      bool      `json:"isCrossRepository"`
 				Additions      int       `json:"additions"`
 				Deletions      int       `json:"deletions"`
 				Repository     struct{ NameWithOwner string }
@@ -257,6 +268,7 @@ func (t *prTracker) poll() {
 			}
 			pr := &TrackedPR{ID: n.ID, Repo: n.Repository.NameWithOwner, Number: n.Number, Title: n.Title, URL: n.URL,
 				Branch: n.HeadRefName, IsDraft: n.IsDraft, CreatedAt: n.CreatedAt, Additions: n.Additions, Deletions: n.Deletions,
+				HeadSha: n.HeadRefOid, BaseRef: n.BaseRefName, UpdatedAt: n.UpdatedAt, CrossRepo: n.CrossRepo,
 				ReviewDecision: n.ReviewDecision, Mergeable: n.Mergeable, MergeState: n.MergeState}
 			if n.MergeQueue != nil {
 				pr.QueuePosition = max(n.MergeQueue.Position, 1)
@@ -316,10 +328,37 @@ func (t *prTracker) poll() {
 	}
 	t.fillFailing(snap)
 	settle(snap.PRs)
+	if t.worktrees != nil {
+		t.local.validate(snap.PRs, t.worktrees(), 2*time.Minute)
+	}
 	snap.At, snap.Took = time.Now(), time.Since(start).Round(time.Second)
 	t.snap.Store(snap)
 	saveCache("prs.json", snap)
 	log.Printf("prs: %d open, cost %d, %d points left, took %s", len(snap.PRs), snap.Cost, snap.RateRemaining, snap.Took)
+}
+
+// Join on copies: readers never change the tracker snapshot.
+func joinPRWorktrees(prs []*TrackedPR, snap *Snapshot) []*TrackedPR {
+	local := map[string]string{}
+	if snap != nil {
+		for _, repo := range snap.Repos {
+			for _, wt := range repo.Worktrees {
+				if !wt.Prunable {
+					local[repo.Slug+"\x00"+wt.Branch] = wt.Path
+				}
+			}
+		}
+	}
+	rows := make([]*TrackedPR, 0, len(prs))
+	for _, pr := range prs {
+		row := *pr
+		row.Worktree = ""
+		if !pr.CrossRepo {
+			row.Worktree = local[pr.Repo+"\x00"+pr.Branch]
+		}
+		rows = append(rows, &row)
+	}
+	return rows
 }
 
 func (t *prTracker) fillFailing(snap *PRSnapshot) {

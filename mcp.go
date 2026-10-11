@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -75,7 +76,14 @@ func mcpInstructions() string {
 		"remove_worktrees re-scans each repository before acting and never deletes branches. It forces only a dirty worktree whose every change it has just re-proven to be in the default branch, " +
 		"or one whose submodules it has just re-checked to hold nothing their remote lacks (their checkouts go with it), " +
 		"and keeps a copy of such a worktree (and of a detached HEAD's own commits) under the ref in each result's backup.\n" +
-		"Data is the background agent's last scan: check snapshot.age, and call sync_worktrees when it is old."
+		"Data is the background agent's last scan: check snapshot.age, and call sync_worktrees when it is old; it also refreshes PRs.\n" +
+		"Merge train: call merge_train for the ranked open PRs, then get_pr to read a PR's description and changed files. " +
+		"agentyard itself never changes anything on GitHub; you perform GitHub actions with gh. " +
+		"For merge, use gh pr merge respecting branch protection, never --admin. " +
+		"For close, read the PR first and confirm every change is already in its base, then close with a comment saying it is already in the base; never delete the branch. " +
+		"For rebase, use the PR's worktree or create a new one, rebase onto origin/<base>, resolve conflicts and validate, then push with --force-with-lease. " +
+		"For fix, address failing checks or requested changes and validate. For review, re-review stale PRs and files the base also changed, then re-request review. " +
+		"For decide, finish or close drafts. For wait, read the blocker and wait for it to clear."
 }
 
 // span is a duration in words: "30 seconds", "3 minutes".
@@ -90,6 +98,8 @@ func span(d time.Duration) string {
 // Tests swap it so they never reach a running agent.
 type mcpSource struct {
 	snapshot func() (snap *Snapshot, from string, err error)
+	prs      func() (snap *PRSnapshot, from string, err error)
+	prDetail func(*TrackedPR) (PRDetail, error)
 	sync     func() (string, error) // rescan now and wait for it
 	poke     func() string          // after a removal: start a rescan, don't wait
 	demo     bool                   // synthetic data: nothing may be removed
@@ -134,7 +144,17 @@ func runMCP(args []string) error {
 func agentSource(listen string) mcpSource {
 	return mcpSource{
 		snapshot: func() (*Snapshot, string, error) { return agentSnapshot(listen) },
-		sync:     func() (string, error) { return agentSync(listen, mcpSyncWait) },
+		prs:      func() (*PRSnapshot, string, error) { return agentPRSnapshot(listen) },
+		prDetail: func(pr *TrackedPR) (PRDetail, error) {
+			if st, err := fetchStatus(listen); err != nil || st.Demo {
+				return PRDetail{}, errors.New("the background agent is not answering with live PR details")
+			}
+			params := url.Values{"repo": {pr.Repo}, "number": {fmt.Sprint(pr.Number)}}
+			var detail PRDetail
+			err := agentJSON(http.MethodGet, listen, "/api/pr-detail?"+params.Encode(), 30*time.Second, 8<<20, &detail)
+			return detail, err
+		},
+		sync: func() (string, error) { return agentSync(listen, mcpSyncWait) },
 		poke: func() string {
 			state, err := startSync(listen)
 			if err != nil {
@@ -146,14 +166,30 @@ func agentSource(listen string) mcpSource {
 }
 
 func demoSource() mcpSource {
-	s, _, _, _ := newDemo(time.Now())
+	s, t, _, _ := newDemo(time.Now())
 	snap := s.snap.Load()
 	return mcpSource{
 		snapshot: func() (*Snapshot, string, error) { return snap, fromDemo, nil },
+		prs:      func() (*PRSnapshot, string, error) { return t.snap.Load(), fromDemo, nil },
+		prDetail: func(pr *TrackedPR) (PRDetail, error) { return demoPRDetail(pr), nil },
 		sync:     func() (string, error) { return "demo data never changes; nothing to sync", nil },
 		poke:     func() string { return "" },
 		demo:     true,
 	}
+}
+
+func agentPRSnapshot(listen string) (*PRSnapshot, string, error) {
+	if st, err := fetchStatus(listen); err == nil && !st.Demo {
+		var snap *PRSnapshot
+		if agentJSON(http.MethodGet, listen, "/api/prs.json", 30*time.Second, 32<<20, &snap) == nil && snap != nil && !snap.At.IsZero() {
+			return snap, fromAgent, nil
+		}
+	}
+	var cached PRSnapshot
+	if loadCache("prs.json", &cached) && !cached.At.IsZero() {
+		return &cached, fromCache, nil
+	}
+	return nil, "", errors.New("no PR data: the background agent is not answering and there is no saved PR snapshot; run `agentyard install` or `agentyard serve` and wait for its first poll")
 }
 
 // agentSnapshot is the running agent's last scan, else the one it saved on disk.
@@ -423,10 +459,34 @@ func verdictHelp() (keys []string, help string) {
 }
 
 func (m *mcpServer) toolList() []mcpTool {
-	reader := map[string]any{"readOnlyHint": true, "openWorldHint": false}
+	reader := map[string]any{"readOnlyHint": true, "destructiveHint": false, "openWorldHint": false}
 	keys, help := verdictHelp()
+	var lanes []string
+	for _, lane := range trainLanes() {
+		lanes = append(lanes, lane.Key)
+	}
 	gone := strings.Join(reclaimableVerdicts(), " and ")
 	return []mcpTool{
+		{
+			Name: "merge_train", Title: "Merge train",
+			Description: "Ranked open PRs with one next step, local merge evidence and worktree paths. Lane counts include every lane within the repository scope, before lane filtering or limiting. Read-only toward GitHub.",
+			InputSchema: schema(map[string]any{
+				"repo":       map[string]any{"type": "string", "description": "exact owner/name (optional)"},
+				"lane":       map[string]any{"type": "string", "enum": lanes},
+				"stale_days": map[string]any{"type": "integer", "minimum": 1, "default": trainStaleDays},
+				"limit":      map[string]any{"type": "integer", "minimum": 1, "maximum": mcpListMax, "default": mcpListLimit},
+			}),
+			Annotations: reader, run: m.trainTool,
+		},
+		{
+			Name: "get_pr", Title: "Get a pull request",
+			Description: "The PR's merge train step and local evidence, plus its description and changed files when the agent is answering. Read-only toward GitHub.",
+			InputSchema: schema(map[string]any{
+				"repo":   map[string]any{"type": "string", "description": "owner/name"},
+				"number": map[string]any{"type": "integer", "minimum": 1},
+			}, "repo", "number"),
+			Annotations: reader, run: m.prTool,
+		},
 		{
 			Name: "worktree_summary", Title: "Worktree summary",
 			Description: "Totals for every git worktree agentyard watches: count, disk size, reclaimable size, " +
@@ -480,7 +540,7 @@ func (m *mcpServer) toolList() []mcpTool {
 		},
 		{
 			Name: "sync_worktrees", Title: "Rescan now",
-			Description: "Asks the background agent to rescan now (fetch, status, PR lookups) and waits up to " + span(mcpSyncWait) + ". " +
+			Description: "Asks the background agent to rescan now (fetch, status, PR lookups), refresh open PRs and their local validation, and waits up to " + span(mcpSyncWait) + ". " +
 				"Use it when the data is old.",
 			InputSchema: schema(map[string]any{}),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
@@ -781,6 +841,172 @@ func (m *mcpServer) syncTool(raw json.RawMessage) *toolResult {
 		Sync     string  `json:"sync"`
 		Snapshot mcpMeta `json:"snapshot"`
 	}{msg, meta})
+}
+
+// ---------------------------------------------------------------- mcp pull requests
+
+type mcpTrainRow struct {
+	Repo     string   `json:"repo"`
+	Number   int      `json:"number"`
+	Title    string   `json:"title"`
+	URL      string   `json:"url"`
+	Branch   string   `json:"branch"`
+	Base     string   `json:"base"`
+	State    string   `json:"state"`
+	Why      string   `json:"why"`
+	Lane     string   `json:"lane"`
+	Step     string   `json:"step"`
+	Stale    bool     `json:"stale"`
+	OpenDays int      `json:"openDays"`
+	IdleDays int      `json:"idleDays"`
+	Local    *PRLocal `json:"local"`
+	Worktree string   `json:"worktree,omitempty"`
+}
+
+func validSlug(slug string) bool {
+	parts := strings.Split(slug, "/")
+	if len(parts) != 2 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+		for _, c := range part {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func trainRowOf(item TrainItem) mcpTrainRow {
+	pr := item.PR
+	return mcpTrainRow{pr.Repo, pr.Number, pr.Title, pr.URL, pr.Branch, pr.BaseRef, pr.State, pr.Why,
+		item.Lane, item.Step, item.Stale, item.OpenDays, item.IdleDays, pr.Local, pr.Worktree}
+}
+
+func (m *mcpServer) loadPRs() ([]*TrackedPR, mcpMeta, *toolResult) {
+	if m.src.prs == nil {
+		return nil, mcpMeta{}, toolFail("no PR snapshot source is available")
+	}
+	snap, from, err := m.src.prs()
+	if err != nil {
+		return nil, mcpMeta{}, toolFail("%v", err)
+	}
+	if snap == nil || snap.At.IsZero() {
+		return nil, mcpMeta{}, toolFail("no successful PR poll is available yet")
+	}
+	meta := mcpMeta{Source: from, At: snap.At, Age: ago(snap.At)}
+	var notes []string
+	if from == fromCache {
+		notes = append(notes, "the background agent is not answering; this is its last PR snapshot saved on disk")
+	}
+	if snap.Error != "" {
+		notes = append(notes, snap.Error)
+	}
+	var wt *Snapshot
+	if m.src.snapshot != nil {
+		if scan, _, err := m.src.snapshot(); err == nil && scan != nil {
+			wt, _ = m.withoutRemoved(scan)
+		}
+	}
+	if wt == nil {
+		notes = append(notes, "local worktree paths are unavailable")
+	}
+	meta.Note = strings.Join(notes, "; ")
+	return joinPRWorktrees(snap.PRs, wt), meta, nil
+}
+
+func (m *mcpServer) trainTool(raw json.RawMessage) *toolResult {
+	a := struct {
+		Repo      string `json:"repo"`
+		Lane      string `json:"lane"`
+		StaleDays int    `json:"stale_days"`
+		Limit     int    `json:"limit"`
+	}{StaleDays: trainStaleDays, Limit: mcpListLimit}
+	if err := decodeArgs(raw, &a); err != nil {
+		return toolFail("%v", err)
+	}
+	switch {
+	case a.Lane != "" && trainLaneIndex(a.Lane) == len(trainLanes()):
+		return toolFail("unknown lane %q", a.Lane)
+	case a.Repo != "" && !validSlug(a.Repo):
+		return toolFail("repo must be owner/name")
+	case a.StaleDays < 1:
+		return toolFail("stale_days must be at least 1")
+	case a.Limit < 1 || a.Limit > mcpListMax:
+		return toolFail("limit must be between 1 and %d", mcpListMax)
+	}
+	prs, meta, fail := m.loadPRs()
+	if fail != nil {
+		return fail
+	}
+	counts := map[string]int{}
+	for _, lane := range trainLanes() {
+		counts[lane.Key] = 0
+	}
+	rows := []mcpTrainRow{}
+	for _, item := range mergeTrain(prs, time.Now(), a.StaleDays) {
+		if a.Repo != "" && !strings.EqualFold(item.PR.Repo, a.Repo) {
+			continue
+		}
+		counts[item.Lane]++
+		if a.Lane == "" || item.Lane == a.Lane {
+			rows = append(rows, trainRowOf(item))
+		}
+	}
+	matched := len(rows)
+	rows = rows[:min(a.Limit, len(rows))]
+	return toolOK(struct {
+		Snapshot  mcpMeta        `json:"snapshot"`
+		Lanes     map[string]int `json:"lanes"`
+		Matched   int            `json:"matched"`
+		Returned  int            `json:"returned"`
+		Truncated bool           `json:"truncated"`
+		Items     []mcpTrainRow  `json:"items"`
+	}{meta, counts, matched, len(rows), matched > len(rows), rows})
+}
+
+func (m *mcpServer) prTool(raw json.RawMessage) *toolResult {
+	var a struct {
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return toolFail("%v", err)
+	}
+	if !validSlug(a.Repo) || a.Number < 1 {
+		return toolFail("repo (owner/name) and a positive number are required")
+	}
+	prs, meta, fail := m.loadPRs()
+	if fail != nil {
+		return fail
+	}
+	for _, pr := range prs {
+		if !strings.EqualFold(pr.Repo, a.Repo) || pr.Number != a.Number {
+			continue
+		}
+		out := struct {
+			Snapshot mcpMeta     `json:"snapshot"`
+			PR       mcpTrainRow `json:"pr"`
+			Detail   *PRDetail   `json:"detail,omitempty"`
+			Note     string      `json:"note,omitempty"`
+		}{Snapshot: meta, PR: trainRowOf(trainLane(pr, time.Now(), trainStaleDays))}
+		if m.src.prDetail != nil {
+			detail, err := m.src.prDetail(pr)
+			if err == nil {
+				out.Detail = &detail
+			} else {
+				out.Note = "PR detail is unavailable: " + err.Error()
+			}
+		} else {
+			out.Note = "PR detail is unavailable: the background agent is not answering"
+		}
+		return toolOK(out)
+	}
+	return toolFail("%s#%d is not in the open PR snapshot (%s, %s)", a.Repo, a.Number, meta.Source, meta.Age)
 }
 
 // ---------------------------------------------------------------- mcp removal

@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadyToMergeRequiresPositiveEvidence(t *testing.T) {
@@ -45,6 +48,56 @@ func TestReadyToMergeRequiresPositiveEvidence(t *testing.T) {
 	}
 }
 
+func TestPRPollFieldsAndLocalSnapshot(t *testing.T) {
+	_, repo := gitRepo(t)
+	pr := localPR(t, repo, "main")
+	oldGraphQL := graphQL
+	t.Cleanup(func() { graphQL = oldGraphQL })
+	at := time.Now().UTC().Truncate(time.Second)
+	graphQL = func(query string, vars []string, out any) error {
+		if query != prSearchQuery || !strings.Contains(query, "headRefOid baseRefName updatedAt isCrossRepository") || len(vars) != 1 || vars[0] != "q="+flagPRQuery {
+			t.Fatalf("unexpected poll query or vars: %s %v", query, vars)
+		}
+		body, err := json.Marshal(map[string]any{"data": map[string]any{
+			"rateLimit": map[string]any{"cost": 1, "remaining": 5000},
+			"search": map[string]any{"nodes": []any{map[string]any{
+				"id": "PR_fixture", "number": 42, "title": "Already landed", "url": "https://github.com/owner/repo/pull/42",
+				"headRefName": "main", "headRefOid": pr.HeadSha, "baseRefName": "main", "updatedAt": at,
+				"createdAt": at, "isCrossRepository": false, "repository": map[string]any{"nameWithOwner": pr.Repo},
+				"commits": map[string]any{"nodes": []any{map[string]any{"commit": map[string]any{"committedDate": at}}}},
+			}, map[string]any{"id": "PR_fork", "number": 43, "title": "Fork", "headRefName": "main", "headRefOid": pr.HeadSha,
+				"baseRefName": "main", "updatedAt": at, "isCrossRepository": true, "repository": map[string]any{"nameWithOwner": pr.Repo}}}},
+		}})
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(body, out)
+	}
+	scan := &Snapshot{Repos: []*Repo{{Path: repo, Slug: pr.Repo}}}
+	tracker := &prTracker{worktrees: func() *Snapshot { return scan }}
+	tracker.poll()
+	snapshot := tracker.snap.Load()
+	if snapshot == nil || snapshot.Error != "" || len(snapshot.PRs) != 2 {
+		t.Fatalf("snapshot %+v", snapshot)
+	}
+	got := snapshot.PRs[0]
+	if got.HeadSha != pr.HeadSha || got.BaseRef != "main" || !got.UpdatedAt.Equal(at) || got.Local == nil || !got.Local.Checked || !got.Local.Superseded {
+		t.Fatalf("new fields or validation lost: %+v", got)
+	}
+	if fork := snapshot.PRs[1]; !fork.CrossRepo || fork.Local == nil || fork.Local.Checked || !strings.Contains(fork.Local.Note, "fork PR") {
+		t.Fatalf("fork %+v", fork)
+	}
+	var cached PRSnapshot
+	if !loadCache("prs.json", &cached) || cached.PRs[0].Local == nil || !cached.PRs[0].Local.Superseded {
+		t.Fatal("local evidence was not persisted")
+	}
+	scan = &Snapshot{}
+	tracker.poll()
+	if tracker.snap.Load().PRs[0].Local != nil {
+		t.Fatal("poll did not use newest worktree snapshot")
+	}
+}
+
 func TestPRFacetsPreserveOverlappingEvidence(t *testing.T) {
 	cases := []struct {
 		name string
@@ -64,5 +117,31 @@ func TestPRFacetsPreserveOverlappingEvidence(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestPRWorktreeJoinDoesNotLinkForkOrGoneWorktree(t *testing.T) {
+	prs := []*TrackedPR{
+		{Repo: "owner/repo", Branch: "feature"},
+		{Repo: "owner/repo", Branch: "feature", CrossRepo: true},
+		{Repo: "owner/repo", Branch: "gone"},
+		{Repo: "other/repo", Branch: "feature"},
+	}
+	snap := &Snapshot{Repos: []*Repo{{Slug: "owner/repo", Worktrees: []*Worktree{
+		{Path: "/work", Branch: "feature"}, {Path: "/gone", Branch: "gone", Prunable: true},
+	}}}}
+	rows := joinPRWorktrees(prs, snap)
+	if rows[0].Worktree != "/work" {
+		t.Fatal("matching branch not linked")
+	}
+	for _, row := range rows[1:] {
+		if row.Worktree != "" {
+			t.Fatalf("unrelated worktree linked: %+v", row)
+		}
+	}
+	for _, pr := range prs {
+		if pr.Worktree != "" {
+			t.Fatal("snapshot mutated")
+		}
 	}
 }

@@ -245,10 +245,32 @@ func demoPRs(now time.Time) []*TrackedPR {
 			CreatedAt: ago(2 * d), LastCommit: ago(2*d - 2*h), Additions: 34, Deletions: 12,
 			ReviewDecision: "APPROVED", Approvers: []string{"sam"},
 			Mergeable: "MERGEABLE", MergeState: "CLEAN", Checks: passed(1)},
+		{Repo: "acme/api", Number: 450, Title: "Return stable request IDs in errors", Branch: "fix/request-ids",
+			CreatedAt: ago(45 * d), LastCommit: ago(30 * d), Additions: 22, Deletions: 8,
+			ReviewDecision: "APPROVED", Mergeable: "MERGEABLE", MergeState: "CLEAN", Checks: passed(14),
+			Local: &PRLocal{Checked: true, Superseded: true, Ahead: 1, Behind: 18}},
 	}
 	for _, p := range prs {
 		p.ID = "PR_" + demoHash(p.Repo + fmt.Sprint(p.Number))[:16]
 		p.URL = fmt.Sprintf("https://github.com/%s/pull/%d", p.Repo, p.Number)
+		p.BaseRef, p.HeadSha, p.UpdatedAt = "main", demoHash(p.Branch), p.LastCommit
+		if p.Local == nil {
+			p.Local = &PRLocal{Checked: true, Ahead: 3}
+		}
+		p.Local.Path = demoPath("code/" + p.Repo)
+		p.Local.BaseSha, p.Local.HeadSha = demoHash(p.Repo+"/main"), p.HeadSha
+		if p.Number == 1291 {
+			p.Local.Conflicts, p.Local.ConflictsN, p.Local.Behind = []string{"src/checkout/shipping.tsx", "src/checkout/payment.tsx"}, 2, 4
+		}
+		if p.Number == 1284 {
+			p.CreatedAt, p.LastCommit, p.UpdatedAt = ago(38*d), ago(21*d), ago(19*d)
+			p.Waiting = []string{"sofia-dev"}
+			p.Local.Overlap, p.Local.OverlapN = []string{"src/carousel.tsx", "src/product.tsx"}, 2
+		}
+		if p.Number == 88 {
+			p.CrossRepo = true
+			p.Local = &PRLocal{Path: p.Local.Path, Note: "fork PR: its branch is not in the local clone"}
+		}
 	}
 	return prs
 }
@@ -293,6 +315,7 @@ func demoPRDetail(pr *TrackedPR) PRDetail {
 		210:  "Pin the AWS provider to the same supported major version in every module.\n\nUpdate the dependency locks and verify the generated plan.",
 		88:   "Add support for pushing eligible linked assets on HTTP/2 connections.\n\nCover cancellation and cache behavior in the protocol tests. The compatibility checks are still running.",
 		12:   "Initialize Node and Python version managers only when their commands are first used.\n\nProject-specific version selection keeps working while interactive shell startup gets faster.",
+		450:  "Return the same request ID in every error response.\n\nThese changes were squashed into main during the error-format cleanup. Confirm the current implementation before closing this PR; keep its branch.",
 	}
 	files := map[string][]string{
 		"acme/api":           {"internal/api/handler.go", "internal/api/handler_test.go", "docs/api.md"},

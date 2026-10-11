@@ -3,8 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -128,7 +128,7 @@ func TestMCPProtocol(t *testing.T) {
 			t.Errorf("%s: reader annotations: %v", name, a)
 		}
 	}
-	for _, want := range []string{"worktree_summary", "list_worktrees", "get_worktree", "remove_worktrees", "sync_worktrees"} {
+	for _, want := range []string{"worktree_summary", "list_worktrees", "get_worktree", "remove_worktrees", "sync_worktrees", "merge_train", "get_pr"} {
 		if !names[want] {
 			t.Errorf("tools/list lacks %s", want)
 		}
@@ -144,6 +144,147 @@ func TestMCPProtocol(t *testing.T) {
 		if got := rpcCode(resps[i]); got != want.code || resps[i]["id"] != want.id {
 			t.Errorf("answer %d: code %v id %v, want %v %v (%v)", i, got, resps[i]["id"], want.code, want.id, resps[i])
 		}
+	}
+}
+
+func TestMCPMergeTrainDemo(t *testing.T) {
+	m := newMCPServer(demoSource())
+	out, _, failed := callTool(t, m, "merge_train", nil)
+	if failed || out["snapshot"].(map[string]any)["source"] != fromDemo {
+		t.Fatalf("%v", out)
+	}
+	counts := out["lanes"].(map[string]any)
+	for _, lane := range trainLanes() {
+		if counts[lane.Key].(float64) < 1 {
+			t.Errorf("demo lacks %s", lane.Key)
+		}
+	}
+	items := out["items"].([]any)
+	if items[0].(map[string]any)["lane"] != "close" {
+		t.Fatal("not ranked")
+	}
+	out, _, failed = callTool(t, m, "get_pr", map[string]any{"repo": "acme/api", "number": 482})
+	if failed || out["detail"].(map[string]any)["body"] == "" || out["pr"].(map[string]any)["worktree"] == "" {
+		t.Fatalf("detail/worktree missing: %v", out)
+	}
+	for _, tool := range m.tools {
+		if tool.Name == "merge_train" || tool.Name == "get_pr" {
+			if tool.Annotations["readOnlyHint"] != true || tool.Annotations["destructiveHint"] != false {
+				t.Errorf("bad hints: %+v", tool)
+			}
+		}
+	}
+}
+
+func TestMCPPRToolsStub(t *testing.T) {
+	now := time.Now()
+	prs := []*TrackedPR{
+		{Repo: "owner/repo", Number: 1, Title: "Ready", URL: "https://github.com/owner/repo/pull/1", Branch: "feature", BaseRef: "main", State: "Ready to merge", Why: "approved", CreatedAt: now.Add(-40 * 24 * time.Hour), LastCommit: now.Add(-20 * 24 * time.Hour), Local: &PRLocal{Path: "/repo", Checked: true, Ahead: 2}},
+		{Repo: "owner/repo", Number: 2, State: "Checks running", Why: "pending", CreatedAt: now, LastCommit: now},
+		{Repo: "other/repo", Number: 3, State: "Draft", CreatedAt: now, LastCommit: now},
+	}
+	snap := &PRSnapshot{At: now.Add(-time.Hour), PRs: prs}
+	scan := &Snapshot{At: now, Repos: []*Repo{{Path: "/repo", Slug: "owner/repo", Worktrees: []*Worktree{{Path: "/repo/work", Branch: "feature"}}}}}
+	m := newMCPServer(mcpSource{
+		prs:      func() (*PRSnapshot, string, error) { return snap, fromCache, nil },
+		snapshot: func() (*Snapshot, string, error) { return scan, fromCache, nil },
+		prDetail: func(pr *TrackedPR) (PRDetail, error) {
+			if pr.Number != 1 {
+				t.Fatal("wrong PR")
+			}
+			return PRDetail{Body: "Description", ChangedFiles: 1, Files: []PRFile{{Path: "file.go"}}}, nil
+		},
+	})
+	out, _, failed := callTool(t, m, "merge_train", map[string]any{"repo": "owner/repo", "lane": "merge", "limit": 1, "stale_days": 21})
+	if failed {
+		t.Fatalf("%v", out)
+	}
+	counts := out["lanes"].(map[string]any)
+	if len(counts) != 7 || counts["merge"] != 1.0 || counts["wait"] != 1.0 || counts["decide"] != 0.0 {
+		t.Fatalf("counts %v", counts)
+	}
+	row := out["items"].([]any)[0].(map[string]any)
+	if row["stale"] != false || row["base"] != "main" || row["worktree"] != "/repo/work" || row["local"] == nil || row["openDays"] != 40.0 || row["idleDays"] != 20.0 || row["why"] != "approved" {
+		t.Fatalf("row %v", row)
+	}
+	if prs[0].Worktree != "" {
+		t.Fatal("join mutated snapshot")
+	}
+	if meta := out["snapshot"].(map[string]any); meta["age"] == "" || meta["source"] != fromCache || meta["note"] == "" {
+		t.Fatalf("meta %v", meta)
+	}
+	out, _, failed = callTool(t, m, "merge_train", map[string]any{"limit": 1})
+	if failed || out["truncated"] != true || out["matched"] != 3.0 {
+		t.Fatalf("limit %v", out)
+	}
+	out, _, failed = callTool(t, m, "get_pr", map[string]any{"repo": "owner/repo", "number": 1})
+	if failed || out["detail"].(map[string]any)["body"] != "Description" {
+		t.Fatalf("get %v", out)
+	}
+	m.src.prDetail = func(*TrackedPR) (PRDetail, error) { return PRDetail{}, errors.New("offline") }
+	m.src.snapshot = func() (*Snapshot, string, error) { return nil, "", errors.New("offline") }
+	out, _, failed = callTool(t, m, "get_pr", map[string]any{"repo": "owner/repo", "number": 1})
+	if failed || !strings.Contains(out["note"].(string), "detail is unavailable") || out["pr"] == nil || out["detail"] != nil {
+		t.Fatalf("fallback %v", out)
+	}
+	for _, tc := range []struct {
+		name string
+		args any
+	}{
+		{"merge_train", map[string]any{"lane": "wrong"}}, {"merge_train", map[string]any{"stale_days": -1}}, {"merge_train", map[string]any{"stale_days": 0}},
+		{"merge_train", map[string]any{"limit": 501}}, {"merge_train", map[string]any{"repo": "owner"}}, {"merge_train", map[string]any{"unknown": true}},
+		{"get_pr", map[string]any{"repo": "owner/repo", "number": 99}}, {"get_pr", map[string]any{"repo": "owner/repo", "number": 0}}, {"get_pr", nil},
+	} {
+		if _, _, failed := callTool(t, m, tc.name, tc.args); !failed {
+			t.Errorf("accepted %s %v", tc.name, tc.args)
+		}
+	}
+	m.src.prs = func() (*PRSnapshot, string, error) { return nil, "", errors.New("no PR data") }
+	if _, _, failed := callTool(t, m, "merge_train", nil); !failed {
+		t.Error("missing data did not fail")
+	}
+}
+
+func TestMCPAgentPRSource(t *testing.T) {
+	snap := &PRSnapshot{At: time.Now(), PRs: []*TrackedPR{{Repo: "owner/repo", Number: 7, Local: &PRLocal{Checked: true, Superseded: true}}}}
+	requests := []string{}
+	h := testAgentServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		switch r.URL.Path {
+		case "/api/status":
+			json.NewEncoder(w).Encode(map[string]any{"demo": false})
+		case "/api/prs.json":
+			json.NewEncoder(w).Encode(snap)
+		case "/api/pr-detail":
+			if r.URL.Query().Get("repo") != "owner/repo" || r.URL.Query().Get("number") != "7" {
+				t.Error("wrong detail parameters")
+			}
+			json.NewEncoder(w).Encode(PRDetail{Body: "Body", Files: []PRFile{{Path: "a.go"}}, ChangedFiles: 1})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	src := agentSource(strings.TrimPrefix(h.URL, "http://"))
+	got, from, err := src.prs()
+	if err != nil || from != fromAgent || !got.PRs[0].Local.Superseded {
+		t.Fatalf("%v %s %v", got, from, err)
+	}
+	if detail, err := src.prDetail(got.PRs[0]); err != nil || detail.Body != "Body" {
+		t.Fatalf("%+v %v", detail, err)
+	}
+	for _, request := range requests {
+		if !strings.HasPrefix(request, "GET ") {
+			t.Errorf("wrote: %s", request)
+		}
+	}
+	h.Close()
+	saveCache("prs.json", snap)
+	got, from, err = src.prs()
+	if err != nil || from != fromCache || !got.PRs[0].Local.Superseded {
+		t.Fatalf("cache %v %s %v", got, from, err)
+	}
+	if _, err := src.prDetail(got.PRs[0]); err == nil {
+		t.Fatal("offline detail should be unavailable")
 	}
 }
 
@@ -498,7 +639,7 @@ func TestAgentSourceAndSync(t *testing.T) {
 		syncing = state == "started"
 		json.NewEncoder(w).Encode(map[string]string{"state": state})
 	})
-	srv := httptest.NewServer(h)
+	srv := testAgentServer(t, h)
 	defer srv.Close()
 	listen := strings.TrimPrefix(srv.URL, "http://")
 

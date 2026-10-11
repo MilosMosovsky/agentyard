@@ -200,6 +200,38 @@ The repository heading's picker narrows by organization or repository. Search an
 matching results without the two-PR preview limit. Active selections can be removed individually;
 filters, sorting, repository expansion, and the selected PR persist for the browser session.
 
+### Merge train
+
+The **Merge train** view in Pull requests ranks every open PR by its one next step. Lanes appear in
+this order; within each lane, stale PRs come first, then the oldest opened PRs. A PR is stale after
+14 days without a commit. It keeps its lane, with an idle notice in the next step.
+
+| Lane | Next step |
+|---|---|
+| **Close: already in base** | Confirm every change is already in the base, then close the PR without deleting its branch. |
+| **Merge** | Merge a PR whose state is Ready to merge, respecting branch protection. |
+| **Rebase** | Update a conflicting or behind branch onto its base and resolve the listed conflicts. |
+| **Fix** | Fix failing checks or address requested changes. |
+| **Review** | Request the missing review; for stale PRs, confirm they are still wanted and re-request review. Files the base also changed need a re-review. |
+| **Decide** | Finish a draft or close it. |
+| **Waiting** | Wait for running checks, the merge queue, branch protection or missing evidence. |
+
+Local validation runs in the background using only the remote branches fetched by the worktree scan.
+The local head must match GitHub's PR head exactly. Fork branches, missing branches and repositories
+without a local clone are marked as not validated. Each row shows its age, base branch, conflicts,
+overlap with base changes, and any linked local worktree.
+
+The close lane requires proof: a clean local three-way merge whose resulting tree is identical to
+the base's tree. This catches changes already cherry-picked or squashed into the base. Git 2.38 or
+newer is required; errors, partial clones and custom merge drivers leave the PR unchecked. The merge writes objects
+only to a temporary directory that is removed afterwards, leaving the repository and index unchanged.
+Results are cached by the repository and both commit SHAs and saved with the PR snapshot.
+
+The dashboard provides lanes and links. **agentyard never changes anything on GitHub.** An AI using
+the MCP tools can read the queue and PR details, then use its own `gh` commands for actions. It should
+read and confirm a close candidate first, leave its branch intact, respect branch protection when
+merging (never `--admin`), and use `--force-with-lease` after rebasing and validating a branch.
+
 ### Sessions
 
 <picture>
@@ -436,8 +468,14 @@ anything.
 | `worktree_summary` | Worktrees, disk size and reclaimable size, counts per verdict and per repository, free disk, scan errors. |
 | `list_worktrees` | Rows with verdict, reason, size, last activity and PR. Filter by `verdict`, `repo`, `query`, `inactive_days` and `min_size_mb`; `sort` by `activity` or `size`; `limit` defaults to 50 and truncation is always reported. |
 | `get_worktree` | Everything known about one worktree, by path. |
+| `merge_train` | Ranked open PRs, one next step, all lane counts, local validation and linked worktrees. Optional exact `repo` (`owner/name`) and `lane`; `stale_days` defaults to 14 and `limit` to 50 (maximum 500). Counts cover the repository scope before lane filtering and limiting. |
+| `get_pr` | A PR's train step and local evidence, plus its description and changed files via the agent. Requires `repo` and `number`; returns the snapshot with an unavailable-detail notice when offline. |
 | `remove_worktrees` | Removes the given worktrees if they are still reclaimable; `dry_run` reports what would go. |
-| `sync_worktrees` | Asks the background agent to rescan now and waits for it, up to a few minutes. |
+| `sync_worktrees` | Asks the background agent to rescan now, refresh PRs and their local validation, and waits for it, up to a few minutes. |
+
+Start a PR session with `merge_train`, then use `get_pr` to read each candidate. Both tools are
+read-only. They read `/api/prs.json`, falling back to the saved `prs.json` snapshot, and report the
+source and age. `agentyard mcp -demo` includes every merge train lane and synthetic PR details.
 
 ### How removal stays safe
 

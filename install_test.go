@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -96,7 +95,7 @@ func TestRenderPlistGHConfig(t *testing.T) {
 
 func TestPortHolder(t *testing.T) {
 	serve := func(status int, body string) string {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testAgentServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/api/status" {
 				http.NotFound(w, r)
 				return

@@ -6,6 +6,24 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Merge train in the Pull requests tab: ranked Close, Merge, Rebase, Fix, Review, Decide and Waiting
+  lanes, one next step per PR, open/idle ages, stale notices and linked worktrees.
+- Read-only MCP tools `merge_train` and `get_pr`, with snapshot source and age, lane counts, local
+  evidence, PR descriptions and changed files, and an offline detail notice.
+- Background PR validation using fetched local refs: ahead/behind, conflicting files, overlap with
+  base changes, and proof that a clean merge adds nothing to the base. Validation uses temporary
+  objects and leaves the repository unchanged; results are cached and persisted with PR snapshots.
+- Demo examples for every lane, including superseded changes, stale review with overlap and a fork PR.
+
+### Changed
+
+- PR snapshots include head SHA, base branch, update time and fork status. Dashboard and MCP share
+  lane logic and the worktree join; `sync_worktrees` refreshes PRs after the worktree scan.
+- MCP instructions describe the merge train workflow. agentyard never changes GitHub; close candidates
+  must be read and confirmed, branches stay intact, and merges must respect branch protection.
+
 ## [0.8.0] - 2026-10-11
 
 ### Added

@@ -950,6 +950,29 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 .pr-subview { display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:8px 0; border:0; border-radius:0; background:transparent; color:var(--text-3); font-size:12px; font-weight:500; }
 .pr-subview[aria-pressed="true"] { color:var(--accent); box-shadow:0 1px 0 var(--accent); }
 .pr-subview .icon { width:14px; height:14px; }
+.pr-train > header { margin-bottom:24px; }
+.pr-train > header h2 { font-size:32px; line-height:39px; font-weight:550; letter-spacing:-1px; }
+.pr-train > header p { margin-top:8px; color:var(--text-3); font-size:12px; }
+.train-lane { margin-top:28px; }
+.train-lane > h3 { display:flex; align-items:center; gap:8px; padding-bottom:12px; border-bottom:1px solid var(--line); font-size:13px; font-weight:550; }
+.train-lane > h3 .icon { width:15px; height:15px; }
+.train-lane > h3 .numeric { color:var(--text-3); font-size:11px; }
+.train-item { padding:16px 12px; border:0; border-bottom:1px solid var(--line); }
+.train-item .pr-item-title { display:block; width:fit-content; max-width:100%; margin:8px 0; padding:0; overflow-wrap:anywhere; }
+.train-item .pr-item-meta { display:flex; flex-wrap:wrap; gap:6px 12px; }
+.train-step { margin:8px 0 12px; color:var(--text-2); font-size:12px; line-height:20px; overflow-wrap:anywhere; }
+.train-chips { display:flex; align-items:center; flex-wrap:wrap; gap:6px; color:var(--text-3); font-size:11px; }
+.train-chip { padding:3px 7px; border:1px solid var(--line); border-radius:var(--radius-control); }
+.train-item > .path { margin-top:10px; color:var(--text-3); font-size:11px; overflow-wrap:anywhere; }
+@media(max-width:639px) {
+ .pr-subviews { gap:18px; }
+ .pr-subview { gap:4px; font-size:11px; }
+ .pr-subview .icon { width:12px; height:12px; }
+ .pr-train > header h2 { font-size:28px; line-height:35px; }
+ .train-item { padding:16px 0; }
+ .train-item .pr-item-title { min-height:44px; display:flex; align-items:center; font-size:14px; line-height:21px; }
+ .train-chips > a { min-height:44px; display:inline-flex; align-items:center; }
+}
 .pr-history { --history-mark:32px; --history-row-space:17px; }
 .pr-history-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:24px; }
 .pr-history-heading h2 { font-size:32px; line-height:39px; font-weight:550; letter-spacing:-1px; overflow-wrap:anywhere; }
@@ -1243,7 +1266,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 
 {{define "prs"}}{{template "head" .}}{{$synced := false}}{{with .PR}}{{$synced = not .At.IsZero}}{{end}}
 {{if not .Demo}}{{with .PR}}{{template "snapshot-time" .At}}{{end}}{{end}}
-<nav class="pr-subviews" aria-label="Pull request views"><button type="button" class="pr-subview" id="pr-open-tab" aria-pressed="true" aria-controls="pr-open-view">{{template "icon" "pull-request"}}Open<span class="meta numeric">{{len .PRs}}</span></button><button type="button" class="pr-subview" id="pr-history-tab" aria-pressed="false" aria-controls="pr-history">{{template "icon" "clock"}}History</button></nav>
+<nav class="pr-subviews" aria-label="Pull request views"><button type="button" class="pr-subview" id="pr-open-tab" aria-pressed="true" aria-controls="pr-open-view">{{template "icon" "pull-request"}}Open<span class="meta numeric">{{len .PRs}}</span></button><button type="button" class="pr-subview" id="pr-history-tab" aria-pressed="false" aria-controls="pr-history">{{template "icon" "clock"}}History</button><button type="button" class="pr-subview" id="pr-train-tab" aria-pressed="false" aria-controls="pr-train">{{template "icon" "merge"}}Merge train<span class="meta numeric" aria-label="{{trainActionCount .Train}} pull requests needing action">{{trainActionCount .Train}}</span></button></nav>
 <div id="pr-open-view">
 <section class="pr-workspace" aria-label="Repository scope"><p class="pr-workspace-org">{{template "icon" "organization"}}<span id="pr-workspace-org">All organizations</span></p><details class="pr-workspace-picker" id="pr-workspace-picker"><summary aria-controls="pr-workspace-panel"><h2 id="pr-workspace-title">All repositories</h2>{{template "icon" "chevron-down"}}</summary><div class="pr-workspace-panel" id="pr-workspace-panel"><label class="filter-search">{{template "icon" "search"}}<input type="search" id="pr-workspace-search" placeholder="Find organization or repository…" aria-label="Find organization or repository" autocomplete="off"></label><div id="pr-workspace-options" class="pr-workspace-options"></div><p id="pr-workspace-empty" class="meta" hidden>No matching organizations or repositories.</p></div></details><div class="pr-workspace-stats"><span><strong id="pr-workspace-total">{{len .PRs}}</strong> open pull requests</span><span class="pr-workspace-action">{{template "icon" "x-circle"}}<span id="pr-workspace-action">0 need attention</span></span><span id="pr-workspace-updated"></span></div></section>
 {{template "collection" .}}
@@ -1261,6 +1284,12 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <div class="pr-history-summary"><p id="pr-history-summary" aria-live="polite"></p><button type="button" class="text-button" id="pr-history-collapse" hidden>Collapse days</button></div>
 <div class="pr-history-state" id="pr-history-state" role="status"><div><h3>Loading history…</h3><p>Reading the latest saved GitHub activity.</p></div></div><div class="pr-history-days" id="pr-history-days"></div>
 <footer class="pr-history-footer"><span>Pull requests authored by your GitHub account</span><span id="pr-history-timezone"></span></footer>
+</section>
+<section class="pr-train" id="pr-train" aria-labelledby="pr-train-title" hidden>
+<header><h2 id="pr-train-title">Merge train</h2><p>One next step for each open pull request. Local checks use the branches from the latest scan. Agentyard never changes GitHub.</p></header>
+{{range trainSections .Train}}<section class="train-lane" data-lane="{{.Key}}" aria-labelledby="train-lane-{{.Key}}"><h3 id="train-lane-{{.Key}}"><span class="ink tone-{{.Tone}}">{{template "icon" .Icon}}</span>{{.Label}}<span class="numeric">{{len .Items}}</span></h3>
+{{range .Items}}<article class="pr-item train-item"><div class="pr-item-meta"><span>{{.PR.Repo}} <span class="numeric">#{{.PR.Number}}</span></span>{{template "status" (dict "State" .PR.State "Tone" .PR.Tone "Compact" true)}}</div><a class="pr-item-title" href="{{.PR.URL}}" target="_blank" rel="noopener noreferrer">{{.PR.Title}}<span class="sr-only"> (opens on GitHub in a new tab)</span></a><p class="train-step">{{.Step}}</p><div class="train-chips"><span class="train-chip numeric">open {{.OpenDays}}d · idle {{.IdleDays}}d</span>{{if .Stale}}<span class="badge tone-warn">{{template "icon" "clock"}}<span>stale</span></span>{{end}}{{if .PR.BaseRef}}<a class="train-chip branch" href="{{branchLink .PR.Repo .PR.BaseRef}}" aria-label="Base branch {{.PR.BaseRef}}">base: {{.PR.BaseRef}}</a>{{end}}{{with .PR.Local}}{{if .Conflicts}}<span class="train-chip ink tone-bad">{{counted .ConflictsN "conflict" "conflicts"}}</span>{{end}}{{if .OverlapN}}<span class="train-chip">{{counted .OverlapN "file" "files"}} also changed in base</span>{{end}}{{end}}</div>{{with .PR.Worktree}}<p class="path"><span class="sr-only">Local worktree: </span>{{tilde .}}</p>{{end}}</article>{{end}}
+</section>{{else}}<p class="meta">{{if $synced}}No open pull requests.{{else}}The merge train appears after the first successful PR sync.{{end}}</p>{{end}}
 </section>
 {{template "foot" .}}{{end}}
 
@@ -1376,9 +1405,10 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
   // History derives both layouts from one set of PR records and one filtered event list.
   function createPRHistory() {
     const region = $("#pr-history");
-    if (!region) return { active() { return false; }, search: null };
+    if (!region) return { active() { return false; }, openActive() { return true; }, search: null };
     const historySearch = $("#pr-history-search"), repoSelect = $("#pr-history-repo"), daysRoot = $("#pr-history-days");
     const openView = $("#pr-open-view"), openTab = $("#pr-open-tab"), historyTab = $("#pr-history-tab");
+    const trainView = $("#pr-train"), trainTab = $("#pr-train-tab");
     const statePanel = $("#pr-history-state"), collapse = $("#pr-history-collapse");
     const prefix = "agentyard.prs.history";
     const kinds = Object.freeze({
@@ -1602,18 +1632,19 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     }));
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     $("#pr-history-timezone").textContent = timezone ? "Times in " + timezone.replaceAll("_", " ") : "Times in your local timezone";
-    function setView(history, updateURL = true) {
-      region.hidden = !history; openView.hidden = history;
-      openTab.setAttribute("aria-pressed", String(!history)); historyTab.setAttribute("aria-pressed", String(history));
+    function setView(view, updateURL = true) {
+      const history = view === "history", train = view === "train";
+      region.hidden = !history; openView.hidden = history || train; trainView.hidden = !train;
+      openTab.setAttribute("aria-pressed", String(!history && !train)); historyTab.setAttribute("aria-pressed", String(history)); trainTab.setAttribute("aria-pressed", String(train));
       if (updateURL) {
-        const url = new URL(location.href); if (history) url.searchParams.set("view", "history"); else url.searchParams.delete("view");
+        const url = new URL(location.href); if (history || train) url.searchParams.set("view", view); else url.searchParams.delete("view");
         window.history.replaceState(null,"",url);
       }
       if (history && !snapshot && !loading) load();
     }
-    openTab.addEventListener("click", () => setView(false)); historyTab.addEventListener("click", () => setView(true));
-    setView(new URL(location.href).searchParams.get("view") === "history", false);
-    return { active() { return !region.hidden; }, search:historySearch };
+    openTab.addEventListener("click", () => setView("open")); historyTab.addEventListener("click", () => setView("history")); trainTab.addEventListener("click", () => setView("train"));
+    setView(new URL(location.href).searchParams.get("view"), false);
+    return { active() { return !region.hidden; }, openActive() { return !openView.hidden; }, search:historySearch };
   }
   const prHistory = createPRHistory();
   // One owner measures and synchronizes every native full-value disclosure.
@@ -2795,16 +2826,16 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       if (copyPanel.open || removePanel?.open) return;
       if (drawer?.open) return;
       if (!settings.hidden) { event.preventDefault(); setSettings(false, true); return; }
-      const activeSearch = prHistory.active() ? prHistory.search : search;
+      const activeSearch = prHistory.active() ? prHistory.search : prHistory.openActive() ? search : null;
       if (document.activeElement === activeSearch) { event.preventDefault(); activeSearch.value = ""; activeSearch.dispatchEvent(new Event("input")); }
       return;
     }
     if (!shortcuts.checked || $("dialog[open]") || event.target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) { cancelSequence(); return; }
     const wasSequence = sequence && Date.now() - sequence < 800;
     cancelSequence();
-    const activeSearch = prHistory.active() ? prHistory.search : search;
+    const activeSearch = prHistory.active() ? prHistory.search : prHistory.openActive() ? search : null;
     if (event.key === "/" && activeSearch) { event.preventDefault(); activeSearch.focus(); activeSearch.select(); }
-    else if (["ArrowLeft","ArrowRight"].includes(event.key) && !event.shiftKey && navigatePR && !prHistory.active() && settings.hidden && !$(".filter-menu[open],.pr-workspace-picker[open]") && !window.getSelection()?.toString()) {
+    else if (["ArrowLeft","ArrowRight"].includes(event.key) && !event.shiftKey && navigatePR && prHistory.openActive() && settings.hidden && !$(".filter-menu[open],.pr-workspace-picker[open]") && !window.getSelection()?.toString()) {
       if (navigatePR(event.key === "ArrowRight" ? 1 : -1)) event.preventDefault();
     }
     else if (["1", "2", "3"].includes(event.key)) { event.preventDefault(); $$("nav a")[Number(event.key) - 1].click(); }
