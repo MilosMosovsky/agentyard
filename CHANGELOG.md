@@ -21,7 +21,7 @@ All notable changes are documented here. The format follows
   from the index's gitlinks, inactive ones included) is checked like a worktree: uncommitted or
   untracked files, assume-unchanged or skip-worktree files, another checkout in its ignored folders.
   Every submodule repository removal would delete (under the worktree's git dir, nested and
-  deinitialized ones included, or inside the folder through an embedded `.git` or a gitfile) is
+  deinitialized ones included, and wherever a checkout's `.git` leads: an embedded folder, a gitfile, a symlink) is
   checked for a stash, worktrees of its own, and commits in HEAD, a branch, a tag or a reflog that no
   branch of its origin has; a removal's fresh scan fetches origin's branches first. Any of those keeps the worktree, with the reason; otherwise its verdict is the one it would
   have without them.

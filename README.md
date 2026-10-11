@@ -455,11 +455,11 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
   worktree whose detached HEAD had commits on no branch, tag or remote.
 - **Submodules are checked like worktrees.** Removing a worktree deletes every submodule checkout in
   it (found from the index's gitlinks, so an inactive one counts too) and every submodule repository it
-  holds: under its own git dir, nested and deinitialized ones included, or inside the folder (an
-  embedded `sub/.git`, or wherever a gitfile points). So a submodule with uncommitted or untracked
+  holds: under its own git dir, nested and deinitialized ones included, and wherever a checkout's
+  `.git` leads (an embedded folder, a gitfile, a symlink). So a submodule with uncommitted or untracked
   files, a file git status cannot see, a stash or worktrees of its own keeps the worktree, and so does
   a commit in its HEAD, a branch, a tag or any of their reflogs that no branch of its origin has. Only
-  origin vouches, and the removal's fresh scan fetches it first (branches only, after reading the
+  origin vouches (a submodule without one has nothing that does), and the removal's fresh scan fetches it first (branches only, after reading the
   local refs), so a branch deleted since, or pushed only to another remote, cannot. The same goes for a gone worktree, whose registration still holds its
   submodule repositories. Their ignored files are listed as the worktree's own. A clean one does not
   keep it: git refuses such a worktree without `--force`, so it gets no copyable command, and the

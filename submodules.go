@@ -41,13 +41,9 @@ func submoduleState(wt string, fresh bool) (n int, ignored []string, sum, hazard
 		return 0, nil, "", "cannot find its git folder: " + err.Error()
 	}
 	s := newSubScan(fresh)
-	s.root = wt
-	if real, err := filepath.EvalSymlinks(wt); err == nil {
-		s.root = real
-	}
 	hazard = s.checkouts(wt, "")
 	if hazard == "" {
-		hazard = s.repos(filepath.Join(strings.TrimSpace(gitDir), "modules"))
+		hazard = s.repos(filepath.Join(line(gitDir), "modules"))
 	}
 	for _, gd := range s.embedded {
 		if hazard == "" {
@@ -70,7 +66,7 @@ func orphanedModules(repo, path string, fresh bool) string {
 	if err != nil {
 		return "cannot find its git folder: " + err.Error()
 	}
-	admin := filepath.Join(strings.TrimSpace(common), "worktrees")
+	admin := filepath.Join(line(common), "worktrees")
 	entries, err := os.ReadDir(admin)
 	if err != nil {
 		return "cannot read its registration: " + err.Error()
@@ -82,7 +78,7 @@ func orphanedModules(repo, path string, fresh bool) string {
 			continue
 		case err != nil:
 			return "cannot read its registration: " + err.Error()
-		case filepath.Clean(strings.TrimSpace(string(b))) == filepath.Join(path, ".git"):
+		case filepath.Clean(line(string(b))) == filepath.Join(path, ".git"):
 			return newSubScan(fresh).repos(filepath.Join(admin, e.Name(), "modules"))
 		}
 	}
@@ -93,8 +89,7 @@ type subScan struct {
 	fresh    bool
 	n        int
 	ignored  []string
-	root     string   // the worktree, symlinks resolved
-	embedded []string // repositories inside the worktree's folder (sub/.git, or wherever a gitfile points), not under modules/
+	embedded []string // each checkout's own repository, wherever its .git leads
 	seen     map[string]bool
 	h        hash.Hash
 }
@@ -157,19 +152,15 @@ func (s *subScan) checkouts(dir, prefix string) string {
 		}
 		s.h.Write([]byte(name + "\x00" + isum + "\x00"))
 		s.n++
-		// Its repository, wherever .git (a folder, a gitfile, a symlink) leads:
-		// one inside the worktree's folder goes with it.
+		// Its repository, wherever .git (a folder, a gitfile, a symlink) leads.
+		// One outside the worktree's folder would survive, but telling which
+		// is which (case-insensitive paths, symlinks) is easy to get wrong,
+		// so every one is checked.
 		gd, err := git(sub, "rev-parse", "--absolute-git-dir")
 		if err != nil {
 			return "cannot find the submodule " + name + "/'s repository: " + err.Error()
 		}
-		gd = strings.TrimSpace(gd)
-		if real, err := filepath.EvalSymlinks(gd); err == nil {
-			gd = real
-		}
-		if rel, err := filepath.Rel(s.root, gd); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
-			s.embedded = append(s.embedded, gd)
-		}
+		s.embedded = append(s.embedded, line(gd))
 		if hz := s.checkouts(sub, name+"/"); hz != "" {
 			return hz
 		}
@@ -256,16 +247,17 @@ func (s *subScan) repo(gd string) string {
 		return "cannot read the submodule " + name + "'s reflogs: " + err.Error()
 	}
 	keep = append(keep, logged...)
-	if s.fresh {
-		if url, err := gitc("remote", "get-url", "origin"); err == nil {
-			if err := fetchGitDir(dirs, strings.TrimSpace(url)); err != nil {
+	// Without an origin to fetch, its leftover tracking refs vouch for nothing.
+	origin := ""
+	if url, err := gitc("remote", "get-url", "origin"); err == nil {
+		if s.fresh {
+			if err := fetchGitDir(dirs, line(url)); err != nil {
 				return "cannot fetch the submodule " + name + " to re-prove its commits are on its remote: " + err.Error()
 			}
 		}
-	}
-	origin, err := gitc("for-each-ref", "--format=^%(objectname)", "refs/remotes/origin/")
-	if err != nil {
-		return "cannot read the submodule " + name + "'s remote branches: " + err.Error()
+		if origin, err = gitc("for-each-ref", "--format=^%(objectname)", "refs/remotes/origin/"); err != nil {
+			return "cannot read the submodule " + name + "'s remote branches: " + err.Error()
+		}
 	}
 	input := strings.Join(keep, "\n") + "\n" + origin
 	// --ignore-missing: an unborn HEAD, and reflog entries whose commits were
@@ -335,6 +327,9 @@ func isGitDir(p string) bool {
 	fi, err := os.Stat(filepath.Join(p, "objects"))
 	return err == nil && fi.IsDir()
 }
+
+// line is git's one-line output without its newline; paths may end in spaces.
+func line(out string) string { return strings.TrimSuffix(strings.TrimSuffix(out, "\n"), "\r") }
 
 func orRoot(prefix string) string {
 	if prefix == "" {

@@ -207,6 +207,17 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
 		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
 	})
+	t.Run("origin removed, its tracking refs left", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "subnoorigin")
+		sub := filepath.Join(wt, "sub")
+		gitT(t, sub, "switch", "-q", "-c", "work")
+		writeIn(t, sub, "work.txt", "pushed once\n", true)
+		gitT(t, sub, "push", "-q", "origin", "work")
+		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
+		gitT(t, sub, "config", "--remove-section", "remote.origin")
+		gitT(t, sub, "rev-parse", "--verify", "-q", "refs/remotes/origin/work")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+	})
 	t.Run("inactive but checked out", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "subinactive")
 		writeIn(t, filepath.Join(wt, "sub"), "lib.txt", "edited\n", false)
