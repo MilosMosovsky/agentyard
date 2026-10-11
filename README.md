@@ -72,7 +72,7 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 | **Prunable** | The folder is gone; only git's registration is left, and every commit it had is on a branch, tag or remote. |
 | **Not merged** | Nothing local is missing from the remote, but it was never merged into the default branch (closed PR, no PR, or its changes live on another branch). Needs a human decision. |
 | **Open PR** | The branch has a PR in review. |
-| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, a submodule holding work its remote lacks (changes, untracked files, a stash, or commits on no remote), or files git status cannot see (assume-unchanged, skip-worktree). |
+| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, a submodule holding work its origin lacks (changes, untracked files, a stash, worktrees of its own, or commits on no branch of its origin), or files git status cannot see (assume-unchanged, skip-worktree). |
 
 Keep is decided by content, not by commit hash. Commits often reach GitHub another way (rebased,
 squash-merged, ported to another branch) and uncommitted files are often identical to what was pushed
