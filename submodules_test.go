@@ -12,13 +12,19 @@ import (
 // it with the submodule initialized and clean.
 func subRepo(t *testing.T, name string) (base, repo, wt string) {
 	t.Helper()
+	return subRepoAt(t, name, "sub")
+}
+
+// subRepoAt is subRepo with the submodule at path sub.
+func subRepoAt(t *testing.T, name, sub string) (base, repo, wt string) {
+	t.Helper()
 	base, repo = gitRepo(t)
 	libOrigin, lib := filepath.Join(base, "lib.git"), filepath.Join(base, "lib")
 	gitT(t, base, "init", "-q", "--bare", "-b", "main", libOrigin)
 	gitT(t, base, "clone", "-q", libOrigin, lib)
 	writeIn(t, lib, "lib.txt", "v1\n", true)
 	gitT(t, lib, "push", "-q", "origin", "main")
-	gitT(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", libOrigin, "sub")
+	gitT(t, repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", libOrigin, sub)
 	gitT(t, repo, "commit", "-q", "-m", "sub")
 	gitT(t, repo, "push", "-q", "origin", "main")
 	wt = filepath.Join(base, "wt", name)
@@ -51,6 +57,16 @@ func TestCleanSubmoduleWorktreeIsRemoved(t *testing.T) {
 		t.Errorf("a clean removal kept a copy it does not need: %v", agentyardRefs(t, repo))
 	}
 	gitT(t, repo, "rev-parse", "--verify", "-q", "refs/heads/withsub")
+}
+
+// A submodule path with spaces is read whole, so a clean one does not keep the worktree.
+func TestSubmodulePathWithSpaces(t *testing.T) {
+	_, repo, wt := subRepoAt(t, "spaced", "my lib")
+	if w := worktreeIn(t, scanned(t, repo), wt); w.Verdict != "merged" || w.Submodules != 1 {
+		t.Fatalf("spaced submodule: %s %q submodules=%d", w.Verdict, w.Reason, w.Submodules)
+	}
+	writeIn(t, filepath.Join(wt, "my lib"), "notes.txt", "mine\n", false)
+	keptOrRefused(t, scanned(t, repo), wt, "my lib/", "my lib/notes.txt")
 }
 
 // Work only the submodule has keeps the worktree, whatever form it takes.

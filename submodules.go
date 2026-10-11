@@ -42,11 +42,15 @@ func submoduleState(wt string) (n int, ignored []string, sum, hazard string) {
 		if line[0] == 'U' {
 			return n, ignored, "", "a submodule has merge conflicts"
 		}
-		f := strings.Fields(line[1:])
-		if len(f) < 2 {
+		// "<sha> <path> (<describe>)": the path may hold spaces. A misread one
+		// fails the status below and keeps the worktree.
+		_, path, ok := strings.Cut(line[1:], " ")
+		if !ok {
 			continue
 		}
-		path := f[1]
+		if i := strings.LastIndex(path, " ("); i > 0 && strings.HasSuffix(path, ")") {
+			path = path[:i]
+		}
 		dir := filepath.Join(wt, path)
 		status, err := git(dir, "status", "--porcelain", "--untracked-files=all")
 		switch {
