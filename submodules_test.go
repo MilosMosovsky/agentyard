@@ -141,3 +141,154 @@ func TestSubmoduleIgnoredFilesListed(t *testing.T) {
 		t.Errorf("submodule ignored file not listed: %s %q %v", w.Verdict, w.Reason, w.Ignored)
 	}
 }
+
+// More forms of submodule work that removal would delete, each of which keeps
+// the worktree.
+func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
+	// Each leaves the submodule's checkout clean, at the commit the
+	// superproject records, with the work somewhere else in its repository.
+	t.Run("tag only", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "subtag")
+		sub := filepath.Join(wt, "sub")
+		gitT(t, sub, "switch", "-q", "--detach")
+		writeIn(t, sub, "tagged.txt", "only in a tag\n", true)
+		gitT(t, sub, "tag", "mine")
+		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
+		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+	})
+	t.Run("reflog only", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "subreflog")
+		sub := filepath.Join(wt, "sub")
+		gitT(t, sub, "switch", "-q", "--detach")
+		writeIn(t, sub, "lost.txt", "only in the reflog\n", true)
+		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
+		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+	})
+	t.Run("embedded git folder", func(t *testing.T) {
+		base, repo, wt := subRepo(t, "subembedded")
+		sub := filepath.Join(wt, "sub")
+		os.RemoveAll(sub)
+		gitT(t, wt, "clone", "-q", filepath.Join(base, "lib.git"), sub)
+		gitT(t, sub, "switch", "-q", "-c", "local")
+		writeIn(t, sub, "local.txt", "in sub/.git only\n", true)
+		gitT(t, sub, "switch", "-q", "main")
+		if fi, err := os.Stat(filepath.Join(sub, ".git")); err != nil || !fi.IsDir() {
+			t.Fatalf("setup: sub/.git is not a folder: %v", err)
+		}
+		keptOrRefused(t, scanned(t, repo), wt, "on no remote", "sub/lib.txt")
+	})
+	t.Run("inactive but checked out", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "subinactive")
+		writeIn(t, filepath.Join(wt, "sub"), "lib.txt", "edited\n", false)
+		gitT(t, wt, "config", "submodule.sub.active", "false")
+		gitT(t, wt, "config", "submodule.sub.ignore", "all")
+		keptOrRefused(t, scanned(t, repo), wt, "uncommitted changes", "sub/lib.txt")
+	})
+}
+
+// A submodule branch whose remote copy was deleted since the last fetch is
+// work only this worktree has; the removal's fresh scan fetches the
+// submodule, so the stale remote-tracking ref cannot vouch for it.
+func TestSubmoduleStaleRemoteRefRefetched(t *testing.T) {
+	base, repo, wt := subRepo(t, "substale")
+	sub := filepath.Join(wt, "sub")
+	gitT(t, sub, "switch", "-q", "-c", "work")
+	writeIn(t, sub, "work.txt", "pushed, then deleted upstream\n", true)
+	gitT(t, sub, "push", "-q", "origin", "work")
+	gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
+	gitT(t, filepath.Join(base, "lib"), "push", "-q", "origin", "--delete", "work")
+	_, got := removeNow(scanned(t, repo), removeRequest{Paths: []string{wt}})
+	if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, "on no remote") {
+		t.Fatalf("stale remote branch: %+v", got[wt])
+	}
+	gitT(t, sub, "rev-parse", "--verify", "-q", "refs/heads/work")
+}
+
+// Pruning a gone worktree's registration deletes the submodule repositories
+// it holds, so their commits keep it too.
+func TestGoneWorktreeSubmoduleCommitsKept(t *testing.T) {
+	_, repo, wt := subRepo(t, "subgone")
+	sub := filepath.Join(wt, "sub")
+	gitT(t, sub, "switch", "-q", "-c", "kept")
+	writeIn(t, sub, "kept.txt", "only in the registration\n", true)
+	gitDir := strings.TrimSpace(gitT(t, sub, "rev-parse", "--absolute-git-dir"))
+	os.RemoveAll(wt)
+	snap := scanned(t, repo)
+	if w := worktreeIn(t, snap, wt); reclaimable(w.Verdict) || !strings.Contains(w.Reason, "on no remote") {
+		t.Fatalf("gone worktree: %s %q", w.Verdict, w.Reason)
+	}
+	if _, got := removeNow(snap, removeRequest{Paths: []string{wt}}); got[wt] == nil || got[wt].Outcome != "refused" {
+		t.Fatalf("removal: %+v", got[wt])
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "refs", "heads", "kept")); err != nil {
+		t.Errorf("the submodule's branch is gone: %v", err)
+	}
+}
+
+// --force skips git's own refusals, so a forced removal looks once more just
+// before it, after any copy is kept.
+func TestForcedRemovalLastLook(t *testing.T) {
+	// dirtyInDefault makes wt's only change an untracked file the default
+	// branch already has: Safe to delete, removed with a copy kept.
+	dirtyInDefault := func(t *testing.T, repo, wt string) {
+		writeIn(t, wt, "b.txt", "pushed later\n", false)
+		writeIn(t, repo, "b.txt", "pushed later\n", true)
+		gitT(t, repo, "push", "-q", "origin", "main")
+	}
+	refused := func(t *testing.T, repo, wt, reason, file string, snap *Snapshot) {
+		t.Helper()
+		_, got := removeNow(snap, removeRequest{Paths: []string{wt}})
+		if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, reason) {
+			t.Fatalf("removal: %+v, want refused with %q", got[wt], reason)
+		}
+		if !exists(filepath.Join(wt, file)) {
+			t.Errorf("%s is gone", file)
+		}
+		if refs := agentyardRefs(t, repo); len(refs) != 0 {
+			t.Errorf("a refused removal left copies: %v", refs)
+		}
+	}
+	t.Run("file in the worktree", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "latefile")
+		snap := scanned(t, repo)
+		defer func(f func(*Worktree)) { beforeRemove = f }(beforeRemove)
+		beforeRemove = func(w *Worktree) { writeIn(t, w.Path, "notes.txt", "late\n", false) }
+		refused(t, repo, wt, "uncommitted changes", "notes.txt", snap)
+	})
+	t.Run("submodule file while the copy is kept", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "latesubfile")
+		dirtyInDefault(t, repo, wt)
+		snap := scanned(t, repo)
+		if w := worktreeIn(t, snap, wt); w.Verdict != "merged" || !keepsCopy(w) {
+			t.Fatalf("setup: %s %q", w.Verdict, w.Reason)
+		}
+		defer func(f func(*Worktree)) { beforeExec = f }(beforeExec)
+		beforeExec = func(w *Worktree) { writeIn(t, filepath.Join(w.Path, "sub"), "late.txt", "late\n", false) }
+		refused(t, repo, wt, "uncommitted changes", "sub/late.txt", snap)
+	})
+	t.Run("submodule initialized after the scan", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "lateinit")
+		gitT(t, wt, "submodule", "deinit", "-q", "-f", "sub")
+		dirtyInDefault(t, repo, wt)
+		snap := scanned(t, repo)
+		if w := worktreeIn(t, snap, wt); w.Verdict != "merged" || w.Submodules != 0 {
+			t.Fatalf("setup: %s %q submodules=%d", w.Verdict, w.Reason, w.Submodules)
+		}
+		defer func(f func(*Worktree)) { beforeRemove = f }(beforeRemove)
+		beforeRemove = func(w *Worktree) {
+			gitT(t, w.Path, "-c", "protocol.file.allow=always", "submodule", "update", "-q", "--init")
+		}
+		refused(t, repo, wt, "submodules changed", "sub/lib.txt", snap)
+	})
+	t.Run("ignored file in a submodule", func(t *testing.T) {
+		_, repo, wt := subRepo(t, "lateignored")
+		sub := filepath.Join(wt, "sub")
+		gitDir := strings.TrimSpace(gitT(t, sub, "rev-parse", "--absolute-git-dir"))
+		os.MkdirAll(filepath.Join(gitDir, "info"), 0o755)
+		os.WriteFile(filepath.Join(gitDir, "info", "exclude"), []byte(".env\n"), 0o644)
+		snap := scanned(t, repo)
+		defer func(f func(*Worktree)) { beforeRemove = f }(beforeRemove)
+		beforeRemove = func(w *Worktree) { writeIn(t, sub, ".env", "TOKEN=1\n", false) }
+		refused(t, repo, wt, "submodules changed", "sub/.env", snap)
+	})
+}

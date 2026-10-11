@@ -453,12 +453,17 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
   under `node_modules/`) is Keep, because removing it would delete that one too. So is one with a
   file on disk marked assume-unchanged or skip-worktree, whose edits git status cannot see, and a gone
   worktree whose detached HEAD had commits on no branch, tag or remote.
-- **Submodules are checked like worktrees.** Removing a worktree deletes its submodule checkouts and
-  every submodule git folder under its own git dir, nested ones and deinitialized ones included. So a
-  submodule with uncommitted or untracked files, a stash, a file git status cannot see, or a branch or
-  HEAD with commits on no remote keeps the worktree, and its ignored files are listed as the
-  worktree's own. A clean one does not: git refuses such a worktree without `--force`, so it gets no
-  copyable command, and the checked removal re-checks every submodule just before forcing it.
+- **Submodules are checked like worktrees.** Removing a worktree deletes every submodule checkout in
+  it (found from the index's gitlinks, so an inactive one counts too) and every submodule repository it
+  holds: under its own git dir, nested and deinitialized ones included, or embedded as `sub/.git`.
+  So a submodule with uncommitted or untracked files, a file git status cannot see, or a stash keeps
+  the worktree, and so does a commit no remote-tracking ref has in its HEAD, a branch, a tag or any of
+  their reflogs. The removal's fresh scan fetches each submodule first, so a remote branch deleted
+  since cannot vouch for it. The same goes for a gone worktree, whose registration still holds its
+  submodule repositories. Their ignored files are listed as the worktree's own. A clean one does not
+  keep it: git refuses such a worktree without `--force`, so it gets no copyable command, and the
+  checked removal looks once more just before forcing it (the worktree still clean, its submodules
+  unchanged, no new ignored file).
   Paths must be given exactly as listed; one with `..`, `//` or a trailing `/` is refused.
 - **What you confirmed is what goes.** A dry run returns a plan for each worktree. Passed back (the
   dashboard always does), it makes the removal refuse a worktree that changed in between, such as one

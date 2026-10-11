@@ -17,17 +17,24 @@ All notable changes are documented here. The format follows
 
 ### Changed
 
-- A worktree with submodules is no longer Keep just for having them. Each initialized submodule is
-  checked like a worktree (uncommitted or untracked files, assume-unchanged or skip-worktree files,
-  another checkout in its ignored folders), and every submodule git folder under the worktree's git
-  dir, nested and deinitialized ones included, is checked for a stash or for HEAD or branch commits on
-  no remote. Any of those keeps the worktree, with the reason; otherwise its verdict is the one it
-  would have without them.
+- A worktree with submodules is no longer Keep just for having them. Every submodule checkout (found
+  from the index's gitlinks, inactive ones included) is checked like a worktree: uncommitted or
+  untracked files, assume-unchanged or skip-worktree files, another checkout in its ignored folders.
+  Every submodule repository removal would delete (under the worktree's git dir, nested and
+  deinitialized ones included, or embedded as `sub/.git`) is checked for a stash and for commits no
+  remote-tracking ref has in HEAD, a branch, a tag or a reflog; a removal's fresh scan fetches each
+  first. Any of those keeps the worktree, with the reason; otherwise its verdict is the one it would
+  have without them.
 - Such a worktree is removed with `--force`, which git requires for submodules, only by the checked
-  removal: the dashboard's Remove or `remove_worktrees`. It gets no copyable command, and its
-  submodules are re-checked just before git deletes it; one that changed since the fresh scan is
-  refused. Submodules' ignored files are listed with the worktree's own, and a new one changes the
-  dry run's plan.
+  removal: the dashboard's Remove or `remove_worktrees`. It gets no copyable command. Just before git
+  deletes it, after any copy is kept, it must still be clean and its submodules unchanged (none newly
+  initialized, no new work, no new ignored file); otherwise it is refused. Submodules' ignored files
+  are listed with the worktree's own.
+
+### Fixed
+
+- A gone worktree whose registration still holds submodule repositories with commits on no remote is
+  Keep, not Prunable: pruning it would delete them.
 
 ## [0.7.0] - 2026-10-11
 

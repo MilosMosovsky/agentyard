@@ -287,17 +287,6 @@ func (it *removal) remove(repo string, w *Worktree) {
 			it.refuse("HEAD moved after the fresh scan (a new commit?); list it again")
 			return
 		}
-		if w.Submodules > 0 {
-			// --force skips git's own submodule refusal, so their safety is
-			// re-checked at the last moment: an edit or commit since the scan fails it.
-			if n, _, _, hz := submoduleState(w.Path); hz != "" || n != w.Submodules {
-				if hz == "" {
-					hz = "its submodules changed after the fresh scan"
-				}
-				it.refuse(hz + "; list it again")
-				return
-			}
-		}
 		if keepsCopy(w) {
 			ref, err := keepCopy(repo, w)
 			if err != nil {
@@ -306,7 +295,16 @@ func (it *removal) remove(repo string, w *Worktree) {
 			}
 			it.Backup = ref
 		}
-		force = forceRemove(w)
+		if force = forceRemove(w); force {
+			if hz := lastLook(w); hz != "" {
+				if it.Backup != "" {
+					git(repo, "update-ref", "-d", it.Backup)
+					it.Backup = ""
+				}
+				it.refuse(hz + "; list it again")
+				return
+			}
+		}
 	}
 	args := removeArgs(repo, w, force)
 	if _, err := run(10*time.Minute, "", args[0], args[1:]...); err != nil {
@@ -318,6 +316,33 @@ func (it *removal) remove(repo string, w *Worktree) {
 		return
 	}
 	it.done(w)
+}
+
+// lastLook is the check just before a forced removal, since --force skips
+// git's own refusals of changes and submodules. A worktree with no copy kept
+// must still be clean (keepCopy has just re-read one with a copy), and its
+// submodules must be as the fresh scan found them: none initialized since,
+// none with new work, no new ignored file. Like keepCopy's last look, it
+// narrows the window in which a write is lost; it does not close it.
+func lastLook(w *Worktree) string {
+	if !keepsCopy(w) {
+		beforeExec(w)
+		status, err := git(w.Path, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none")
+		switch {
+		case err != nil:
+			return "cannot re-read its files: " + err.Error()
+		case strings.TrimSpace(status) != "":
+			return "it has uncommitted changes since the fresh scan"
+		}
+	}
+	n, _, sum, hz := submoduleState(w.Path, false)
+	switch {
+	case hz != "":
+		return hz
+	case n != w.Submodules || sum != w.submoduleSum:
+		return "its submodules changed after the fresh scan"
+	}
+	return ""
 }
 
 var refUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)

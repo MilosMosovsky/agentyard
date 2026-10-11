@@ -104,8 +104,9 @@ type Worktree struct {
 	// checked removal (removal.remove) may take it.
 	RemoveCmd string `json:"removeCmd,omitempty"`
 
-	headOnly   bool   // detached, with commits no branch, tag or remote has
-	ignoredSum string // digest of every ignored entry, submodules' too, for removal plans
+	headOnly     bool   // detached, with commits no branch, tag or remote has
+	ignoredSum   string // digest of every ignored entry, submodules' too, for removal plans
+	submoduleSum string // the submodules' part of ignoredSum, which a removal re-checks last
 }
 
 type Repo struct {
@@ -176,10 +177,18 @@ func run(timeout time.Duration, dir, name string, args ...string) (string, error
 
 // runEnv is run with extra environment variables, which win over inherited ones.
 func runEnv(timeout time.Duration, dir string, env []string, name string, args ...string) (string, error) {
+	return runInput(timeout, dir, env, "", name, args...)
+}
+
+// runInput is runEnv with input on the command's standard input.
+func runInput(timeout time.Duration, dir string, env []string, input, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if input != "" {
+		cmd.Stdin = strings.NewReader(input)
+	}
 	// GIT_OPTIONAL_LOCKS=0: `git status` must never take index.lock, or it races
 	// with whatever is committing in that worktree at the same moment.
 	cmd.Env = append(append(os.Environ(),
@@ -346,15 +355,7 @@ func listWorktrees(repo string) ([]wtEntry, error) {
 }
 
 func fetch(repo, slug string, patient bool) error {
-	args := []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false"}
-	if slug != "" {
-		// HTTPS through gh's token: the SSH key is not SSO-authorised for every org.
-		args = append(args, "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential",
-			"fetch", "--prune", "--quiet", "--no-write-fetch-head",
-			"https://github.com/"+slug+".git", "+refs/heads/*:refs/remotes/origin/*")
-	} else {
-		args = append(args, "fetch", "--prune", "--quiet", "--no-write-fetch-head", "origin")
-	}
+	args := fetchArgs(slug)
 	// Retry: a DNS blip (e.g. a VPN re-establishing its tunnel) fails a
 	// fetch for a few seconds and would otherwise leave the repo stale for a cycle.
 	var err error
@@ -369,6 +370,31 @@ func fetch(repo, slug string, patient bool) error {
 		}
 		log.Printf("fetch %s attempt %d: %v", filepath.Base(repo), attempt+1, err)
 	}
+	return err
+}
+
+// fetchArgs fetches origin's branches into refs/remotes/origin/, pruning.
+func fetchArgs(slug string) []string {
+	args := []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false"}
+	if slug != "" {
+		// HTTPS through gh's token: the SSH key is not SSO-authorised for every org.
+		return append(args, "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential",
+			"fetch", "--prune", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules",
+			"https://github.com/"+slug+".git", "+refs/heads/*:refs/remotes/origin/*")
+	}
+	return append(args, "fetch", "--prune", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules", "origin")
+}
+
+// fetchGitDir fetches a submodule repository's origin once.
+func fetchGitDir(gitDir string) error {
+	slug := ""
+	dirs := []string{"--git-dir=" + gitDir, "--work-tree=" + gitDir} // see subScan.repo
+	if out, err := run(gitTimeout, "", "git", append(dirs, "remote", "get-url", "origin")...); err == nil {
+		if m := githubRe.FindStringSubmatch(strings.TrimSpace(out)); m != nil {
+			slug = m[1]
+		}
+	}
+	_, err := run(3*time.Minute, "", "git", append(dirs, fetchArgs(slug)...)...)
 	return err
 }
 
@@ -496,7 +522,7 @@ func scanRepo(path string, sizes *sizeCache, patient bool) *Repo {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			r.Worktrees[i] = scanWorktree(r, e, remote, prs, sizes)
+			r.Worktrees[i] = scanWorktree(r, e, remote, prs, sizes, !patient)
 		}()
 	}
 	wg.Wait()
@@ -535,7 +561,9 @@ func repoActive(r *Repo) (t time.Time) {
 	return
 }
 
-func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR, sizes *sizeCache) *Worktree {
+// fresh is a removal's fresh scan: submodules are fetched before they are
+// trusted (see submoduleState).
+func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR, sizes *sizeCache, fresh bool) *Worktree {
 	w := &Worktree{Path: e.path, Folder: filepath.Dir(e.path), Branch: e.branch, Sha: e.sha, Prunable: e.prunable}
 	switch _, err := os.Stat(e.path); {
 	case errors.Is(err, fs.ErrNotExist):
@@ -547,7 +575,9 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		return w
 	}
 	if w.Prunable {
-		w.Hazard = orphaned(r.Path, e.sha)
+		if w.Hazard = orphaned(r.Path, e.sha); w.Hazard == "" {
+			w.Hazard = orphanedModules(r.Path, e.path, fresh)
+		}
 		judge(r.Path, w)
 		return w
 	}
@@ -620,8 +650,9 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		if w.Hazard == "" {
 			var ign []string
 			var sum string
-			w.Submodules, ign, sum, w.Hazard = submoduleState(e.path)
+			w.Submodules, ign, sum, w.Hazard = submoduleState(e.path, fresh)
 			w.Ignored = append(w.Ignored, ign...)
+			w.submoduleSum = sum
 			if sum != "" {
 				w.ignoredSum += "+" + sum
 			}
