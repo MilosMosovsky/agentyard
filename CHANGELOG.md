@@ -6,6 +6,43 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-12
+
+### Added
+
+- **In use.** A worktree that would be Safe to delete is In use while a process has its working
+  folder inside it (a shell, a dev server, Codex, Claude Desktop) or while it sits in a live Claude
+  Code session's scratchpad. The reason names the process or session and says what the verdict is
+  otherwise. Worktrees with other verdicts show an in-use chip. Folders are compared by identity on
+  disk, so case, symlinks and `lsof`'s escaped names cannot hide a process.
+- `agentyard remove [-dry-run] PATH...`: the re-checked removal from the command line.
+- The MCP server warns in every tool result, and refuses `remove_worktrees`, when it is older than
+  what is installed: its executable changed, the `agentyard` on PATH leads elsewhere, or the agent
+  runs another version. Reconnect it after an upgrade.
+
+### Changed
+
+- The dashboard's copyable commands are `agentyard remove <path>`, which re-checks when it runs,
+  instead of `git worktree remove`; every Safe to delete worktree now has one.
+- Reclaimability is a field of the verdict table rather than its first two positions.
+- Snapshots carry the agent's version.
+
+### Fixed
+
+- A worktree in use by a live session or process was shown as Safe to delete and could be removed.
+- A failed check is never read as "nothing uses it": the scan holds every worktree back as In use,
+  with the reason, and removal refuses. Removal checks again after re-reading HEAD and after keeping
+  a copy, then compares the files with that copy once more, and drops the copy when it refuses.
+- A worktree git calls prunable while its folder is still there is Keep, not Prunable.
+- Untracked files are seen even when `status.showUntrackedFiles` is `no`, by the scan and by git's
+  own check during removal.
+- A worktree with a tracked file that goes through a clean filter (other than Git LFS's) is Keep: the
+  filter decides what git sees, so bytes it drops are on disk only.
+- A change staged after a removal kept its copy, and before git ran, refuses the removal.
+- Live sessions are read from the installed agent's Claude Code folder as well as this process's, so
+  an MCP server or a copied command started elsewhere sees the same scratchpads.
+- A Prunable worktree whose folder came back before the removal ran is refused instead of removed.
+
 ## [0.9.0] - 2026-10-11
 
 ### Added
@@ -282,7 +319,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.6.0...v0.7.0

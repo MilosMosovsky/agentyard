@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 
 func scanned(t *testing.T, repo string) *Snapshot {
 	t.Helper()
-	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true, nil)}, time.Now(), 0)
 	return snap
 }
 
@@ -196,7 +197,7 @@ func TestDetachedCommitsKeptOnRemoval(t *testing.T) {
 	writeIn(t, wt, "README", "hi\n", true) // reverted
 	snap := scanned(t, repo)
 	w := worktreeIn(t, snap, wt)
-	if w.Verdict != "merged" || w.RemoveCmd != "" {
+	if w.Verdict != "merged" || w.RemoveCmd != "agentyard remove "+w.Path {
 		t.Fatalf("detached, reverted: %s %q, command %q", w.Verdict, w.Reason, w.RemoveCmd)
 	}
 	_, got := removeNow(snap, removeRequest{Paths: []string{wt}})
@@ -220,7 +221,7 @@ func TestCheckedRemovalKeepsCopyAndRechecks(t *testing.T) {
 	gitT(t, repo, "push", "-q", "origin", "main")
 	snap := scanned(t, repo)
 	for _, name := range []string{"copied", "written"} {
-		if w := worktreeIn(t, snap, wt(name)); w.Verdict != "merged" || w.RemoveCmd != "" {
+		if w := worktreeIn(t, snap, wt(name)); w.Verdict != "merged" || w.RemoveCmd != "agentyard remove "+w.Path {
 			t.Fatalf("%s: %s %q, command %q", name, w.Verdict, w.Reason, w.RemoveCmd)
 		}
 	}
@@ -333,4 +334,69 @@ func TestRemovedPathsHideByScanStart(t *testing.T) {
 	if _, n := g.hide(mk(removedAt.Add(time.Second), removedAt.Add(time.Minute))); n != 0 {
 		t.Errorf("scan begun after the removal was filtered: %d", n)
 	}
+}
+
+// status.showUntrackedFiles=no hides untracked files from a plain git status;
+// the scan, and git's own check during removal, must still see them.
+func TestUntrackedHiddenByConfigAreSeen(t *testing.T) {
+	base, repo := gitRepo(t)
+	wt := filepath.Join(base, "wt", "hidden")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "hidden", wt)
+	gitT(t, repo, "config", "status.showUntrackedFiles", "no")
+	os.WriteFile(filepath.Join(wt, "notes.txt"), []byte("only here"), 0o644)
+	if w := worktreeIn(t, scanned(t, repo), wt); w.Verdict != "keep" || w.Untracked != 1 {
+		t.Fatalf("hidden untracked file: %s %q untracked=%d", w.Verdict, w.Reason, w.Untracked)
+	}
+	if args := removeArgs(repo, &Worktree{Path: wt}, false); !slices.Contains(args, "status.showUntrackedFiles=normal") {
+		t.Fatalf("git's own check can be blinded: %v", args)
+	}
+}
+
+// A clean filter decides what git sees of a file; bytes it drops are only on
+// disk, so such a worktree is never Safe to delete. Git LFS keeps every byte.
+func TestCleanFilterKeeps(t *testing.T) {
+	base, repo := gitRepo(t)
+	for _, tc := range []struct{ filter, verdict string }{{"strip", "keep"}, {"lfs", "merged"}} {
+		wt := filepath.Join(base, "wt", tc.filter)
+		gitT(t, repo, "worktree", "add", "-q", "-b", tc.filter, wt)
+		gitT(t, wt, "config", "filter."+tc.filter+".clean", "cat")
+		info := strings.TrimSpace(gitT(t, wt, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+		os.MkdirAll(filepath.Join(info, "info"), 0o755)
+		os.WriteFile(filepath.Join(info, "info", "attributes"), []byte("README filter="+tc.filter+"\n"), 0o644)
+		w := worktreeIn(t, scanned(t, repo), wt)
+		os.Remove(filepath.Join(info, "info", "attributes"))
+		if w.Verdict != tc.verdict || (tc.verdict == "keep" && !strings.Contains(w.Reason, "clean filter")) {
+			t.Fatalf("filter %s: %s %q", tc.filter, w.Verdict, w.Reason)
+		}
+	}
+}
+
+// Staging a change after the copy was kept, and before the removal runs, is
+// seen in the real index: the copy does not hold it.
+func TestStagedAfterCopyRefuses(t *testing.T) {
+	base, repo := gitRepo(t)
+	wt := filepath.Join(base, "wt", "staged")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "staged", wt)
+	writeIn(t, repo, "landed", "already remote\n", true)
+	gitT(t, repo, "push", "-q", "origin", "main")
+	writeIn(t, wt, "landed", "already remote\n", false)
+	snap := scanned(t, repo)
+	defer func(f func(*Worktree)) { beforeLastUse = f }(beforeLastUse)
+	beforeLastUse = func(w *Worktree) {
+		blob := strings.TrimSpace(gitInput(t, w.Path, "unique staged work\n", "hash-object", "-w", "--stdin"))
+		gitT(t, w.Path, "update-index", "--add", "--cacheinfo", "100644,"+blob+",staged-only")
+	}
+	_, results := removeNow(snap, removeRequest{Paths: []string{wt}})
+	if it := results[wt]; it.Outcome != "refused" || !exists(wt) || len(agentyardRefs(t, repo)) != 0 {
+		t.Fatalf("staged after the copy: %+v", it)
+	}
+}
+
+func gitInput(t *testing.T, dir, input string, args ...string) string {
+	t.Helper()
+	out, err := runInput(gitTimeout, dir, nil, input, "git", args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

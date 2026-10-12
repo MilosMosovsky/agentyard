@@ -4,3 +4,5 @@ dist/
 /agentyard
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+/.gocache/
+/.gotmp/

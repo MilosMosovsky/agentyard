@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -128,5 +130,48 @@ func TestAppVersion(t *testing.T) {
 	version = ""
 	if v := appVersion(); v == "" {
 		t.Error("empty version")
+	}
+}
+
+// agentyard remove is the copyable command: it re-checks, so a worktree that
+// came into use after the dashboard printed the command is refused.
+func TestCLIRemove(t *testing.T) {
+	base, repo := gitRepo(t)
+	busy, free := filepath.Join(base, "wt", "busy"), filepath.Join(base, "wt", "free")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "busy", busy)
+	gitT(t, repo, "worktree", "add", "-q", "-b", "free", free)
+	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}, repos: []string{repo}, cycle: 1}
+	s.scan() // saved to the cache, which remove reads when no agent answers
+	sleep := startSleep(t, busy)
+	err := runRemove([]string{"-listen", "127.0.0.1:1", busy, free})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists(busy) || exists(free) {
+		t.Fatalf("busy kept=%v, free removed=%v", exists(busy), !exists(free))
+	}
+	sleep.Process.Kill()
+	sleep.Wait()
+	if err := runRemove([]string{"-listen", "127.0.0.1:1", "-dry-run", busy}); err != nil || !exists(busy) {
+		t.Fatalf("dry run: %v", err)
+	}
+	if err := runRemove([]string{"-listen", "127.0.0.1:1"}); !errors.Is(err, errUsage) {
+		t.Fatalf("no paths: %v", err)
+	}
+}
+
+// Paths are taken as typed: relative to here, never cleaned.
+func TestCLIRemovePaths(t *testing.T) {
+	base, repo := gitRepo(t)
+	wt := filepath.Join(base, "wt", "rel")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "rel", wt)
+	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}, repos: []string{repo}, cycle: 1}
+	s.scan()
+	t.Chdir(filepath.Join(base, "wt"))
+	if err := runRemove([]string{"-listen", "127.0.0.1:1", "-dry-run", "x/../rel"}); err == nil {
+		t.Fatal("a path with .. was accepted")
+	}
+	if err := runRemove([]string{"-listen", "127.0.0.1:1", "rel"}); err != nil || exists(wt) {
+		t.Fatalf("relative path: %v, still there=%v", err, exists(wt))
 	}
 }

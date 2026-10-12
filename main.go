@@ -85,6 +85,7 @@ type Worktree struct {
 	LastCommit   time.Time `json:"lastCommit"`
 	LastActive   time.Time `json:"lastActive"` // newest of commit, index and changed-file mtimes
 	Prunable     bool      `json:"prunable"`
+	InUse        []Use     `json:"inUse,omitempty"`
 	// Submodules counts initialized submodules, each checked to hold no work
 	// its remote lacks; git removes such a worktree only with --force.
 	Submodules int `json:"submodules,omitempty"`
@@ -98,10 +99,10 @@ type Worktree struct {
 	Hazard           string   `json:"hazard,omitempty"`         // work a removal would lose that status can't see
 	Verdict          string   `json:"verdict"`
 	Reason           string   `json:"reason"`
-	// RemoveCmd is the copyable command that removes it, set only for a
-	// reclaimable worktree git itself would remove safely. One with
-	// uncommitted files or with commits only its HEAD holds has none: only the
-	// checked removal (removal.remove) may take it.
+	// RemoveCmd is the copyable command that removes a reclaimable worktree:
+	// agentyard remove, which re-checks it when it runs. A bare git command
+	// would skip the in-use check, and for one with uncommitted files or
+	// commits only its HEAD holds, every other check too.
 	RemoveCmd string `json:"removeCmd,omitempty"`
 
 	headOnly     bool   // detached, with commits no branch, tag or remote has
@@ -127,6 +128,7 @@ type Group struct {
 }
 
 type Snapshot struct {
+	Version   string        `json:"version,omitempty"`
 	Started   time.Time     `json:"started,omitempty"` // when the scan began; At is when it ended
 	At        time.Time     `json:"at"`
 	Took      time.Duration `json:"took"`
@@ -139,14 +141,18 @@ type Snapshot struct {
 	Errors    []string      `json:"errors,omitempty"`
 }
 
-// Verdicts in display order; the first two are reclaimable. Only merged work is
+// Verdicts in display order. Only merged work is
 // safe to delete — being pushed somewhere does not make a branch disposable.
-var verdicts = []struct{ Key, Label string }{
-	{"merged", "Safe to delete"},
-	{"prunable", "Prunable"},
-	{"unmerged", "Not merged"},
-	{"open", "Open PR"},
-	{"keep", "Keep"},
+var verdicts = []struct {
+	Key, Label  string
+	Reclaimable bool
+}{
+	{"merged", "Safe to delete", true},
+	{"prunable", "Prunable", true},
+	{"inuse", "In use", false},
+	{"unmerged", "Not merged", false},
+	{"open", "Open PR", false},
+	{"keep", "Keep", false},
 }
 
 func verdictIndex(v string) int {
@@ -158,7 +164,10 @@ func verdictIndex(v string) int {
 	return len(verdicts)
 }
 
-func reclaimable(v string) bool { return verdictIndex(v) < 2 }
+func reclaimable(v string) bool {
+	i := verdictIndex(v)
+	return i < len(verdicts) && verdicts[i].Reclaimable
+}
 
 // verdictLabel is a verdict's human name; an unknown key (say, from a cache
 // written by another version) is shown as itself.
@@ -493,7 +502,7 @@ func branchURL(slug, branch string) string {
 // scanRepo scans one repository. patient retries a failed fetch for about 40
 // seconds; a removal's fresh scan is not patient, and a failed fetch makes it
 // refuse anything whose safety depends on remote refs.
-func scanRepo(path string, sizes *sizeCache, patient bool) *Repo {
+func scanRepo(path string, sizes *sizeCache, patient bool, uses *usage) *Repo {
 	r := &Repo{Path: path}
 	if out, err := git(path, "remote", "get-url", "origin"); err == nil {
 		if m := githubRe.FindStringSubmatch(strings.TrimSpace(out)); m != nil {
@@ -546,7 +555,7 @@ func scanRepo(path string, sizes *sizeCache, patient bool) *Repo {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			r.Worktrees[i] = scanWorktree(r, e, remote, prs, sizes, !patient)
+			r.Worktrees[i] = scanWorktree(r, e, remote, prs, sizes, !patient, uses)
 		}()
 	}
 	wg.Wait()
@@ -587,14 +596,22 @@ func repoActive(r *Repo) (t time.Time) {
 
 // fresh is a removal's fresh scan: submodules are fetched before they are
 // trusted (see submoduleState).
-func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR, sizes *sizeCache, fresh bool) *Worktree {
+func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR, sizes *sizeCache, fresh bool, uses *usage) *Worktree {
 	w := &Worktree{Path: e.path, Folder: filepath.Dir(e.path), Branch: e.branch, Sha: e.sha, Prunable: e.prunable}
 	switch _, err := os.Stat(e.path); {
 	case errors.Is(err, fs.ErrNotExist):
 		w.Prunable = true
+	case err == nil && w.Prunable:
+		// git calls it prunable (its .git file is gone, say), yet the folder and
+		// whatever is in it are still there.
+		w.Prunable, w.Hazard = false, "git calls it prunable, but its folder is still there"
+		w.InUse = uses.of(w.Path)
+		judge(r.Path, w)
+		return w
 	case err != nil:
 		// Unreadable is not gone, whatever git says: the folder may still hold work.
 		w.Prunable, w.Hazard = false, "cannot read the folder: "+err.Error()
+		w.InUse = uses.of(w.Path)
 		judge(r.Path, w)
 		return w
 	}
@@ -607,7 +624,8 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 	}
 
 	var changed []string
-	if out, err := git(e.path, "status", "--porcelain"); err == nil {
+	// normal, whatever status.showUntrackedFiles says: "no" would hide them.
+	if out, err := git(e.path, "status", "--porcelain", "--untracked-files=normal"); err == nil {
 		for _, line := range strings.Split(out, "\n") {
 			switch {
 			case len(line) < 4:
@@ -683,6 +701,8 @@ func scanWorktree(r *Repo, e wtEntry, remote map[string]bool, prs map[string]*PR
 		}
 		judge(r.Path, w)
 	}
+	w.InUse = uses.of(w.Path)
+	judge(r.Path, w)
 	return w
 }
 
@@ -786,6 +806,35 @@ func trackedHazard(wt string) string {
 			return path + " is marked skip-worktree but is on disk, so git cannot see edits to it"
 		}
 	}
+	return filterHazard(wt, out)
+}
+
+// filterHazard names a tracked file that goes through a clean filter: git
+// compares what the filter makes of it, so bytes the filter drops (a
+// notebook's outputs, say) are on disk only. Git LFS's filter keeps every
+// byte. listing is ls-files -z -v -s output.
+func filterHazard(wt, listing string) string {
+	var paths strings.Builder
+	for _, rec := range strings.Split(listing, "\x00") {
+		if _, path, ok := strings.Cut(rec, "\t"); ok {
+			paths.WriteString(path + "\x00")
+		}
+	}
+	if paths.Len() == 0 {
+		return ""
+	}
+	out, err := runInput(gitTimeout, wt, nil, paths.String(), "git", "check-attr", "-z", "--stdin", "filter")
+	if err != nil {
+		return "cannot read its files' attributes: " + err.Error()
+	}
+	f := strings.Split(out, "\x00") // path, attribute, value, …
+	for i := 0; i+2 < len(f); i += 3 {
+		switch v := f[i+2]; v {
+		case "unspecified", "unset", "lfs":
+		default:
+			return f[i] + " goes through the " + v + " clean filter, so git cannot see all of what is on disk"
+		}
+	}
 	return ""
 }
 
@@ -802,16 +851,14 @@ func judge(repo string, w *Worktree) {
 	default:
 		classify(w)
 	}
+	if !w.Prunable && reclaimable(w.Verdict) && len(w.InUse) > 0 {
+		w.Reason = inUseReason(w.InUse) + "; otherwise " + verdictLabel(w.Verdict) + " (" + strings.TrimPrefix(w.Reason, "merged: ") + ")"
+		w.Verdict = "inuse"
+	}
 	if !reclaimable(w.Verdict) {
 		return
 	}
-	if !checkedRemoval(w) {
-		args := removeArgs(repo, w, false)
-		for i, a := range args {
-			args[i] = shellQuote(a)
-		}
-		w.RemoveCmd = strings.Join(args, " ")
-	}
+	w.RemoveCmd = "agentyard remove " + shellQuote(w.Path)
 	if len(w.Ignored) > 0 {
 		w.Reason += " · removing also deletes ignored " + strings.Join(w.Ignored, ", ")
 	}
@@ -837,17 +884,19 @@ func keepsCopy(w *Worktree) bool { return w.Modified+w.Untracked > 0 || w.headOn
 // after its checks: uncommitted files or submodules make git refuse otherwise.
 func forceRemove(w *Worktree) bool { return w.Modified+w.Untracked > 0 || w.Submodules > 0 }
 
-// removeArgs is the one command that removes a reclaimable worktree: the
-// dashboard prints it and the removal runs it. Without force git still
+// removeArgs is the one git command that removes a reclaimable worktree;
+// only removal.remove runs it, after its checks. Without force git still
 // refuses changes, untracked files and locks. force is for removal.remove
 // alone, after its checks (once: a locked worktree is still refused). For a
 // prunable worktree it drops just that registration, where `worktree prune`
 // would take every stale one.
 func removeArgs(repo string, w *Worktree, force bool) []string {
+	// git's own check of the files honors status.showUntrackedFiles; "no"
+	// would let it delete untracked files.
 	if force {
-		return []string{"git", "-C", repo, "worktree", "remove", "--force", w.Path}
+		return []string{"git", "-c", "status.showUntrackedFiles=normal", "-C", repo, "worktree", "remove", "--force", w.Path}
 	}
-	return []string{"git", "-C", repo, "worktree", "remove", w.Path}
+	return []string{"git", "-c", "status.showUntrackedFiles=normal", "-C", repo, "worktree", "remove", w.Path}
 }
 
 // contentWhere says where the worktree's local changes already are.
@@ -959,6 +1008,7 @@ func (s *scanner) scan() *Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	start := time.Now()
+	uses := usageNow()
 	// Rediscover repos every few cycles; new worktrees in known repos show up every cycle.
 	if s.repos == nil || s.cycle%6 == 0 {
 		s.repos = discoverRepos(*flagRoot, *flagDepth)
@@ -974,12 +1024,16 @@ func (s *scanner) scan() *Snapshot {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = scanRepo(p, s.sizes, true)
+			results[i] = scanRepo(p, s.sizes, true, uses)
 		}()
 	}
 	wg.Wait()
 
 	snap, live := summarize(results, time.Now(), time.Since(start).Round(time.Second))
+	snap.Version = appVersion()
+	if uses.incomplete != "" {
+		snap.Errors = append(snap.Errors, "could not check which worktrees are in use: "+uses.incomplete)
+	}
 	s.sizes.retain(live)
 	var st syscall.Statfs_t
 	if syscall.Statfs(home, &st) == nil {
@@ -1236,9 +1290,18 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 		}
 		return m
 	},
-	"verdicts": func() any { return verdicts },
-	"label":    verdictLabel,
-	"short":    func(s string) string { return s[:min(len(s), 8)] },
+	"verdicts":  func() any { return verdicts },
+	"label":     verdictLabel,
+	"useLabel":  useLabel,
+	"useReason": inUseTooltip,
+	"verdictCount": func(g *Group, key string) int {
+		i := verdictIndex(key)
+		if i < len(g.Verdicts) {
+			return g.Verdicts[i]
+		}
+		return 0
+	},
+	"short": func(s string) string { return s[:min(len(s), 8)] },
 	"rel": func(p string) string {
 		if rel, err := filepath.Rel(*flagRoot, p); err == nil && !strings.HasPrefix(rel, "..") {
 			return rel

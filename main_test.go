@@ -314,28 +314,34 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// Every reclaimable worktree's copyable command is agentyard remove, which
+// re-checks it when it runs; a bare git command would skip those checks.
 func TestJudgeRemoveCommands(t *testing.T) {
-	w := &Worktree{Path: "/r/it's here", Prunable: true}
-	judge("/r/repo", w)
-	if w.Verdict != "prunable" || w.RemoveCmd != `git -C /r/repo worktree remove '/r/it'\''s here'` {
-		t.Errorf("prunable: %s %q", w.Verdict, w.RemoveCmd)
+	quoted := `agentyard remove '/r/it'\''s here'`
+	for _, w := range []*Worktree{
+		{Path: "/r/it's here", Prunable: true},
+		{Path: "/r/it's here", InDefault: true},
+	} {
+		judge("/r/repo", w)
+		if !reclaimable(w.Verdict) || w.RemoveCmd != quoted {
+			t.Errorf("%s: %q, want %q", w.Verdict, w.RemoveCmd, quoted)
+		}
 	}
-	w = &Worktree{Path: "/r/it's here", InDefault: true}
-	judge("/r/repo", w)
-	if want := `git -C /r/repo worktree remove '/r/it'\''s here'`; w.RemoveCmd != want {
-		t.Errorf("merged: %q, want %q", w.RemoveCmd, want)
-	}
-	w = &Worktree{Path: "/r/wip", Modified: 1}
+	w := &Worktree{Path: "/r/wip", Modified: 1}
 	judge("/r/repo", w)
 	if w.RemoveCmd != "" {
 		t.Errorf("keep got a remove command: %q", w.RemoveCmd)
 	}
-	// Dirty but proven to be in the default branch: reclaimable, but only through
-	// the checked removal, so there is no command to copy (it would need --force).
-	w = &Worktree{Path: "/r/done", Modified: 1, InDefault: true, ContentRef: "origin/main", ContentInDefault: true}
-	judge("/r/repo", w)
-	if w.Verdict != "merged" || w.RemoveCmd != "" {
-		t.Errorf("covered dirty: %s %q, want merged with no command", w.Verdict, w.RemoveCmd)
+	// Dirty but proven to be in the default branch, or a detached HEAD's own
+	// commits: reclaimable through the checked removal, which the command runs.
+	for _, w := range []*Worktree{
+		{Path: "/r/done", Modified: 1, InDefault: true, ContentRef: "origin/main", ContentInDefault: true},
+		{Path: "/r/det", Branch: "(detached)", Unpushed: 2, ContentRef: "origin/main", ContentInDefault: true, headOnly: true},
+	} {
+		judge("/r/repo", w)
+		if w.Verdict != "merged" || w.RemoveCmd != "agentyard remove "+w.Path {
+			t.Errorf("checked removal %s: %s %q", w.Path, w.Verdict, w.RemoveCmd)
+		}
 	}
 	// Covered elsewhere, HEAD in the default branch: not Safe to delete.
 	w = &Worktree{Path: "/r/exp", Untracked: 1, InDefault: true, ContentRef: "origin/experiment"}
@@ -343,21 +349,16 @@ func TestJudgeRemoveCommands(t *testing.T) {
 	if w.Verdict != "unmerged" || w.RemoveCmd != "" {
 		t.Errorf("dirty, content on another branch: %s %q", w.Verdict, w.RemoveCmd)
 	}
-	// A detached HEAD's own commits: no copyable command either.
-	w = &Worktree{Path: "/r/det", Branch: "(detached)", Unpushed: 2, ContentRef: "origin/main", ContentInDefault: true, headOnly: true}
-	judge("/r/repo", w)
-	if w.Verdict != "merged" || w.RemoveCmd != "" {
-		t.Errorf("detached with its own commits: %s %q", w.Verdict, w.RemoveCmd)
-	}
 	for _, force := range []bool{false, true} {
 		if got := strings.Contains(strings.Join(removeArgs("/r/repo", w, force), " "), "--force"); got != force {
 			t.Errorf("removeArgs force=%v gave --force=%v", force, got)
 		}
 	}
-	w = &Worktree{Path: "/r/ahead", Unpushed: 1, ContentRef: "origin/main", ContentInDefault: true}
+	// In use: no command at all.
+	w = &Worktree{Path: "/r/busy", InDefault: true, InUse: []Use{{PID: 7, Command: "zsh"}}}
 	judge("/r/repo", w)
-	if want := "git -C /r/repo worktree remove /r/ahead"; w.RemoveCmd != want {
-		t.Errorf("covered clean tree forced: %q", w.RemoveCmd)
+	if w.Verdict != "inuse" || w.RemoveCmd != "" {
+		t.Errorf("in use: %s %q", w.Verdict, w.RemoveCmd)
 	}
 	for _, w := range []*Worktree{
 		{Path: "/r/gone", Prunable: true, Hazard: "folder is gone, but 1 commit is reachable only from its HEAD"},
@@ -604,19 +605,19 @@ func TestPageRemoveControls(t *testing.T) {
 	logs := captureLog(t)
 	h, _ := demoHandler(t)
 	s, _, _, _ := newDemo(time.Now())
-	removable, checked := 0, 0
+	removable := 0
 	for _, r := range s.snap.Load().Repos {
 		for _, w := range r.Worktrees {
 			if reclaimable(w.Verdict) {
 				removable++
-				if w.RemoveCmd == "" {
-					checked++
+				if !strings.HasPrefix(w.RemoveCmd, "agentyard remove ") {
+					t.Errorf("%s: command %q", w.Path, w.RemoveCmd)
 				}
 			}
 		}
 	}
-	if removable == 0 || checked == 0 {
-		t.Fatalf("demo lacks a reclaimable worktree with (%d) and without (%d) a command", removable, checked)
+	if removable == 0 {
+		t.Fatal("demo lacks a reclaimable worktree")
 	}
 	const never = "Commands are copied, never run here."
 	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `class="button remove-all remove-safe" data-remove-safe`, `data-remove="`, `<meta name="agentyard-remove-token"`, `id="remove-confirm"`}
@@ -631,9 +632,9 @@ func TestPageRemoveControls(t *testing.T) {
 	if got := strings.Count(body, ` data-remove="`); got != 2*removable {
 		t.Errorf("%d Remove buttons for %d reclaimable worktrees", got, removable)
 	}
-	// A worktree only the checked removal may take is listed without a command.
-	if got := strings.Count(body, `class="command-line command-checked"`); got != checked {
-		t.Errorf("%d command-less cleanup lines for %d checked removals", got, checked)
+	// Every reclaimable worktree has a command, and every command re-checks.
+	if got := strings.Count(body, `<div class="command-line"`); got != removable || strings.Contains(body, "git -C ") {
+		t.Errorf("%d cleanup commands for %d reclaimable worktrees", got, removable)
 	}
 	if strings.Contains(body, "--force") {
 		t.Error("the page prints a --force command")
@@ -656,6 +657,38 @@ func TestPageRemoveControls(t *testing.T) {
 	other := get(t, h, "GET", "/", "192.168.1.20:5000").Body.String()
 	if !strings.Contains(other, never) {
 		t.Error("another device: cleanup note lost its wording")
+	}
+	noRenderErrors(t, logs)
+}
+
+func TestPageInUse(t *testing.T) {
+	logs := captureLog(t)
+	h, _ := demoHandler(t)
+	body := get(t, h, "GET", "/", local).Body.String()
+	for _, want := range []string{`data-option="inuse"`, `legend-item verdict-inuse`, `data-kpi="inuse">1`, `in use: Claude Code session &#34;Automated coding&#34;`, `in use: Dark mode design tokens`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("demo lacks %q", want)
+		}
+	}
+	for _, key := range []string{"wt-row", "wt-card"} {
+		for _, tc := range []struct {
+			verdict string
+			use     Use
+		}{
+			{"inuse", Use{PID: 42, Command: "claude", Session: "live", Kind: "cli"}},
+			{"keep", Use{PID: 43, Command: "zsh", Dir: "apps/web"}},
+		} {
+			w := &Worktree{Path: "/wt", Verdict: tc.verdict, InUse: []Use{tc.use}}
+			var out bytes.Buffer
+			if err := page.ExecuteTemplate(&out, key, map[string]any{"W": w, "Repo": &Repo{Path: "/repo"}, "Can": true}); err != nil {
+				t.Fatal(err)
+			}
+			// The chip is for other verdicts; an In use row says it in its reason.
+			chip := strings.Contains(out.String(), "usage-chip") && strings.Contains(out.String(), `title="in use:`)
+			if strings.Contains(out.String(), `data-remove="`) || chip != (tc.verdict != "inuse") {
+				t.Fatalf("usage row has remove, or a chip where it should not: %s", out.String())
+			}
+		}
 	}
 	noRenderErrors(t, logs)
 }

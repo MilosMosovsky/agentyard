@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -70,6 +71,7 @@ func mcpInstructions() string {
 	return "agentyard watches every git worktree under the user's code folder and gives each one a verdict: " + help + ".\n" +
 		"Only " + strings.Join(gone, " and ") + " are reclaimable, and remove_worktrees refuses everything else. " +
 		"keep means the worktree holds work no remote has (uncommitted files or local commits whose content is on no remote branch), or another checkout inside the folder.\n" +
+		"In-use worktrees are refused until their session or process ends. Tool results include a warning field when this MCP server is outdated; reconnect it before cleanup.\n" +
 		"Cleanup: worktree_summary, then list_worktrees with verdict " + string(list) + ", then remove_worktrees with dry_run true, " +
 		"then remove_worktrees with each dry-run result's plan in plans. Show the user the dry run's ignored files (.env and the like), which removal deletes, " +
 		"and any uncommitted files it discards (modified, untracked, contentRef).\n" +
@@ -102,25 +104,97 @@ type mcpSource struct {
 	prDetail func(*TrackedPR) (PRDetail, error)
 	sync     func() (string, error) // rescan now and wait for it
 	poke     func() string          // after a removal: start a rescan, don't wait
+	agent    func() string          // the running agent's version, "" when unknown
 	demo     bool                   // synthetic data: nothing may be removed
 }
 
 type mcpServer struct {
-	src   mcpSource
-	tools []mcpTool
-	gone  removedPaths // paths this process removed, hidden from snapshots begun before
+	src     mcpSource
+	tools   []mcpTool
+	gone    removedPaths // paths this process removed, hidden from snapshots begun before
+	binary  mcpBinary
+	version func() string
 }
 
 func newMCPServer(src mcpSource) *mcpServer {
-	m := &mcpServer{src: src}
+	m := &mcpServer{src: src, version: appVersion}
+	if !src.demo {
+		m.binary = recordExecutable(os.Executable, filepath.EvalSymlinks, os.Stat, exec.LookPath)
+	}
 	m.tools = m.toolList()
 	return m
+}
+
+// mcpBinary is this process's executable as it was at start, and where the
+// agentyard on PATH led then: brew upgrade replaces the one and repoints the
+// other, and os.Executable may name either.
+type mcpBinary struct {
+	path, resolved     string
+	info               os.FileInfo
+	err                error
+	alias, aliasTarget string
+	resolve            func(string) (string, error)
+	stat               func(string) (os.FileInfo, error)
+}
+
+func recordExecutable(executable func() (string, error), resolve func(string) (string, error), stat func(string) (os.FileInfo, error), lookPath func(string) (string, error)) mcpBinary {
+	b := mcpBinary{resolve: resolve, stat: stat}
+	if b.path, b.err = executable(); b.err == nil {
+		if b.resolved, b.err = resolve(b.path); b.err == nil {
+			b.info, b.err = stat(b.resolved)
+		}
+	}
+	if alias, err := lookPath("agentyard"); err == nil {
+		if target, err := resolve(alias); err == nil {
+			b.alias, b.aliasTarget = alias, target
+		}
+	}
+	return b
+}
+
+func (m *mcpServer) stale() string {
+	const reconnect = "; reconnect it (/mcp in Claude Code) or start a new session"
+	if m.src.agent != nil {
+		if warning := m.versionWarning(m.src.agent()); warning != "" {
+			return warning
+		}
+	}
+	if m.src.demo {
+		return ""
+	}
+	b := m.binary
+	changed := b.err != nil || b.info == nil
+	if !changed {
+		path, err := b.resolve(b.path)
+		if err != nil || path != b.resolved {
+			changed = true
+		} else {
+			info, err := b.stat(path)
+			changed = err != nil || !os.SameFile(b.info, info) || b.info.Size() != info.Size() || !b.info.ModTime().Equal(info.ModTime())
+		}
+	}
+	if b.alias != "" && !changed {
+		target, err := b.resolve(b.alias)
+		changed = err != nil || target != b.aliasTarget
+	}
+	if changed {
+		return "this agentyard MCP server is " + m.version() + " but its executable on disk changed or cannot be checked" + reconnect
+	}
+	return ""
+}
+
+func (m *mcpServer) versionWarning(version string) string {
+	if version != "" && version != m.version() {
+		return "this agentyard MCP server is " + m.version() + " but the agent is " + version + "; reconnect it (/mcp in Claude Code) or start a new session"
+	}
+	return ""
 }
 
 func runMCP(args []string) error {
 	log.SetOutput(os.Stderr) // stdout is the protocol wire; nothing else may write there
 	log.SetPrefix("agentyard mcp: ")
-	fs := newFlags("mcp", "mcp [-listen ADDR] [-demo]")
+	fs := newFlags("mcp", "mcp [-listen ADDR] [-claude-dir DIR] [-demo]")
+	fs.StringVar(flagClaudeDir, "claude-dir", *flagClaudeDir, "Claude Code config folder (holds sessions/)")
 	listen := fs.String("listen", "", "the background agent's address (default: the installed agent's, else "+defaultListen+")")
 	demo := fs.Bool("demo", false, "serve synthetic demo data; reads and removes nothing")
 	if err := parse(fs, args); err != nil {
@@ -155,6 +229,12 @@ func agentSource(listen string) mcpSource {
 			return detail, err
 		},
 		sync: func() (string, error) { return agentSync(listen, mcpSyncWait) },
+		agent: func() string {
+			if st, err := fetchStatus(listen); err == nil && !st.Demo {
+				return st.Version
+			}
+			return ""
+		},
 		poke: func() string {
 			state, err := startSync(listen)
 			if err != nil {
@@ -174,6 +254,7 @@ func demoSource() mcpSource {
 		prDetail: func(pr *TrackedPR) (PRDetail, error) { return demoPRDetail(pr), nil },
 		sync:     func() (string, error) { return "demo data never changes; nothing to sync", nil },
 		poke:     func() string { return "" },
+		agent:    func() string { return snap.Version },
 		demo:     true,
 	}
 }
@@ -384,7 +465,16 @@ func (m *mcpServer) call(params json.RawMessage) (any, *rpcError) {
 	}
 	for _, t := range m.tools {
 		if t.Name == p.Name {
-			return t.run(p.Arguments), nil
+			// Old code must not remove: it may lack checks the installed version has.
+			warning := m.stale()
+			if warning != "" && t.Name == "remove_worktrees" {
+				return toolWarning(toolFail("%s", warning), warning), nil
+			}
+			result := t.run(p.Arguments)
+			if warning != "" {
+				result = toolWarning(result, warning)
+			}
+			return result, nil
 		}
 	}
 	return nil, &rpcError{rpcInvalidParams, "unknown tool: " + p.Name}
@@ -424,6 +514,20 @@ func toolOK(v any) *toolResult {
 // toolFail is a failure the AI should read and act on, not a protocol error.
 func toolFail(format string, a ...any) *toolResult {
 	return &toolResult{Content: []toolText{{"text", fmt.Sprintf(format, a...)}}, IsError: true}
+}
+
+func toolWarning(result *toolResult, warning string) *toolResult {
+	out := map[string]any{}
+	if result.StructuredContent != nil {
+		b, _ := json.Marshal(result.StructuredContent)
+		json.Unmarshal(b, &out)
+	} else {
+		out["error"] = result.Content[0].Text
+	}
+	out["warning"] = warning
+	res := toolOK(out)
+	res.IsError = result.IsError
+	return res
 }
 
 // decodeArgs reads a tool's arguments strictly, so a misspelt filter is an
@@ -690,13 +794,14 @@ type mcpRow struct {
 	Modified    int       `json:"modified"`
 	Untracked   int       `json:"untracked"`
 	RemoveCmd   string    `json:"removeCmd,omitempty"`
+	InUse       []Use     `json:"inUse,omitempty"`
 }
 
 func rowOf(repo string, w *Worktree) mcpRow {
 	return mcpRow{Path: w.Path, Repo: repo, Branch: w.Branch, Verdict: w.Verdict, Label: verdictLabel(w.Verdict),
 		Reason: w.Reason, Reclaimable: reclaimable(w.Verdict), Size: kbSize(w.SizeKB), SizeKB: w.SizeKB,
 		LastActive: w.LastActive, ActiveAgo: ago(w.LastActive), PR: w.PR,
-		Unpushed: w.Unpushed, Modified: w.Modified, Untracked: w.Untracked, RemoveCmd: w.RemoveCmd}
+		Unpushed: w.Unpushed, Modified: w.Modified, Untracked: w.Untracked, RemoveCmd: w.RemoveCmd, InUse: w.InUse}
 }
 
 func (m *mcpServer) listTool(raw json.RawMessage) *toolResult {
@@ -1027,6 +1132,10 @@ func (m *mcpServer) removeTool(raw json.RawMessage) *toolResult {
 	snap, meta, fail := m.load()
 	if fail != nil {
 		return fail
+	}
+	// The agent may not be answering; a snapshot it saved says its version too.
+	if warning := m.versionWarning(snap.Version); warning != "" {
+		return toolFail("%s", warning)
 	}
 	rep := removeWorktrees(snap, q, removeIn, m.src.poke)
 	m.gone.add(rep.gone, time.Now())

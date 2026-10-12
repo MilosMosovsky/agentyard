@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -462,7 +463,7 @@ func TestMCPRemoveSafety(t *testing.T) {
 		os.RemoveAll(wt(name))
 	}
 
-	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true, nil)}, time.Now(), 0)
 	want := map[string]string{"clean": "merged", "dirty": "merged", "modified": "merged", "late": "merged",
 		"envy": "merged", "headmove": "merged", "stale": "merged", "local": "keep", "pushed": "unmerged",
 		"outer": "keep", "outer2": "keep", "detached": "keep", "gone": "prunable", "gone2": "prunable", "lockedgone": "prunable"}
@@ -608,7 +609,7 @@ func TestUnreadableWorktreeIsKept(t *testing.T) {
 	gitT(t, repo, "worktree", "add", "-q", "-b", "shut", filepath.Join(shut, "wt"))
 	os.Chmod(shut, 0)
 	t.Cleanup(func() { os.Chmod(shut, 0o755) })
-	r := scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true)
+	r := scanRepo(repo, &sizeCache{m: map[string]sizeEntry{}}, true, nil)
 	if len(r.Worktrees) != 1 || r.Worktrees[0].Verdict != "keep" || !strings.Contains(r.Worktrees[0].Reason, "cannot read the folder") {
 		t.Errorf("unreadable worktree: %+v", r.Worktrees)
 	}
@@ -674,5 +675,164 @@ func TestAgentSourceAndSync(t *testing.T) {
 	m := newMCPServer(agentSource(listen))
 	if s, _, _ := callTool(t, m, "worktree_summary", nil); s["snapshot"].(map[string]any)["note"] == nil {
 		t.Errorf("disk cache not flagged: %v", s["snapshot"])
+	}
+}
+
+func TestMCPStaleBinaryWarnings(t *testing.T) {
+	m := newMCPServer(demoSource())
+	m.src.demo = false
+	dir := t.TempDir()
+	binary, link := filepath.Join(dir, "agentyard-v1"), filepath.Join(dir, "agentyard")
+	os.WriteFile(binary, []byte("old binary"), 0o755)
+	os.Symlink(binary, link)
+	m.binary = recordExecutable(func() (string, error) { return link, nil }, filepath.EvalSymlinks, os.Stat, noPath)
+	if warning := m.stale(); warning != "" {
+		t.Fatal(warning)
+	}
+	other := filepath.Join(dir, "agentyard-v2")
+	os.WriteFile(other, []byte("new binary"), 0o755)
+	os.Remove(link)
+	os.Symlink(other, link)
+	warning := m.stale()
+	if !strings.Contains(warning, "executable on disk changed") || !strings.Contains(warning, "/mcp") {
+		t.Fatal(warning)
+	}
+	old := gatherUsage
+	t.Cleanup(func() { gatherUsage = old })
+	gatherUsage = func() (*usage, error) { t.Fatal("stale MCP reached a fresh scan"); return nil, nil }
+	for name, args := range map[string]any{
+		"worktree_summary": nil,
+		"list_worktrees":   nil,
+		"get_worktree":     map[string]any{"path": demoPath("code/acme/api/.claude/worktrees/rate-limit-tiers")},
+		"merge_train":      nil,
+		"get_pr":           map[string]any{"repo": "acme/api", "number": 482},
+		"sync_worktrees":   nil,
+	} {
+		out, text, failed := callTool(t, m, name, args)
+		if failed || out["warning"] != warning || !strings.Contains(text, `"warning"`) {
+			t.Errorf("%s warning: %v %s", name, failed, text)
+		}
+	}
+	for _, dry := range []bool{false, true} {
+		out, text, failed := callTool(t, m, "remove_worktrees", map[string]any{"paths": []string{demoPath("code/acme/api/.claude/worktrees/bump-go-1.25")}, "dry_run": dry})
+		if !failed || out["warning"] != warning || out["error"] != warning || !strings.Contains(text, warning) || out["results"] != nil {
+			t.Fatalf("stale removal dry=%t: %v %s", dry, out, text)
+		}
+	}
+	// The enum and instructions stay derived from the verdict table.
+	for _, tool := range m.tools {
+		if tool.Name == "list_worktrees" {
+			keys := tool.InputSchema["properties"].(map[string]any)["verdict"].(map[string]any)["items"].(map[string]any)["enum"].([]string)
+			if !slices.Contains(keys, "inuse") {
+				t.Fatal("inuse is not a filter")
+			}
+		}
+	}
+	if text := mcpInstructions(); !strings.Contains(text, "warning field") || !strings.Contains(text, "session or process ends") {
+		t.Fatal(text)
+	}
+}
+
+func TestMCPBinaryIdentity(t *testing.T) {
+	for _, kind := range []string{"gone", "replaced", "size", "modtime", "unreadable", "capture error"} {
+		t.Run(kind, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agentyard")
+			os.WriteFile(path, []byte("binary"), 0o755)
+			m := newMCPServer(mcpSource{})
+			m.binary = recordExecutable(func() (string, error) { return path, nil }, filepath.EvalSymlinks, os.Stat, noPath)
+			switch kind {
+			case "gone":
+				os.Remove(path)
+			case "replaced":
+				// Hold the old inode via rename; size and mtime are deliberately equal.
+				os.Rename(path, path+".old")
+				os.WriteFile(path, []byte("binary"), 0o755)
+				os.Chtimes(path, m.binary.info.ModTime(), m.binary.info.ModTime())
+			case "size":
+				os.WriteFile(path, []byte("larger binary"), 0o755)
+			case "modtime":
+				os.Chtimes(path, time.Now(), m.binary.info.ModTime().Add(time.Minute))
+			case "unreadable":
+				m.binary.stat = func(string) (os.FileInfo, error) { return nil, errors.New("denied") }
+			case "capture error":
+				m.binary = recordExecutable(func() (string, error) { return "", errors.New("unknown executable") }, filepath.EvalSymlinks, os.Stat, noPath)
+			}
+			if m.stale() == "" {
+				t.Fatalf("%s was not stale", kind)
+			}
+			m.src.demo = true
+			if warning := m.stale(); warning != "" {
+				t.Fatalf("demo binary check: %s", warning)
+			}
+		})
+	}
+}
+
+func TestMCPAgentVersionMismatch(t *testing.T) {
+	m := newMCPServer(demoSource())
+	snap, _, _ := m.src.snapshot()
+	m.version = func() string { return "v0.7.0" }
+	snap.Version = "v0.10.0"
+	warning := m.stale()
+	if !strings.Contains(warning, "v0.7.0") || !strings.Contains(warning, "v0.10.0") {
+		t.Fatal(warning)
+	}
+	out, _, failed := callTool(t, m, "worktree_summary", nil)
+	if failed || out["warning"] != warning {
+		t.Fatalf("agent version warning missing: %v", out)
+	}
+	_, text, failed := callTool(t, m, "remove_worktrees", map[string]any{"paths": []string{"/wt"}, "dry_run": true})
+	if !failed || !strings.Contains(text, warning) {
+		t.Fatal("version mismatch removal allowed")
+	}
+	snap.Version = ""
+	if m.stale() != "" {
+		t.Fatal("old snapshot without version treated as mismatch")
+	}
+	out, _, failed = callTool(t, m, "worktree_summary", nil)
+	if failed || out["warning"] != nil {
+		t.Fatal("empty warning was serialized")
+	}
+	snap.Version = m.version()
+	if m.stale() != "" {
+		t.Fatal("matching version treated as mismatch")
+	}
+}
+
+func TestMCPInUseData(t *testing.T) {
+	m := newMCPServer(demoSource())
+	out, _, failed := callTool(t, m, "list_worktrees", map[string]any{"verdict": []string{"inuse"}})
+	rows := out["worktrees"].([]any)
+	if failed || len(rows) != 1 || out["reclaimableKB"] != float64(0) {
+		t.Fatalf("inuse list: %v", out)
+	}
+	row := rows[0].(map[string]any)
+	if row["reclaimable"] != false || row["removeCmd"] != nil || len(row["inUse"].([]any)) != 1 {
+		t.Fatalf("inuse row: %v", row)
+	}
+	out, _, failed = callTool(t, m, "get_worktree", map[string]any{"path": row["path"]})
+	if failed || len(out["worktree"].(map[string]any)["inUse"].([]any)) != 1 {
+		t.Fatalf("inuse get: %v", out)
+	}
+}
+
+func noPath(string) (string, error) { return "", exec.ErrNotFound }
+
+// brew upgrade repoints the agentyard on PATH; the old executable may stay.
+func TestMCPPathAliasRetargeted(t *testing.T) {
+	dir := t.TempDir()
+	v1, v2, link := filepath.Join(dir, "v1"), filepath.Join(dir, "v2"), filepath.Join(dir, "agentyard")
+	os.WriteFile(v1, []byte("old"), 0o755)
+	os.WriteFile(v2, []byte("new"), 0o755)
+	os.Symlink(v1, link)
+	m := newMCPServer(mcpSource{})
+	m.binary = recordExecutable(func() (string, error) { return v1, nil }, filepath.EvalSymlinks, os.Stat, func(string) (string, error) { return link, nil })
+	if w := m.stale(); w != "" {
+		t.Fatal(w)
+	}
+	os.Remove(link)
+	os.Symlink(v2, link)
+	if m.stale() == "" {
+		t.Fatal("a retargeted PATH alias went unnoticed")
 	}
 }

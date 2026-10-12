@@ -70,9 +70,26 @@ fetches it, looks up each branch's pull request, and gives every worktree one ve
 |---|---|
 | **Safe to delete** | PR merged (or HEAD already in the default branch), and nothing local is missing from the remote: the worktree is clean, or every uncommitted file and local commit is already in the default branch by content. The only verdict that is safe to delete. |
 | **Prunable** | The folder is gone; only git's registration is left, and every commit it had is on a branch, tag or remote. |
+| **In use** | Otherwise Safe to delete, but a process or live Claude Code session is using it. Wait until that use ends. |
 | **Not merged** | Nothing local is missing from the remote, but it was never merged into the default branch (closed PR, no PR, or its changes live on another branch). Needs a human decision. |
 | **Open PR** | The branch has a PR in review. |
-| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, a submodule holding work its origin lacks (changes, untracked files, a stash, worktrees of its own, or commits on no branch of its origin), or files git status cannot see (assume-unchanged, skip-worktree). |
+| **Keep** | Work that no remote has: uncommitted files or local commits whose content is on no remote branch, another checkout inside its ignored folders, a submodule holding work its origin lacks (changes, untracked files, a stash, worktrees of its own, or commits on no branch of its origin), or files git status cannot see (assume-unchanged, skip-worktree, or a clean filter other than Git LFS's). |
+
+In use is checked on every scan. A process whose working folder is the worktree, or any folder
+inside it, uses that worktree. Folders are compared by what they are on disk, not by how their path
+is spelled, so a symlink, `/tmp` against `/private/tmp`, a different letter case on a
+case-insensitive disk or a name `lsof` prints escaped all still match; a process at the repository
+root does not use the worktrees nested under it. Only agentyard's own work is ignored: agentyard
+itself and the git, `lsof`, `ps` and `du` commands it runs, plus git's file-watching daemon. A shell
+or an agent is a user even when an agentyard started it. Live Claude Code sessions
+(`~/.claude/sessions`, or `-claude-dir`) name the session, and a worktree inside a live session's
+scratchpad is in use even with no process in it; a session file counts as live while its process
+runs, checked against its start time so a reused pid does not count. Worktrees with any other verdict
+keep it and show an in-use chip. When the check itself fails (`lsof` cannot run, the sessions folder
+cannot be read), no worktree is Safe to delete: each is In use, with the reason, until a scan can
+check again. What it cannot see: another user's processes, and a program that works on files in a
+worktree without its working folder being there (an editor opened from elsewhere, say). The verdict
+is what the last scan saw; a removal checks again when it runs.
 
 Keep is decided by content, not by commit hash. Commits often reach GitHub another way (rebased,
 squash-merged, ported to another branch) and uncommitted files are often identical to what was pushed
@@ -92,10 +109,10 @@ throwaway object directory, so a scan never writes to the repository.
 
 An interactive treemap shows measured disk usage by worktree or repository. Select a tile for its verdict and path, or jump to its row. Search, verdict, and repository filters update the chart, totals, and list together. Choose several values in the Filter menu; remove any selection individually.
 
-Totals are grouped by repository and by folder, with ready-to-copy `git worktree remove` commands for
-the safe-to-delete rows. A row with uncommitted files, or a detached HEAD holding commits nothing else
-has, gets no command: a copied command would skip the checks below, so it goes only through the
-dashboard's Remove or `remove_worktrees`. Rows and repositories are sorted by last activity: the newest of the last
+Totals are grouped by repository and by folder, with ready-to-copy `agentyard remove <path>` commands
+for the safe-to-delete rows. The command runs the same re-checked removal as the dashboard's Remove
+and `remove_worktrees` (see below), so one copied an hour ago still refuses a worktree that has come
+into use or gained work since; `agentyard remove -dry-run <path>` only reports. Rows and repositories are sorted by last activity: the newest of the last
 commit, the worktree's index and any uncommitted file. Sizes are `du` logical sizes, refreshed every
 30 minutes; APFS clones and package-manager hardlinks mean the space you actually free can be smaller.
 
@@ -437,6 +454,7 @@ to that name. The Sessions tab stays on this Mac unless you also pass `--session
 ```console
 $ agentyard status       # loaded? pid, root, network, URL, version, last scan, log path
 $ agentyard open         # open the dashboard in your browser
+$ agentyard remove PATH  # remove a Safe to delete worktree, re-checked first (-dry-run to only report)
 $ agentyard uninstall    # stop it and remove the LaunchAgent
 ```
 
@@ -479,6 +497,12 @@ anything.
 | `remove_worktrees` | Removes the given worktrees if they are still reclaimable; `dry_run` reports what would go. |
 | `sync_worktrees` | Asks the background agent to rescan now, refresh PRs and their local validation, and waits for it, up to a few minutes. |
 
+An MCP server keeps running the code it started with, so after `brew upgrade` the AI may be talking
+to an old version. When its executable changed on disk, the `agentyard` on your PATH now leads
+elsewhere, or the background agent reports another version, every tool result carries a `warning`,
+and `remove_worktrees` refuses (dry runs too): older code may lack checks the installed version has.
+Reconnect it (`/mcp` in Claude Code) or start a new session.
+
 Start a PR session with `merge_train`, then use `get_pr` to read each candidate. Both tools are
 read-only. They read `/api/prs.json`, falling back to the saved `prs.json` snapshot, and report the
 source and age. `agentyard mcp -demo` includes every merge train lane and synthetic PR details.
@@ -491,7 +515,16 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
   removing anything, agentyard re-scans each affected repository (fetch, `git status`, unpushed
   commits, PR lookup) with the same verdict logic as the dashboard. A worktree that has gained an
   uncommitted file or a local commit since the last scan is refused.
-- **Only Safe to delete and Prunable.** Keep, Open PR and Not merged are always refused, with the
+- **In use is re-checked just before removal.** The fresh scan checks processes and live sessions
+  again, then once more after re-reading HEAD and a last time after any copy is kept. Only then are
+  the files looked at for the last time (compared with the copy, the real index included, or
+  required to be clean), so a write or a `git add` by a process that started during the check is
+  seen. A worktree that came into use meanwhile
+  is refused, and a copy already kept for it is dropped. A check that fails refuses too. This narrows
+  the window in which someone starts working in a folder being removed; nothing on a Mac can close it.
+  A Prunable worktree is pruned only while its folder is still gone: one that is back is refused,
+  and one git calls prunable while its folder is still there is Keep.
+- **Only Safe to delete and Prunable.** In use, Keep, Open PR and Not merged are always refused, with the
   reason. A path must exactly match a worktree git lists right now; the main working tree never does.
   A worktree whose ignored folders hold another checkout or worktree anywhere (`.worktrees/`, or deep
   under `node_modules/`) is Keep, because removing it would delete that one too. So is one with a
@@ -506,8 +539,8 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
   origin vouches (a submodule without one has nothing that does), and the removal's fresh scan fetches it first (branches only, after reading the
   local refs), so a branch deleted since, or pushed only to another remote, cannot. The same goes for a gone worktree, whose registration still holds its
   submodule repositories. Their ignored files are listed as the worktree's own. A clean one does not
-  keep it: git refuses such a worktree without `--force`, so it gets no copyable command, and the
-  checked removal looks once more just before forcing it (the worktree still clean, no file git status
+  keep it: git refuses such a worktree without `--force`, so only the checked removal takes it, and it
+  looks once more just before forcing it (the worktree still clean, no file git status
   cannot see, its submodules unchanged, no new ignored file, even inside an ignored folder).
   Paths must be given exactly as listed; one with `..`, `//` or a trailing `/` is refused.
 - **What you confirmed is what goes.** A dry run returns a plan for each worktree. Passed back (the
@@ -592,7 +625,7 @@ manager.
 | `-mdns NAME` | off | publish as `http://<name>.local` over mDNS (ignored on loopback) |
 | `-interval D` | `5m` | rescan interval for worktrees, PRs and sessions |
 | `-size-ttl D` | `30m` | how long a measured worktree size is reused |
-| `-claude-dir DIR` | `~/.claude` | Claude Code config folder (holds `projects/`) |
+| `-claude-dir DIR` | `~/.claude` | Claude Code config folder (holds `projects/` and live `sessions/`) |
 | `-codex-dir DIR` | `~/.codex` | Codex home folder (holds `sessions/`) |
 | `-sessions-lan` | off | serve the Sessions tab to other devices too |
 | `-once` | | scan once, print the worktree JSON to stdout and exit |
@@ -602,6 +635,7 @@ manager.
 | Flag | Default | |
 |---|---|---|
 | `-listen ADDR` | the installed agent's, else `127.0.0.1:4777` | where to reach the background agent |
+| `-claude-dir DIR` | `~/.claude` | live Claude Code sessions for removal checks; honors `CLAUDE_CONFIG_DIR` |
 | `-demo` | off | serve the demo's synthetic worktrees; nothing is read or removed |
 
 `agentyard demo` takes `-listen` (default `127.0.0.1:4777`; if that port is busy and you did not pass

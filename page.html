@@ -90,6 +90,7 @@
 :root {
   --verdict-safe: var(--tone-positive);
   --verdict-prunable: var(--tone-neutral);
+  --verdict-inuse: var(--accent);
   --verdict-not-merged: var(--tone-waiting);
   --verdict-open-pr: var(--accent);
   --verdict-keep: var(--tone-protect);
@@ -161,6 +162,7 @@ code, pre, .path, .branch { font-family: var(--font-mono); font-variant-ligature
 .tone-muted { --state-ink: var(--tone-neutral); }
 .verdict-merged { --state-ink: var(--verdict-safe); }
 .verdict-prunable { --state-ink: var(--verdict-prunable); }
+.verdict-inuse { --state-ink: var(--verdict-inuse); }
 .verdict-unmerged { --state-ink: var(--verdict-not-merged); }
 .verdict-open { --state-ink: var(--verdict-open-pr); }
 .verdict-keep { --state-ink: var(--verdict-keep); }
@@ -285,6 +287,7 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: 10px; }
 .badge { display: inline-flex; align-items: flex-start; gap: 6px; min-height: 24px; max-width: 100%; padding: 2px 6px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--state-ink, var(--text-1)) 8%, var(--status-bg)); color: var(--state-ink, var(--text-1)); font-size: 12px; line-height: 20px; font-weight: 550; }
 .badge .icon { width: 14px; height: 14px; margin-top: 3px; }
 .badge.status-evidence { gap: 4px; min-height: 20px; padding: 0; font-size: 12px; font-weight: 500; }
+.usage-chip { margin-top: 6px; font-size: 11px; }
 .reason { display: block; font-size: 13px; line-height: 20px; font-weight: 500; color: var(--text-2); margin-top: 4px; }
 .evidence { display: flex; align-items: baseline; gap: 4px; font-size: 12px; line-height: 20px; }
 .evidence .icon { width: 14px; height: 14px; align-self: center; }
@@ -295,9 +298,6 @@ tbody tr:last-child td:last-child { border-bottom-right-radius: 10px; }
 .cleanup .command-notes { margin: 12px 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
 .command-line { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-inset); border-radius: var(--radius-control); margin-top: 8px; min-width: 0; }
 .command-line code { display: block; min-width: 0; flex: 1; overflow-x: auto; white-space: pre; font-size: 13px; line-height: 20px; padding: 4px 0; }
-.command-checked { align-items: flex-start; }
-.command-checked > .icon { width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; color: var(--tone-waiting); }
-.command-checked p { display: flex; flex-direction: column; min-width: 0; margin: 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
 .copy { flex-shrink: 0; width: 72px; padding: 0 4px; transition: color var(--duration-feedback), background-color var(--duration-feedback); }
 .copy-resume { width: 120px; }
 .copy .icon { width: 14px; height: 14px; }
@@ -1162,7 +1162,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 
 {{define "status"}}
 {{$icon := "dotted-circle"}}{{$text := .State}}{{$class := printf "tone-%s" .Tone}}
-{{if .Verdict}}{{$text = label .Verdict}}{{$class = printf "verdict-%s" .Verdict}}{{if eq .Verdict "merged"}}{{$icon = "check-circle"}}{{else if eq .Verdict "prunable"}}{{$icon = "dashed-square"}}{{else if eq .Verdict "unmerged"}}{{$icon = "branch"}}{{else if eq .Verdict "open"}}{{$icon = "pull-request"}}{{else if eq .Verdict "keep"}}{{$icon = "lock"}}{{end}}
+{{if .Verdict}}{{$text = label .Verdict}}{{$class = printf "verdict-%s" .Verdict}}{{if eq .Verdict "merged"}}{{$icon = "check-circle"}}{{else if eq .Verdict "prunable"}}{{$icon = "dashed-square"}}{{else if eq .Verdict "inuse"}}{{$icon = "clock"}}{{else if eq .Verdict "unmerged"}}{{$icon = "branch"}}{{else if eq .Verdict "open"}}{{$icon = "pull-request"}}{{else if eq .Verdict "keep"}}{{$icon = "lock"}}{{end}}
 {{else}}{{if eq .State "Ready to merge" "Checks passing" "Approved"}}{{$icon = "check"}}{{$class = "tone-ok"}}{{else if eq .State "Checks failing"}}{{$icon = "x-circle"}}{{else if eq .State "Conflicts"}}{{$icon = "crossed-branches"}}{{else if eq .State "Changes requested"}}{{$icon = "comment-minus"}}{{$class = "tone-bad"}}{{else if eq .State "Awaiting review" "Review required"}}{{$icon = "person-clock"}}{{$class = "tone-warn"}}{{else if eq .State "Checks running" "Checks pending"}}{{$icon = "clock"}}{{$text = "Checks pending"}}{{else if eq .State "Behind base"}}{{$icon = "branch"}}{{else if eq .State "Blocked"}}{{$icon = "lock"}}{{else if eq .State "In merge queue"}}{{$icon = "pull-request"}}{{else if eq .State "No review rule"}}{{$class = "tone-muted"}}{{end}}{{end}}
 <span class="badge {{$class}}{{if .Compact}} status-evidence{{end}}">{{template "icon" $icon}}<span>{{$text}}</span></span>
 {{end}}
@@ -1201,7 +1201,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "snapshot-time"}}{{if not .IsZero}}<time id="snapshot-time" datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" hidden></time>{{end}}{{end}}
 
 {{define "stats"}}
-<div class="table-region" tabindex="0" role="region" aria-label="{{.Title}} summary table, scroll horizontally for all columns"><table class="summary-table"><caption class="sr-only">Worktrees by {{.Kind}}</caption><colgroup><col style="width:22.500%"><col style="width:6.875%"><col style="width:8.750%"><col style="width:11.250%"><col style="width:12.500%"><col style="width:8.750%"><col style="width:10.625%"><col style="width:10.000%"><col style="width:8.750%"></colgroup><thead><tr><th scope="col">{{.Title}}</th><th scope="col" class="n">Worktrees</th><th scope="col" class="n">Size</th><th scope="col" class="n">Safe-to-delete size</th>{{range verdicts}}<th scope="col" class="n">{{.Label}}</th>{{end}}</tr></thead><tbody>
+<div class="table-region" tabindex="0" role="region" aria-label="{{.Title}} summary table, scroll horizontally for all columns"><table class="summary-table"><caption class="sr-only">Worktrees by {{.Kind}}</caption><colgroup><col style="width:20%"><col style="width:7%"><col style="width:8%"><col style="width:11%">{{range verdicts}}<col>{{end}}</colgroup><thead><tr><th scope="col">{{.Title}}</th><th scope="col" class="n">Worktrees</th><th scope="col" class="n">Size</th><th scope="col" class="n">Safe-to-delete size</th>{{range verdicts}}<th scope="col" class="n">{{.Label}}</th>{{end}}</tr></thead><tbody>
 {{range .Groups}}<tr data-summary="{{$.Kind}}" data-group-key="{{if .Anchor}}{{.Anchor}}{{else}}{{.Name}}{{end}}"><td>{{if .Anchor}}{{template "value" (dict "Text" .Name "Href" (printf "#%s" .Anchor))}}{{else}}{{template "value" (dict "Text" .Name "Class" "path")}}{{end}}</td><td class="n" data-summary-value="count">{{.Count}}</td><td class="n" data-summary-value="size">{{size .SizeKB}}</td><td class="n" data-summary-value="safe">{{size .ReclaimKB}}</td>{{range $i, $n := .Verdicts}}<td class="n" data-summary-verdict="{{(index (verdicts) $i).Key}}">{{$n}}</td>{{end}}</tr>{{end}}
 </tbody></table></div>
 <div class="phone-cards">{{range .Groups}}<article class="card summary-card" data-summary="{{$.Kind}}" data-group-key="{{if .Anchor}}{{.Anchor}}{{else}}{{.Name}}{{end}}"><header class="summary-card-header"><h3>{{if .Anchor}}{{template "value" (dict "Text" .Name "Href" (printf "#%s" .Anchor))}}{{else}}{{template "value" (dict "Text" .Name "Class" "path")}}{{end}}</h3><span class="numeric" data-summary-value="size" aria-label="Total size">{{size .SizeKB}}</span></header><p class="summary-card-stats numeric"><span data-summary-value="count" data-noun="worktree worktrees">{{counted .Count "worktree" "worktrees"}}</span> · Safe-to-delete size: <span data-summary-value="safe">{{size .ReclaimKB}}</span></p><details><summary>Verdict counts</summary><dl class="metric-grid numeric">{{range $i, $n := .Verdicts}}<div><dt>{{(index (verdicts) $i).Label}}</dt><dd data-summary-verdict="{{(index (verdicts) $i).Key}}">{{$n}}</dd></div>{{end}}</dl></details></article>{{end}}</div>
@@ -1210,10 +1210,10 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "wt-identity"}}<div class="cell-stack">{{template "value" (dict "Text" .Path "Display" (base .Path) "Class" "path row-title")}}{{template "value" (dict "Text" .Folder "Display" (tilde .Folder) "Class" "path secondary")}}</div>{{end}}
 {{define "wt-branch"}}{{template "value" (dict "Text" .Branch "Href" .BranchURL "Class" "branch")}}{{if not .BranchURL}}<span class="meta">Local only</span>{{end}}{{end}}
 {{define "wt-pr"}}{{with .PR}}<div class="cell-stack"><span><a href="{{.URL}}">#{{.Number}}</a> <span class="meta">{{.State}}{{if .IsDraft}} · draft{{end}}</span></span>{{template "value" (dict "Text" .Title "Href" .URL "Lines" true)}}</div>{{else}}{{template "missing"}}{{end}}{{end}}
-{{define "wt-verdict"}}{{template "status" (dict "Verdict" .Verdict)}}<span class="reason">{{.Reason}}</span>{{end}}
+{{define "wt-verdict"}}{{template "status" (dict "Verdict" .Verdict)}}<span class="reason">{{.Reason}}</span>{{if and .InUse (ne .Verdict "inuse")}}<span class="badge usage-chip verdict-inuse" title="{{useReason .InUse}}">{{template "icon" "clock"}}<span>in use: {{useLabel (index .InUse 0)}}</span></span>{{end}}{{end}}
 {{define "wt-changes"}}{{if or .Modified .Untracked}}<div>{{.Modified}} mod</div><div>{{.Untracked}} new</div>{{else}}0{{end}}{{end}}
 {{define "wt-activity"}}<div class="cell-stack">{{template "time" .LastActive}}<span class="meta">Commit {{template "time" .LastCommit}}</span></div>{{end}}
-{{define "wt-data"}}data-item data-key="{{.W.Path}}" data-repo="{{anchorOf .Repo}}" data-title="{{base .W.Path}}" data-active="{{.W.LastActive.Unix}}" data-folder="{{tilde .W.Folder}}" data-size="{{.W.SizeKB}}" data-branch="{{.W.Branch}}" data-verdict="{{.W.Verdict}}" data-search="{{lowerAll (base .W.Path) .W.Path .W.Folder .W.Branch (label .W.Verdict) .W.Reason}}{{with .W.PR}} {{lower .Title}}{{end}}"{{end}}
+{{define "wt-data"}}data-item data-key="{{.W.Path}}" data-repo="{{anchorOf .Repo}}" data-title="{{base .W.Path}}" data-active="{{.W.LastActive.Unix}}" data-folder="{{tilde .W.Folder}}" data-size="{{.W.SizeKB}}" data-branch="{{.W.Branch}}" data-verdict="{{.W.Verdict}}" data-reclaimable="{{reclaimable .W.Verdict}}" data-search="{{lowerAll (base .W.Path) .W.Path .W.Folder .W.Branch (label .W.Verdict) .W.Reason}}{{with .W.PR}} {{lower .Title}}{{end}}"{{end}}
 {{define "remove-button"}}<button type="button" class="button remove-button" data-remove="{{.Path}}" aria-label="Remove {{tilde .Path}}" aria-haspopup="dialog">{{template "icon" "trash"}}<span>Remove</span></button>{{end}}
 {{define "wt-row"}}<tr {{template "wt-data" .}}>{{with .W}}<td>{{template "wt-identity" .}}</td><td>{{template "wt-branch" .}}</td><td>{{template "wt-pr" .}}</td><td>{{template "wt-verdict" .}}{{if and $.Can (reclaimable .Verdict)}}{{template "remove-button" .}}{{end}}</td><td class="n">{{template "wt-changes" .}}</td><td class="n">{{.Unpushed}}</td><td>{{template "wt-activity" .}}</td><td class="n">{{size .SizeKB}}</td>{{end}}</tr>{{end}}
 {{define "wt-card"}}<article class="card" {{template "wt-data" .}}>{{with .W}}<h3 class="path">{{base .Path}}</h3><div>{{template "wt-verdict" .}}{{if and $.Can (reclaimable .Verdict)}}{{template "remove-button" .}}{{end}}</div><div class="path secondary">{{.Path}}</div><div>{{template "wt-branch" .}}</div><div>{{template "wt-pr" .}}</div><dl class="metric-grid numeric"><div><dt>Changes</dt><dd>{{template "wt-changes" .}}</dd></div><div><dt>Unpushed</dt><dd>{{.Unpushed}}</dd></div><div><dt>Last active</dt><dd>{{template "wt-activity" .}}</dd></div><div><dt>Size</dt><dd>{{size .SizeKB}}</dd></div></dl>{{end}}</article>{{end}}
@@ -1221,9 +1221,10 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "worktrees"}}{{template "head" .}}
 {{if not .Demo}}{{with .WT}}{{template "snapshot-time" .At}}{{end}}{{end}}
 {{template "collection" .}}
-<section class="kpi-region" aria-label="Worktree totals"><p class="meta kpi-context" id="filtered-label" hidden>Filtered results</p><div class="kpis" style="--cells:4">
+<section class="kpi-region" aria-label="Worktree totals"><p class="meta kpi-context" id="filtered-label" hidden>Filtered results</p><div class="kpis" style="--cells:5">
 <div class="kpi"><span class="kpi-icon">{{template "icon" "branch"}}</span><span class="kpi-value numeric" data-kpi="all">{{with .WT}}{{with .Total}}{{.Count}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Linked worktrees</span><span class="kpi-note">Across your local repositories</span></div>
 <div class="kpi"><span class="kpi-icon">{{template "icon" "disk"}}</span><span class="kpi-value numeric" data-kpi="size">{{with .WT}}{{with .Total}}{{size .SizeKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Total on disk</span><span class="kpi-note">Logical worktree size</span></div>
+<div class="kpi verdict-inuse"><span class="kpi-icon">{{template "icon" "clock"}}</span><span class="kpi-value numeric" data-kpi="inuse">{{with .WT}}{{with .Total}}{{verdictCount . "inuse"}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">In use</span><span class="kpi-note">Safe after the session or process ends</span></div>
 <div class="kpi"><span class="kpi-icon">{{template "icon" "check-circle"}}</span><span class="kpi-value numeric" data-kpi="safe">{{with .WT}}{{with .Total}}{{size .ReclaimKB}}{{else}}—{{end}}{{else}}—{{end}}</span><span class="kpi-label">Safe-to-delete size</span><span class="kpi-note">Logical size; space freed can be smaller.</span>{{if .CanRemove}}{{with .WT}}{{with .Total}}{{if .ReclaimKB}}<button type="button" class="button remove-all remove-safe" data-remove-safe aria-label="Remove all safe-to-delete worktrees" aria-haspopup="dialog">{{template "icon" "trash"}}<span data-remove-safe-label>Remove all safe</span></button>{{end}}{{end}}{{end}}{{end}}</div>
 <div class="kpi"><span class="kpi-icon">{{template "icon" "monitor"}}</span><span class="kpi-value numeric">{{with .WT}}{{bytes .DiskFree}}{{else}}—{{end}}</span><span class="kpi-label">Free on this Mac</span>{{with .WT}}<span class="kpi-note numeric">of {{bytes .DiskTotal}} · {{pct .DiskFree .DiskTotal}}% used</span><span class="disk-meter bar-track" aria-hidden="true" style="margin-top:10px"><span class="bar-fill" style="width:{{pct .DiskFree .DiskTotal}}%"></span></span>{{end}}</div>
 </div>{{if not .WT}}<p class="meta kpi-context">Waiting for first sync</p>{{end}}</section>
@@ -1243,7 +1244,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{if .Errors}}<p class="reason">Last successful sync · cached repository results</p><details class="sync-details"><summary>Error details</summary><ul class="error-list path">{{range .Errors}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
 <div class="table-region" tabindex="0" role="region" aria-label="{{rel .Path}} worktrees, scroll horizontally for all columns"><table><caption class="sr-only">Worktrees in {{rel .Path}}</caption><colgroup><col style="width:16.250%"><col style="width:14.375%"><col style="width:19.375%"><col style="width:15.000%"><col style="width:6.250%"><col style="width:6.875%"><col style="width:11.250%"><col style="width:10.625%"></colgroup><thead><tr><th scope="col">Worktree</th><th scope="col">Branch</th><th scope="col">Pull request</th><th scope="col">Verdict</th><th scope="col" class="n">Changes</th><th scope="col" class="n">Unpushed</th><th scope="col">Last active</th><th scope="col" class="n">Size</th></tr></thead><tbody>{{range .Worktrees}}{{template "wt-row" (dict "W" . "Repo" $repo "Can" $.CanRemove)}}{{end}}</tbody></table></div>
 <div class="phone-cards">{{range .Worktrees}}{{template "wt-card" (dict "W" . "Repo" $repo "Can" $.CanRemove)}}{{end}}</div>
-{{with reclaimCount .}}<details class="cleanup"><summary>Commands for <span data-cleanup-count data-noun="worktree worktrees">{{counted . "worktree" "worktrees"}}</span> you can remove</summary><p class="command-notes">{{if $.CanRemove}}Copy a command to run it yourself, or remove the worktrees from here after you confirm.{{else}}Commands are copied, never run here.{{end}}<br>Logical size; space freed can be smaller.</p>{{if $.CanRemove}}<div class="actions cleanup-actions"><button type="button" class="button remove-all" data-remove-all data-repo-name="{{rel $repo.Path}}" aria-label="Remove all {{counted . "worktree" "worktrees"}} in {{rel $repo.Path}}" aria-haspopup="dialog">{{template "icon" "trash"}}<span data-remove-all-label>Remove all {{.}}</span></button></div>{{end}}{{range $repo.Worktrees}}{{if .RemoveCmd}}<div class="command-line" data-item data-key="{{.Path}}"><code tabindex="0">{{.RemoveCmd}}</code>{{template "copy" (dict "Command" .RemoveCmd)}}</div>{{else if reclaimable .Verdict}}<div class="command-line command-checked" data-item data-key="{{.Path}}">{{template "icon" "alert"}}<p><span class="path">{{tilde .Path}}</span><span class="meta">No command to copy: it has uncommitted files or commits only its HEAD holds, which a copied command would delete unchecked. {{if $.CanRemove}}Remove re-checks them and keeps a copy first.{{else}}Remove it on the Mac that runs agentyard, or with remove_worktrees.{{end}}</span></p></div>{{end}}{{end}}</details>{{end}}
+{{with reclaimCount .}}<details class="cleanup"><summary>Commands for <span data-cleanup-count data-noun="worktree worktrees">{{counted . "worktree" "worktrees"}}</span> you can remove</summary><p class="command-notes">{{if $.CanRemove}}Copy a command to run it yourself, or remove the worktrees from here after you confirm.{{else}}Commands are copied, never run here.{{end}} Each command re-checks the worktree when it runs.<br>Logical size; space freed can be smaller.</p>{{if $.CanRemove}}<div class="actions cleanup-actions"><button type="button" class="button remove-all" data-remove-all data-repo-name="{{rel $repo.Path}}" aria-label="Remove all {{counted . "worktree" "worktrees"}} in {{rel $repo.Path}}" aria-haspopup="dialog">{{template "icon" "trash"}}<span data-remove-all-label>Remove all {{.}}</span></button></div>{{end}}{{range $repo.Worktrees}}{{if .RemoveCmd}}<div class="command-line" data-item data-key="{{.Path}}"><code tabindex="0">{{.RemoveCmd}}</code>{{template "copy" (dict "Command" .RemoveCmd)}}</div>{{end}}{{end}}</details>{{end}}
 </section>{{end}}
 {{else if not .Errors}}<div class="state-panel">{{template "icon" "branch"}}<div><h2>No linked worktrees found.</h2><p>Create a worktree in the scanned folders, then sync again.</p><div class="actions"><button type="button" class="button" data-sync>Sync now</button></div></div></div>{{end}}
 {{else}}<div class="state-panel">{{template "icon" "refresh"}}<div><h2>Scanning worktrees…</h2><p>Results appear when the first scan finishes.</p></div></div>{{end}}
@@ -1701,7 +1702,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     search.value = typeof query === "string" ? query : "";
     // "3 worktrees" for labels that carry data-noun="worktree worktrees", else just the number.
     const nouned = (el, n) => { el.textContent = el.dataset.noun ? n + " " + el.dataset.noun.split(" ")[n === 1 ? 0 : 1] : n; };
-    const total = (list, safe = false) => list.reduce((sum, row) => sum + ((!safe || row.dataset.verdict === "merged") ? Number(row.dataset.size || 0) : 0), 0);
+    const total = (list, safe = false) => list.reduce((sum, row) => sum + ((!safe || row.dataset.reclaimable === "true") ? Number(row.dataset.size || 0) : 0), 0);
     const originals = new Map($$("[data-kpi], [data-summary-value], [data-summary-verdict]").map(el => [el, el.textContent]));
     // The charts consume the same canonical rows and totals as filtering and tables.
     function createStorageMap() {
@@ -2384,7 +2385,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       $$("[data-kpi]").forEach(el => {
         if (!filtered || originals.get(el) === "—") { el.textContent = originals.get(el); return; }
         const key = el.dataset.kpi;
-        el.textContent = key === "size" ? size(total(visible)) : key === "safe" ? size(total(visible, true)) : visible.filter(row => key === "all" || row.dataset.tone === key || row.dataset.state === key || row.dataset.tool === key).length;
+        el.textContent = key === "size" ? size(total(visible)) : key === "safe" ? size(total(visible, true)) : visible.filter(row => key === "all" || row.dataset.tone === key || row.dataset.state === key || row.dataset.tool === key || row.dataset.verdict === key).length;
       });
       $$("[data-repo-group]").forEach(group => {
         const count = $$("tr[data-item]", group).filter(row => !row.hidden).length;

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -40,7 +41,7 @@ func appVersion() string {
 	return "dev"
 }
 
-const usage = `agentyard — the yard where your coding agents work.
+const cliUsage = `agentyard — the yard where your coding agents work.
 Every git worktree, open PR and Claude Code / Codex session on one calm page.
 
 Usage:
@@ -54,6 +55,7 @@ Commands:
   uninstall   stop the background agent and remove it
   serve       run the dashboard in the foreground
   mcp         let your AI query and clean up worktrees (MCP over stdio)
+  remove      remove worktrees that are safe to delete, re-checked first
   version     print the version
   help        show this help
 
@@ -65,7 +67,7 @@ func main() {
 	var err error
 	switch cmd {
 	case "help":
-		fmt.Print(usage)
+		fmt.Print(cliUsage)
 	case "version":
 		fmt.Println("agentyard", appVersion())
 	case "serve":
@@ -82,8 +84,10 @@ func main() {
 		err = runOpen(args)
 	case "mcp":
 		err = runMCP(args)
+	case "remove":
+		err = runRemove(args)
 	default:
-		fmt.Fprintf(os.Stderr, "agentyard: unknown command %q\n\n%s", cmd, usage)
+		fmt.Fprintf(os.Stderr, "agentyard: unknown command %q\n\n%s", cmd, cliUsage)
 		os.Exit(2)
 	}
 	switch {
@@ -311,4 +315,71 @@ func printRows(w io.Writer, rows [][2]string) {
 	for _, r := range rows {
 		fmt.Fprintf(w, "  %-*s  %s\n", width, r[0], r[1])
 	}
+}
+
+// ---------------------------------------------------------------- remove
+
+// runRemove is the dashboard's copyable command: the same re-checked removal
+// as its Remove button and remove_worktrees, run in this process, so a
+// command copied earlier still refuses a worktree that is in use or has new
+// work by the time it runs.
+func runRemove(args []string) error {
+	fs := newFlags("remove", "remove [-dry-run] [-listen ADDR] [-claude-dir DIR] PATH...")
+	dry := fs.Bool("dry-run", false, "re-check and report what would go; change nothing")
+	listen := fs.String("listen", "", "the background agent's address (default: the installed agent's, else "+defaultListen+")")
+	claudeDir := fs.String("claude-dir", "", "Claude Code config folder with live sessions/ (default: the installed agent's, else "+tilde(*flagClaudeDir)+")")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return errUsage
+	}
+	q := removeRequest{Paths: fs.Args(), DryRun: *dry}
+	if len(q.Paths) == 0 {
+		fs.Usage()
+		return errUsage
+	}
+	// Relative to here, but never cleaned: through a symlink, "link/../wt"
+	// is not "wt", and removeWorktrees refuses a path that is not canonical.
+	if wd, err := os.Getwd(); err == nil {
+		for i, p := range q.Paths {
+			if !filepath.IsAbs(p) {
+				q.Paths[i] = strings.TrimSuffix(wd, string(filepath.Separator)) + string(filepath.Separator) + p
+			}
+		}
+	}
+	if err := q.check(); err != nil {
+		return err
+	}
+	if *listen == "" {
+		cfg, _ := agentConfig()
+		*listen = cfg.Listen
+	}
+	if *claudeDir != "" {
+		*flagClaudeDir = *claudeDir // the installed agent's is checked too: claudeDirs
+	}
+	src := agentSource(*listen)
+	snap, _, err := src.snapshot()
+	if err != nil {
+		return err
+	}
+	rep := removeWorktrees(snap, q, removeIn, src.poke)
+	for _, w := range rep.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+	for _, it := range rep.Results {
+		fmt.Printf("%s  %s\n    %s\n", it.Outcome, tilde(it.Path), it.Reason)
+		if it.Backup != "" {
+			fmt.Printf("    a copy of its files is kept at %s\n", it.Backup)
+		}
+	}
+	verb := "freed"
+	if rep.DryRun {
+		verb = "would free"
+	}
+	fmt.Printf("%d removed, %d pruned, %d would go, %d refused; %s %s\n", rep.Removed, rep.Pruned, rep.WouldRemove, rep.Refused, verb, rep.Freed)
+	if rep.nothingDone() {
+		return errors.New("nothing was removed")
+	}
+	return nil
 }

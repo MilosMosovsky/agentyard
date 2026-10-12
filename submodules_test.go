@@ -34,13 +34,13 @@ func subRepoAt(t *testing.T, name, sub string) (base, repo, wt string) {
 }
 
 // A clean worktree whose submodule holds nothing its remote lacks is Safe to
-// delete. git refuses to remove it without --force, so it gets no copyable
-// command and goes through the checked removal, which forces; the branch stays.
+// delete. git refuses to remove it without --force; the checked removal
+// (which its copyable command runs) forces; the branch stays.
 func TestCleanSubmoduleWorktreeIsRemoved(t *testing.T) {
 	_, repo, wt := subRepo(t, "withsub")
 	snap := scanned(t, repo)
 	w := worktreeIn(t, snap, wt)
-	if w.Verdict != "merged" || w.Submodules != 1 || w.RemoveCmd != "" {
+	if w.Verdict != "merged" || w.Submodules != 1 || w.RemoveCmd != "agentyard remove "+shellQuote(wt) {
 		t.Fatalf("clean submodule worktree: %s %q submodules=%d cmd=%q", w.Verdict, w.Reason, w.Submodules, w.RemoveCmd)
 	}
 	if _, err := git(repo, "worktree", "remove", wt); err == nil || !strings.Contains(err.Error(), "submodule") {

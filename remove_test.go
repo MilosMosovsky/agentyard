@@ -112,7 +112,7 @@ func removeFixture(t *testing.T) (h http.Handler, s *scanner, wt func(string) st
 	}
 	os.WriteFile(filepath.Join(wt("dirty"), "notes.txt"), []byte("keep me\n"), 0o644)
 	s = &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
-	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes, true)}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes, true, nil)}, time.Now(), 0)
 	s.snap.Store(snap)
 	if _, w := find(snap, wt("clean")); w == nil || w.Verdict != "merged" {
 		t.Fatalf("setup: clean is %+v", w)
@@ -293,7 +293,7 @@ func TestRemoveEndpointCheckedRemoval(t *testing.T) {
 	writeIn(t, repo, "b.txt", "pushed later\n", true)
 	gitT(t, repo, "push", "-q", "origin", "main")
 	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
-	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes, true)}, time.Now(), 0)
+	snap, _ := summarize([]*Repo{scanRepo(repo, s.sizes, true, nil)}, time.Now(), 0)
 	s.snap.Store(snap)
 	h := serve(s, &prTracker{}, &sessionIndex{byPath: map[string]*Session{}}, nil)
 
@@ -320,5 +320,133 @@ func TestRemoveEndpointCheckedRemoval(t *testing.T) {
 	}
 	if got := gitT(t, repo, "show", r["backup"].(string)+":b.txt"); got != "pushed later\n" {
 		t.Errorf("the copy lacks the uncommitted file: %q", got)
+	}
+}
+
+func TestRemoveInUse(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                      string
+		atScan, late, last, scanError, lateError, dirty, prunable bool
+	}{
+		{name: "fresh scan", atScan: true},
+		{name: "before plain removal", late: true},
+		{name: "before forced removal", late: true, dirty: true},
+		{name: "after the copy and last look", last: true, dirty: true},
+		{name: "fresh gather error", scanError: true},
+		{name: "last gather error", lateError: true},
+		{name: "prunable ignores gather error", scanError: true, prunable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, repo := gitRepo(t)
+			path := filepath.Join(base, "wt")
+			gitT(t, repo, "worktree", "add", "-q", "-b", "wt", path)
+			if tc.dirty {
+				writeIn(t, repo, "landed", "already remote\n", true)
+				gitT(t, repo, "push", "-q", "origin", "main")
+				writeIn(t, path, "landed", "already remote\n", false)
+			}
+			if tc.prunable {
+				os.RemoveAll(path)
+			}
+			snap := scanned(t, repo)
+			old := gatherUsage
+			t.Cleanup(func() { gatherUsage = old })
+			calls := 0
+			gatherUsage = func() (*usage, error) {
+				calls++
+				if tc.scanError || tc.lateError && calls > 2 {
+					return nil, fmt.Errorf("listing denied")
+				}
+				u := &usage{processes: map[int]*useProcess{}}
+				if tc.atScan || tc.late && calls > 1 || tc.last && calls > 2 {
+					u.processes[50005] = &useProcess{pid: 50005, command: "zsh", raw: path}
+				}
+				return u, nil
+			}
+			if tc.atScan {
+				_, dry := removeNow(snap, removeRequest{Paths: []string{path}, DryRun: true})
+				if it := dry[path]; it.Outcome != "refused" || it.Verdict != "inuse" || it.Plan != "" {
+					t.Fatalf("inuse dry run: %+v", it)
+				}
+				calls = 0
+			}
+			_, results := removeNow(snap, removeRequest{Paths: []string{path}})
+			it := results[path]
+			if tc.prunable {
+				if it.Outcome != "pruned" || calls != 1 {
+					t.Fatalf("prunable: %+v, calls=%d", it, calls)
+				}
+				return
+			}
+			if it.Outcome != "refused" || !exists(path) || it.Backup != "" || len(agentyardRefs(t, repo)) != 0 {
+				t.Fatalf("unsafe removal: %+v", it)
+			}
+			want := "a fresh scan says In use: in use: zsh"
+			switch {
+			case tc.late || tc.last:
+				want = "it came into use after the fresh scan: in use: zsh"
+			case tc.scanError:
+				want = "a fresh scan says In use: in use: could not check whether anything is using it (listing denied)"
+			case tc.lateError:
+				want = "it came into use after the fresh scan: in use: could not check whether anything is using it (listing denied)"
+			}
+			if !strings.Contains(it.Reason, want) {
+				t.Fatalf("reason: %q, want %q", it.Reason, want)
+			}
+			if tc.dirty && !exists(filepath.Join(path, "landed")) {
+				t.Fatal("forced removal lost files")
+			}
+		})
+	}
+}
+
+// A prunable worktree's folder that comes back before the removal runs is not
+// removed: git would delete it with no check at all.
+func TestRemovePrunableFolderBack(t *testing.T) {
+	base, repo := gitRepo(t)
+	path := filepath.Join(base, "wt")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "wt", path)
+	aside := path + ".aside"
+	if err := os.Rename(path, aside); err != nil {
+		t.Fatal(err)
+	}
+	snap := scanned(t, repo)
+	defer func(f func(*Worktree)) { beforeRemove = f }(beforeRemove)
+	beforeRemove = func(*Worktree) { os.Rename(aside, path) }
+	_, results := removeNow(snap, removeRequest{Paths: []string{path}})
+	if it := results[path]; it.Outcome != "refused" || !strings.Contains(it.Reason, "folder is there again") || !exists(filepath.Join(path, "README")) {
+		t.Fatalf("restored folder: %+v", it)
+	}
+}
+
+// A file written while the last in-use check runs is caught by the last look
+// that follows it, so a forced removal does not delete it.
+func TestRemoveWriteDuringLastUseCheck(t *testing.T) {
+	base, repo := gitRepo(t)
+	path := filepath.Join(base, "wt")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "wt", path)
+	writeIn(t, repo, "landed", "already remote\n", true)
+	gitT(t, repo, "push", "-q", "origin", "main")
+	writeIn(t, path, "landed", "already remote\n", false)
+	snap := scanned(t, repo)
+	defer func(f func(*Worktree)) { beforeLastUse = f }(beforeLastUse)
+	beforeLastUse = func(w *Worktree) { os.WriteFile(filepath.Join(w.Path, "new-work"), []byte("x"), 0o644) }
+	_, results := removeNow(snap, removeRequest{Paths: []string{path}})
+	if it := results[path]; it.Outcome != "refused" || !exists(filepath.Join(path, "new-work")) || len(agentyardRefs(t, repo)) != 0 {
+		t.Fatalf("write during the last check: %+v", it)
+	}
+}
+
+// git can call a worktree prunable while its folder is still there (its .git
+// file is gone): that folder is never Safe to delete.
+func TestPrunableWithFolderIsKept(t *testing.T) {
+	base, repo := gitRepo(t)
+	path := filepath.Join(base, "wt")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "wt", path)
+	os.Remove(filepath.Join(path, ".git"))
+	os.WriteFile(filepath.Join(path, "notes"), []byte("mine"), 0o644)
+	w := worktreeIn(t, scanned(t, repo), path)
+	if w.Verdict != "keep" || w.Prunable || !strings.Contains(w.Reason, "folder is still there") {
+		t.Fatalf("prunable with a folder: %s %q prunable=%v", w.Verdict, w.Reason, w.Prunable)
 	}
 }

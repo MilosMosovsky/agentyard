@@ -14,8 +14,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -158,13 +160,26 @@ func removeWorktrees(snap *Snapshot, q removeRequest, act repoRemover, poke func
 // syncNote is what a removal reports about the dashboard's rescan.
 func syncNote(state string) string { return "dashboard sync " + state }
 
-// beforeRemove runs between the fresh scan and the last HEAD check, and
+// beforeRemove runs between the fresh scan and the last HEAD check,
 // beforeExec between the copy a checked removal keeps and its last look at
-// the files; tests use them to change a worktree in those windows.
+// the files, and beforeLastUse just before the final in-use check; tests use
+// them to change a worktree in those windows.
 var (
-	beforeRemove = func(*Worktree) {}
-	beforeExec   = func(*Worktree) {}
+	beforeRemove  = func(*Worktree) {}
+	beforeExec    = func(*Worktree) {}
+	beforeLastUse = func(*Worktree) {}
 )
+
+// usedNow says what uses w at this moment, or "" when nothing does. A
+// detector that cannot tell answers with that, so it refuses too. It narrows
+// the window in which someone starts working in a folder being removed; only
+// the removal itself can close it.
+func usedNow(w *Worktree) string {
+	if uses := usageNow().of(w.Path); len(uses) > 0 {
+		return inUseReason(uses)
+	}
+	return ""
+}
 
 // removeIn re-scans one repository and removes the requested worktrees that
 // are still reclaimable, returning the fresh scan's warnings.
@@ -180,7 +195,11 @@ var (
 func removeIn(repo string, snap *Snapshot, items []*removal, dryRun bool) (warnings []string) {
 	sizes := &sizeCache{m: map[string]sizeEntry{}}
 	sizes.seed(snap, time.Now()) // the fresh scan re-runs git, not du
-	fresh := scanRepo(repo, sizes, false)
+	uses := usageNow()
+	fresh := scanRepo(repo, sizes, false, uses)
+	if uses.incomplete != "" {
+		warnings = append(warnings, "could not check which worktrees are in use: "+uses.incomplete)
+	}
 	stale := ""
 	for _, e := range fresh.Errors {
 		warnings = append(warnings, tilde(repo)+": "+e)
@@ -287,24 +306,43 @@ func (it *removal) remove(repo string, w *Worktree) {
 			it.refuse("HEAD moved after the fresh scan (a new commit?); list it again")
 			return
 		}
+		if busy := usedNow(w); busy != "" {
+			it.refuse("it came into use after the fresh scan: " + busy)
+			return
+		}
+		var kept *keptCopy
 		if keepsCopy(w) {
-			ref, err := keepCopy(repo, w)
-			if err != nil {
+			if kept, err = keepCopy(repo, w); err != nil {
 				it.refuse(err.Error())
 				return
 			}
-			it.Backup = ref
+			defer kept.p.done()
+			it.Backup = kept.ref
+		}
+		// Once more, since the copy takes time; and before the last looks at
+		// the files, so a write by a process that started meanwhile is seen.
+		beforeLastUse(w)
+		if busy := usedNow(w); busy != "" {
+			it.discardBackup(repo)
+			it.refuse("it came into use after the fresh scan: " + busy)
+			return
+		}
+		if kept != nil && !kept.unchanged() {
+			it.discardBackup(repo)
+			it.refuse("it changed while it was being removed; list it again")
+			return
 		}
 		if force = forceRemove(w); force {
 			if hz := lastLook(w); hz != "" {
-				if it.Backup != "" {
-					git(repo, "update-ref", "-d", it.Backup)
-					it.Backup = ""
-				}
+				it.discardBackup(repo)
 				it.refuse(hz + "; list it again")
 				return
 			}
 		}
+	} else if _, err := os.Lstat(w.Path); !errors.Is(err, fs.ErrNotExist) {
+		// git would remove a folder that came back, unchecked.
+		it.refuse("its folder is there again; list it again")
+		return
 	}
 	args := removeArgs(repo, w, force)
 	if _, err := run(10*time.Minute, "", args[0], args[1:]...); err != nil {
@@ -316,6 +354,13 @@ func (it *removal) remove(repo string, w *Worktree) {
 		return
 	}
 	it.done(w)
+}
+
+func (it *removal) discardBackup(repo string) {
+	if it.Backup != "" {
+		git(repo, "update-ref", "-d", it.Backup)
+		it.Backup = ""
+	}
 }
 
 // lastLook is the check just before a forced removal, since --force skips
@@ -373,30 +418,71 @@ var refUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 // ignored files, which no snapshot holds. Everything else is in the ref:
 //
 //	git worktree add <folder> <ref> && git -C <folder> reset HEAD~1
-func keepCopy(repo string, w *Worktree) (string, error) {
+func keepCopy(repo string, w *Worktree) (*keptCopy, error) {
+	// The probe reads a copy of the index; what is staged after this moment
+	// is seen only by comparing the real one.
+	index, err := indexDigest(w)
+	if err != nil {
+		return nil, errors.New("cannot read its index: " + err.Error())
+	}
 	p, err := newProbe(w, true)
 	if err != nil {
-		return "", errors.New("cannot snapshot its files to keep a copy: " + err.Error())
+		return nil, errors.New("cannot snapshot its files to keep a copy: " + err.Error())
 	}
-	defer p.done()
 	if w.Modified+w.Untracked > 0 {
 		if ref, _ := p.match(repo, w.ContentRef, nil); !w.ContentInDefault || ref != w.ContentRef {
-			return "", errors.New("its uncommitted files changed after the fresh scan; list it again")
+			p.done()
+			return nil, errors.New("its uncommitted files changed after the fresh scan; list it again")
 		}
 	}
 	name := "refs/agentyard/removed/" + time.Now().UTC().Format("20060102-150405") + "-" +
 		strings.Trim(refUnsafe.ReplaceAllString(filepath.Base(w.Path), "-"), "-") + "-" + p.work[:8]
 	if _, err := git(repo, "update-ref", "-m", "agentyard: before removing "+w.Path, name, p.work, ""); err != nil {
-		return "", errors.New("cannot keep a copy of its files: " + err.Error())
+		p.done()
+		return nil, errors.New("cannot keep a copy of its files: " + err.Error())
 	}
+	k := &keptCopy{ref: name, p: p, w: w, index: index}
 	beforeExec(w)
-	tree, err := p.reread()
-	head, herr := git(w.Path, "rev-parse", "HEAD")
-	if err != nil || herr != nil || tree != p.workTree || strings.TrimSpace(head) != w.Sha {
+	if !k.unchanged() {
 		git(repo, "update-ref", "-d", name, p.work)
-		return "", errors.New("it changed while it was being removed; list it again")
+		p.done()
+		return nil, errors.New("it changed while it was being removed; list it again")
 	}
-	return name, nil
+	return k, nil
+}
+
+// keptCopy is the copy keepCopy made, held open so the removal can check
+// again, as late as it can, that the files are still exactly what it holds.
+type keptCopy struct {
+	ref   string
+	p     *probe
+	w     *Worktree
+	index string // digest of the real index when the copy began
+}
+
+func (k *keptCopy) unchanged() bool {
+	tree, err := k.p.reread()
+	head, herr := git(k.w.Path, "rev-parse", "HEAD")
+	index, ierr := indexDigest(k.w)
+	return err == nil && herr == nil && ierr == nil && tree == k.p.workTree && strings.TrimSpace(head) == k.w.Sha && index == k.index
+}
+
+// indexDigest is a hash of the worktree's real index file ("" when it has
+// none). Any write to it, even git refreshing file times, changes it, which
+// only ever refuses a removal.
+func indexDigest(w *Worktree) (string, error) {
+	path, err := git(w.Path, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(strings.TrimRight(path, "\n"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // removedPaths are worktrees this process removed. A snapshot begun before a
@@ -465,7 +551,7 @@ func (g *removedPaths) hide(snap *Snapshot) (*Snapshot, int) {
 		return snap, 0
 	}
 	out, _ := summarize(repos, snap.At, snap.Took)
-	out.Started, out.DiskFree, out.DiskTotal, out.Errors = snap.Started, snap.DiskFree, snap.DiskTotal, snap.Errors
+	out.Version, out.Started, out.DiskFree, out.DiskTotal, out.Errors = snap.Version, snap.Started, snap.DiskFree, snap.DiskTotal, snap.Errors
 	names := map[string]string{} // keep the repository names the scan gave
 	for _, g := range snap.ByRepo {
 		names[g.Anchor] = g.Name

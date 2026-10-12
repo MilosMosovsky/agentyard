@@ -69,6 +69,7 @@ func newDemo(now time.Time) (*scanner, *prTracker, *sessionIndex, *demoWorld) {
 	x := &sessionIndex{byPath: map[string]*Session{}}
 
 	snap, _ := summarize(demoRepos(now), now.Add(-2*time.Minute), 14*time.Second)
+	snap.Version = appVersion()
 	snap.DiskTotal, snap.DiskFree = 926<<30, 187<<30
 	s.snap.Store(snap)
 
@@ -120,6 +121,7 @@ func demoRepos(now time.Time) []*Repo {
 				RemoteBranch: true, LastCommit: ago(3 * h), LastActive: ago(3 * h),
 				PR: pr("acme/api", 479, "OPEN", false, "Idempotency keys for POST /v1/charges"), PRRel: "same"},
 			{Path: demoPath("code/acme/api/.claude/worktrees/rate-limit-tiers"), Branch: "feat/rate-limit-tiers", SizeKB: 198 * mb,
+				InUse:      []Use{{PID: 82456, Command: "claude", Session: "Automated coding", Kind: "claude-desktop", Since: ago(9 * time.Minute)}},
 				LastCommit: ago(2*d + 3*h), LastActive: ago(2*d + 3*h),
 				PR: pr("acme/api", 455, "MERGED", false, "Per-plan rate limit tiers"), PRRel: "same"},
 			{Path: demoPath("code/acme/api/.claude/worktrees/bump-go-1.25"), Branch: "chore/bump-go-1.25", SizeKB: 174 * mb,
@@ -128,6 +130,7 @@ func demoRepos(now time.Time) []*Repo {
 		}},
 		{Path: demoPath("code/acme/web"), Slug: "acme/web", Default: "origin/main", Worktrees: []*Worktree{
 			{Path: demoPath("code/acme/web-worktrees/dark-mode-tokens"), Branch: "claude/dark-mode-tokens", SizeKB: 2240 * mb,
+				InUse:    []Use{{PID: 5700, Command: "claude", Session: "Dark mode design tokens", Kind: "cli", Since: ago(2 * h)}},
 				Unpushed: 2, LastCommit: ago(31 * time.Minute), LastActive: ago(25 * time.Minute)},
 			{Path: demoPath(".codex/worktrees/a3f9/web"), Branch: "codex/checkout-shipping-step", SizeKB: 1930 * mb,
 				RemoteBranch: true, LastCommit: ago(40 * time.Minute), LastActive: ago(38 * time.Minute),
