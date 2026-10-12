@@ -87,7 +87,8 @@ scratchpad is in use even with no process in it; a session file counts as live w
 runs, checked against its start time so a reused pid does not count. Worktrees with any other verdict
 keep it and show an in-use chip. When the check itself fails (`lsof` cannot run, the sessions folder
 cannot be read), no worktree is Safe to delete: each is In use, with the reason, until a scan can
-check again. What it cannot see: another user's processes, and a program that works on files in a
+check again. What it cannot see: another user's processes (and, on Linux, ones the kernel will not show, such as
+`systemd --user`), and a program that works on files in a
 worktree without its working folder being there (an editor opened from elsewhere, say). The verdict
 is what the last scan saw; a removal checks again when it runs.
 

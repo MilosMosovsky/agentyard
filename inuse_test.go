@@ -370,6 +370,9 @@ func TestUsageLiveSessionProcess(t *testing.T) {
 	outside := t.TempDir()
 	cmd := startSleep(t, outside)
 	p := map[int]*useProcess{cmd.Process.Pid: {pid: cmd.Process.Pid}}
+	if all, err := usageProcesses(); err == nil && all[cmd.Process.Pid] != nil {
+		p[cmd.Process.Pid] = all[cmd.Process.Pid] // Linux counts from the listing's start ticks
+	}
 	usageStarts(p)
 	start := p[cmd.Process.Pid].start
 	if start.IsZero() {

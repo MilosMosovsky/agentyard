@@ -256,10 +256,12 @@ func usageProcesses() (map[int]*useProcess, error) {
 				if syscall.Stat(dir, &st) != nil {
 					continue // ended
 				}
-				if int(st.Uid) != os.Getuid() {
-					continue // another user's, as lsof skips them on macOS
+				if int(st.Uid) != os.Getuid() || errors.Is(err, fs.ErrPermission) {
+					// Another user's, as lsof skips them on macOS, or one the
+					// kernel will not show (systemd --user, sd-pam): not visible.
+					continue
 				}
-				p.raw = "(cannot read its folder: " + err.Error() + ")" // ours: matches every worktree
+				p.raw = "(cannot read its folder: " + err.Error() + ")" // matches every worktree
 			}
 			if k, ok := keyOf(filepath.Join(dir, "cwd")); ok {
 				p.key = k

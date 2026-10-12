@@ -356,18 +356,21 @@ func TestUntrackedHiddenByConfigAreSeen(t *testing.T) {
 // disk, so such a worktree is never Safe to delete. Git LFS keeps every byte.
 func TestCleanFilterKeeps(t *testing.T) {
 	base, repo := gitRepo(t)
-	for _, tc := range []struct{ filter, verdict string }{{"strip", "keep"}, {"lfs", "merged"}} {
-		wt := filepath.Join(base, "wt", tc.filter)
-		gitT(t, repo, "worktree", "add", "-q", "-b", tc.filter, wt)
-		gitT(t, wt, "config", "filter."+tc.filter+".clean", "cat")
-		info := strings.TrimSpace(gitT(t, wt, "rev-parse", "--path-format=absolute", "--git-common-dir"))
-		os.MkdirAll(filepath.Join(info, "info"), 0o755)
-		os.WriteFile(filepath.Join(info, "info", "attributes"), []byte("README filter="+tc.filter+"\n"), 0o644)
-		w := worktreeIn(t, scanned(t, repo), wt)
-		os.Remove(filepath.Join(info, "info", "attributes"))
-		if w.Verdict != tc.verdict || (tc.verdict == "keep" && !strings.Contains(w.Reason, "clean filter")) {
-			t.Fatalf("filter %s: %s %q", tc.filter, w.Verdict, w.Reason)
-		}
+	wt := filepath.Join(base, "wt", "strip")
+	gitT(t, repo, "worktree", "add", "-q", "-b", "strip", wt)
+	gitT(t, wt, "config", "filter.strip.clean", "cat")
+	common := strings.TrimSpace(gitT(t, wt, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+	os.MkdirAll(filepath.Join(common, "info"), 0o755)
+	attrs := filepath.Join(common, "info", "attributes")
+	os.WriteFile(attrs, []byte("README filter=strip\n"), 0o644)
+	if w := worktreeIn(t, scanned(t, repo), wt); w.Verdict != "keep" || !strings.Contains(w.Reason, "clean filter") {
+		t.Fatalf("filter: %s %q", w.Verdict, w.Reason)
+	}
+	// Only the attribute is judged here: a machine with git-lfs installed
+	// would run the real filter on the file.
+	os.WriteFile(attrs, []byte("README filter=lfs\n"), 0o644)
+	if hz := trackedHazard(wt); hz != "" {
+		t.Fatalf("lfs: %s", hz)
 	}
 }
 
