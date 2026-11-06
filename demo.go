@@ -81,7 +81,19 @@ func newDemo(now time.Time) (*scanner, *prTracker, *sessionIndex, *demoWorld) {
 
 	sessions, messages := demoSessions(now)
 	x.show(sessions)
-	return s, t, x, &demoWorld{messages: messages}
+	demo := &demoWorld{messages: messages, summaries: &summarizer{enabled: true, provider: "demo", now: time.Now}}
+	for _, at := range []time.Time{now.Add(-20 * time.Minute), now.Add(-24 * time.Hour)} {
+		run := demoSummary(at, sessions, messages, snap, t.snap.Load())
+		if len(demo.summaryRuns) > 0 {
+			topic := run.Projects[0].Topics[0]
+			note := topic.Sessions[0].Note
+			note.State, note.Progress, note.Next = "in_progress", "Reproduced the token refresh flake; reviewing lock ownership.", "Move the token write inside the critical section."
+			topic.Status = note.Progress
+		}
+		demo.summaryRuns = append(demo.summaryRuns, run)
+	}
+	demo.summaries.latest.Store(demo.summaryRuns[0])
+	return s, t, x, demo
 }
 
 // ---------------------------------------------------------------- helpers
@@ -519,4 +531,148 @@ func demoSessions(now time.Time) ([]*Session, map[string][]Message) {
 		messages[s.Tool+"/"+s.ID] = convo(s.Modified, ds.script...)
 	}
 	return sessions, messages
+}
+
+// ---------------------------------------------------------------- summaries
+
+func demoSummary(at time.Time, sessions []*Session, messages map[string][]Message, wt *Snapshot, prs *PRSnapshot) *summarySnapshot {
+	snap := &summarySnapshot{At: at, Window: summaryWindow{Start: at.Add(-24 * time.Hour), End: at}, Provider: "demo"}
+	projects := map[string]*summarySnapshotProject{}
+	for _, session := range sessions {
+		project := "Other"
+		for _, repo := range wt.Repos {
+			if repo.Path == session.Cwd {
+				project = repo.Slug
+			}
+			for _, worktree := range repo.Worktrees {
+				if worktree.Path == session.Cwd {
+					project = repo.Slug
+				}
+			}
+		}
+		if projects[project] == nil {
+			projects[project] = &summarySnapshotProject{Project: project}
+			snap.Projects = append(snap.Projects, projects[project])
+		}
+		fixture, known := demoSummaryNotes[session.Label()]
+		if !known {
+			fixture = demoSummaryNote{Topic: session.Label(), State: "in_progress", Next: "Pick up where the session stopped."}
+			for _, message := range messages[session.Tool+"/"+session.ID] {
+				if message.Role == "assistant" {
+					fixture.Progress = message.Text
+				}
+			}
+		}
+		note := &summaryNote{State: fixture.State, Progress: fixture.Progress, Next: fixture.Next}
+		if fixture.WaitsOn != "" {
+			note.WaitsOn = &fixture.WaitsOn
+		}
+		entry := &summarySession{Session: session, Automated: session.Kind == "scheduled" || session.Kind == "exec"}
+		view := snapshotSummarySession(entry, note, wt, prs)
+		if session.Title == "Fix token refresh race in auth middleware" {
+			view.Subagents = []*summarySnapshotSession{{Tool: "codex", Title: "Race-test review", Progress: "Checked lock ownership and verified the regression tests."}}
+		}
+		if session.Title == "Deflake webhook retry test" {
+			view.Note, view.NotSummarized = nil, true
+			projects[project].Unsorted = append(projects[project].Unsorted, view)
+			continue
+		}
+		var topic *summarySnapshotTopic
+		for _, existing := range projects[project].Topics {
+			if existing.Name == fixture.Topic {
+				topic = existing
+			}
+		}
+		if topic == nil {
+			status := demoSummaryTopics[fixture.Topic]
+			if status == "" {
+				status = note.Progress
+			}
+			topic = &summarySnapshotTopic{
+				summaryTopic: summaryTopic{ID: session.ID, Name: fixture.Topic, Status: status, FirstSeen: at.Add(-3 * 24 * time.Hour), LastActive: session.Modified},
+				CarriedOver:  session.Started.Before(at.Add(-24 * time.Hour)), OpenDays: 3,
+				IdleDays: max(0, int(at.Sub(session.Modified).Hours()/24)),
+			}
+			projects[project].Topics = append(projects[project].Topics, topic)
+		}
+		topic.Sessions = append(topic.Sessions, view)
+		if session.Modified.After(topic.LastActive) {
+			topic.LastActive = session.Modified
+			topic.IdleDays = max(0, int(at.Sub(session.Modified).Hours()/24))
+		}
+	}
+	return snap
+}
+
+type demoSummaryNote struct{ Topic, State, Progress, Next, WaitsOn string }
+
+// The demo's notes and topics, written as a model would write them.
+var demoSummaryNotes = map[string]demoSummaryNote{
+	"Fix token refresh race in auth middleware":     {"Auth reliability", "done", "Fixed the token refresh race; 50 race-test runs passed and PR #482 is in the merge queue.", "Check the merge queue result.", ""},
+	"Deflake webhook retry test":                    {"Auth reliability", "in_progress", "", "", ""},
+	"Migrate payments to the v2 ledger":             {"Payments ledger v2", "in_progress", "Dual writes are on behind ledger.dual_write; the backfill job turns them off at the high-water mark.", "Add the down migration for 0042 so migrations-lint passes.", ""},
+	"Investigate p99 latency on /search":            {"Search latency", "waiting_on_you", "Wrote a concurrent index on (tenant_id, created_at DESC) as migration 0043; nothing applied yet.", "Apply the migration with make migrate once it is scheduled.", "Choose when to apply the index migration."},
+	"Scheduled: nightly-dependency-audit":           {"Dependency hygiene", "done", "Two advisories: golang.org/x/net needs v0.33.0; github.com/jackc/pgx/v5 is fine.", "Bump golang.org/x/net to v0.33.0.", ""},
+	"Split the shipping step out of checkout":       {"Checkout redesign", "in_progress", "Shipping fields now live in their own step; main moved the payment fields meanwhile.", "Rebase on main and resolve the conflict in CheckoutForm.tsx.", ""},
+	"Saved carts: address review comments":          {"Checkout redesign", "in_progress", "Cart merge moved to POST /api/cart/merge, called once from the sign-in callback.", "Answer the last review thread on merge timing.", ""},
+	"Dark mode design tokens":                       {"Dark mode", "in_progress", "Two commits on claude/dark-mode-tokens, not pushed yet.", "Check focus-ring contrast on the sidebar links, then push.", ""},
+	"Upgrade Terraform to 1.9 and fix deprecations": {"Terraform 1.9", "done", "Plan is clean on staging after fixing three deprecated arguments.", "Review the production plan before applying.", ""},
+	"Rotate KMS keys runbook":                       {"Key rotation", "blocked", "Runbook drafted through step 4.", "Finish the runbook once staging grants exist.", "Staging grants need to be recreated before rotation."},
+	"HTTP/2 server push":                            {"HTTP/2", "in_progress", "Push promises are sent for linked assets; the h2spec push suite passes.", "Decide whether push stays behind an option.", ""},
+	"Write the streaming guide":                     {"Docs", "in_progress", "First draft covers chunked responses and backpressure.", "Add the cancellation example.", ""},
+}
+
+var demoSummaryTopics = map[string]string{
+	"Auth reliability":   "Token race fixed and queued; the webhook retry test is still flaky.",
+	"Payments ledger v2": "Dual writes running; one down migration left before review.",
+	"Search latency":     "Index migration ready; waiting on you to schedule it.",
+	"Dependency hygiene": "One dependency bump to make.",
+	"Checkout redesign":  "Shipping step split out and saved carts in review; both need a rebase.",
+	"Dark mode":          "Tokens done locally; contrast check before pushing.",
+	"Terraform 1.9":      "Staging is clean; production plan to review.",
+	"Key rotation":       "Blocked on staging grants.",
+	"HTTP/2":             "Server push works; one API decision left.",
+	"Docs":               "Streaming guide drafted.",
+}
+
+// Demo runs publish in memory; they never enter the provider pipeline or read state.
+func (d *demoWorld) startSummary() string {
+	s := d.summaries
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runStatus.Running {
+		return "running"
+	}
+	at := s.now()
+	s.runStatus = summaryRunStatus{Running: true, Started: at}
+	s.done = make(chan struct{})
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		previous := s.latest.Load()
+		snap := *previous
+		snap.At, snap.Window = at, summaryWindow{Start: at.Add(-24 * time.Hour), End: at}
+		d.summaryRuns = append([]*summarySnapshot{&snap}, d.summaryRuns...)
+		s.latest.Store(&snap)
+		s.runStatus.Running = false
+		for _, project := range snap.Projects {
+			for _, topic := range project.Topics {
+				for _, session := range topic.Sessions {
+					s.runStatus.Sessions++
+					if !session.NotSummarized {
+						s.runStatus.Summarized++
+					}
+				}
+			}
+			for _, session := range project.Unsorted {
+				s.runStatus.Sessions++
+				if !session.NotSummarized {
+					s.runStatus.Summarized++
+				}
+			}
+		}
+		close(s.done)
+	}()
+	return "started"
 }

@@ -70,6 +70,7 @@ func TestDemoPages(t *testing.T) {
 	pages := map[string][]string{
 		"/":             {"claude/fix-auth-race", "codex/migrate-payments-ledger", "Fix token refresh race in auth middleware", "worktree remove"},
 		"/prs":          {"Migrate payments to the v2 ledger", "test (postgres-16)", "acme-labs/tinyhttp", "ada/dotfiles", "tkowalski"},
+		"/summary":      {"Fix token refresh race in auth middleware", "In progress", "Waiting on you", "Blocked", "Done", "Unsorted sessions", "Other"},
 		"/sessions":     {"Fix token refresh race in auth middleware", "claude --resume", "codex resume", "Scheduled: nightly-dependency-audit"},
 		"/api.json":     {`"verdict":"merged"`, `"verdict":"prunable"`, `"verdict":"unmerged"`, `"verdict":"open"`, `"verdict":"keep"`},
 		"/api/prs.json": {`"state":"In merge queue"`, `"state":"Draft"`, `"state":"Conflicts"`},
@@ -691,4 +692,226 @@ func TestPageInUse(t *testing.T) {
 		}
 	}
 	noRenderErrors(t, logs)
+}
+
+func TestSummaryOffRoutes(t *testing.T) {
+	h := serve(&scanner{}, &prTracker{}, &sessionIndex{}, nil)
+	rec := get(t, h, "GET", "/summary", local)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "agentyard install") {
+		t.Fatalf("off summary page: %d, missing setup panel", rec.Code)
+	}
+	for _, forbidden := range []string{`id="summarize"`, `class="summary-run-picker"`, `class="summary-project"`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("off page contains %s", forbidden)
+		}
+	}
+	rec = get(t, h, "POST", "/api/summary", local)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"state":"off"`) {
+		t.Fatalf("off POST: %d %s", rec.Code, rec.Body)
+	}
+	rec = get(t, h, "GET", "/api/summary/status", local)
+	var status map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil || status["enabled"] != false || status["started"] != nil || status["latest"] != nil {
+		t.Fatalf("off status: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDemoSummaryRun(t *testing.T) {
+	logs := captureLog(t)
+	t.Setenv("PATH", t.TempDir()) // no provider process can supply the demo
+	s, tr, x, demo := newDemo(time.Now())
+	h := serve(s, tr, x, demo)
+	latest := demo.summaries.latest.Load()
+	old := demo.summaryRuns[1]
+	if latest.Projects[0].Topics[0].Sessions[0].Note.Progress == old.Projects[0].Topics[0].Sessions[0].Note.Progress {
+		t.Fatal("demo history repeats current progress under a different date")
+	}
+	body := get(t, h, "GET", "/summary", local).Body.String()
+	if !strings.Contains(body, "Fix token refresh race in auth middleware") || !strings.Contains(body, `id="summarize"`) {
+		t.Fatal("demo summary or action missing")
+	}
+	rec := get(t, h, "POST", "/api/summary", local)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"state":"started"`) {
+		t.Fatalf("start demo run: %d %s", rec.Code, rec.Body)
+	}
+	body = get(t, h, "GET", "/summary", local).Body.String()
+	if !strings.Contains(body, "Summarizing…") || !strings.Contains(body, `aria-busy="true"`) || !strings.Contains(body, "Fix token refresh race") {
+		t.Fatal("running page lost content or busy state")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var status struct {
+			Running   bool      `json:"running"`
+			Latest    time.Time `json:"latest"`
+			LastError string    `json:"lastError"`
+		}
+		rec = get(t, h, "GET", "/api/summary/status", local)
+		if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+			t.Fatal(err)
+		}
+		if !status.Running {
+			if status.Latest.IsZero() || !status.Latest.After(latest.At) || status.LastError != "" {
+				t.Fatalf("demo did not finish: %s", rec.Body)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("demo run did not finish")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	noRenderErrors(t, logs)
+}
+
+func summaryRouteFixture(t *testing.T) (*summarizer, http.Handler, *summarySnapshot) {
+	t.Helper()
+	at := time.Date(2026, 11, 6, 7, 0, 0, 0, time.UTC)
+	wait := "Approve the migration"
+	snap := &summarySnapshot{At: at, Provider: "claude", Window: summaryWindow{Start: at.Add(-24 * time.Hour), End: at}, Projects: []*summarySnapshotProject{{Project: "private/repository", Topics: []*summarySnapshotTopic{
+		{summaryTopic: summaryTopic{Name: "Migration", Status: "Ready for review", FirstSeen: at.Add(-72 * time.Hour)}, CarriedOver: true, OpenDays: 3, IdleDays: 2, Sessions: []*summarySnapshotSession{{Tool: "codex", ID: "saved-session-id", Title: "Private migration title", Cwd: "/saved/worktree", Branch: "feature/migrate", PRURL: "https://github.com/private/repository/pull/9", PRNumber: 9, ResumeCmd: "saved exact resume command", Note: &summarySnapshotNote{State: "waiting_on_you", Progress: "<script>unsafe()</script>", Next: "Ship after approval", WaitsOn: &wait}, Subagents: []*summarySnapshotSession{{Tool: "claude", Title: "Reviewer", Progress: "Checked the migration"}}}}},
+		{summaryTopic: summaryTopic{Name: "Hidden private topic"}, Hidden: true},
+	}, Unsorted: []*summarySnapshotSession{{Tool: "claude", Title: "Unreadable note title", NotSummarized: true, ResumeCmd: "original resume"}}}}}
+	s := &summarizer{enabled: true, provider: "claude", stateDir: t.TempDir(), now: func() time.Time { return at.Add(time.Hour) }}
+	s.latest.Store(snap)
+	if err := saveSummaryState(s.stateDir, s.historyName(at), snap); err != nil {
+		t.Fatal(err)
+	}
+	h := serve(&scanner{}, &prTracker{}, &sessionIndex{}, nil, s)
+	return s, h, snap
+}
+
+func TestSummaryPageAndHistory(t *testing.T) {
+	logs := captureLog(t)
+	s, h, snap := summaryRouteFixture(t)
+	old := *snap
+	old.At = snap.At.Add(-24 * time.Hour)
+	old.Provider = "codex"
+	old.Projects = []*summarySnapshotProject{{Project: "Earlier saved project", Topics: []*summarySnapshotTopic{{summaryTopic: summaryTopic{Name: "Earlier topic", Status: "Earlier progress"}}}}}
+	failed := &summarySnapshot{At: snap.At.Add(time.Hour), Provider: "claude", Error: "Not logged in"}
+	for _, run := range []*summarySnapshot{&old, failed} {
+		if err := saveSummaryState(s.stateDir, s.historyName(run.At), run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.runStatus = summaryRunStatus{Started: failed.At, LastError: failed.Error}
+	body := get(t, h, "GET", "/summary", local).Body.String()
+	for _, want := range []string{"Private migration title", "<template data-summary-detail>", "Ready for review", "Waiting on you", "Approve the migration", "Ship after approval", "Where it got to", "open since", "last active 2 days ago", "saved exact resume command", "feature/migrate", "PR #9", "Checked the migration", "Unsorted sessions", "Not summarized", "Unreadable note title", "Not logged in", " · Failed", "&lt;script&gt;unsafe()&lt;/script&gt;"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("summary missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Hidden private topic") || strings.Contains(body, "<script>unsafe()") {
+		t.Fatal("hidden topic or raw HTML leaked")
+	}
+	body = get(t, h, "GET", "/summary?at="+old.At.Format(time.RFC3339Nano), local).Body.String()
+	if !strings.Contains(body, "Earlier saved project") || strings.Contains(body, "Private migration title") || !strings.Contains(body, "Back to latest") {
+		t.Fatal("history did not render saved content")
+	}
+	body = get(t, h, "GET", "/summary?at="+failed.At.Format(time.RFC3339Nano), local).Body.String()
+	if !strings.Contains(body, "Not logged in") || !strings.Contains(body, "Private migration title") {
+		t.Fatal("failed saved run did not retain previous successful content")
+	}
+	noRenderErrors(t, logs)
+}
+
+func TestSummaryAccessAndPost(t *testing.T) {
+	s, h, snap := summaryRouteFixture(t)
+	defer func(v bool) { *flagSessionsLAN = v }(*flagSessionsLAN)
+	*flagSessionsLAN = false
+	for _, path := range []string{"/summary", "/summary?at=" + snap.At.Format(time.RFC3339Nano)} {
+		rec := get(t, h, "GET", path, lanPeer)
+		body := rec.Body.String()
+		if rec.Code != 200 || !strings.Contains(body, "Sessions are available on this Mac only.") || !strings.Contains(body, `href="/summary"`) {
+			t.Fatal("missing restricted page or nav")
+		}
+		for _, secret := range []string{"Private migration title", "private/repository", "saved-session-id", "saved exact resume command", "2026-11-06", "summary-run-picker", `content="claude"`} {
+			// CSS class definitions are shared by all pages; check the picker element.
+			if secret == "summary-run-picker" {
+				secret = `<select class="summary-run-picker"`
+			}
+			if strings.Contains(body, secret) {
+				t.Errorf("restricted page leaked %q", secret)
+			}
+		}
+	}
+	if rec := get(t, h, "GET", "/api/summary/status", lanPeer); rec.Code != 403 || strings.Contains(rec.Body.String(), "latest") {
+		t.Fatal("status leaked")
+	}
+	*flagSessionsLAN = true
+	if rec := get(t, h, "GET", "/api/summary/status", lanPeer); rec.Code != 200 {
+		t.Fatal("sessions-lan did not allow status")
+	}
+	token := pageToken(t, h, local)
+	for _, tc := range []struct {
+		name, remote, origin, token string
+		code                        int
+	}{
+		{"LAN", lanPeer, pageOrigin, token, 403},
+		{"LAN CLI", lanPeer, "", "", 403},
+		{"foreign origin", local, "https://evil.example", token, 403},
+		{"missing token", local, pageOrigin, "", 403},
+		{"wrong token", local, pageOrigin, token + "wrong", 403},
+		{"browser", local, pageOrigin, token, 200},
+		{"CLI", local, "", "", 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Joining an existing run isolates the HTTP guards from inference.
+			s.mu.Lock()
+			s.runStatus.Running = true
+			s.mu.Unlock()
+			req := httptest.NewRequest("POST", "/api/summary", strings.NewReader("ignored body"))
+			req.RemoteAddr, req.Host = tc.remote, "localhost:4777"
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			if tc.token != "" {
+				req.Header.Set(removeTokenHeader, tc.token)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != tc.code || (tc.code == 200 && !strings.Contains(rec.Body.String(), `"state":"running"`)) {
+				t.Fatalf("POST: %d %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}
+
+func TestSummaryNeverRunAndStatus(t *testing.T) {
+	s := &summarizer{enabled: true, provider: "codex", stateDir: t.TempDir()}
+	h := serve(&scanner{}, &prTracker{}, &sessionIndex{}, nil, s)
+	body := get(t, h, "GET", "/summary", local).Body.String()
+	if !strings.Contains(body, "first summary") || !strings.Contains(body, `id="summarize"`) || strings.Contains(body, `<select class="summary-run-picker"`) {
+		t.Fatal("never-run state incorrect")
+	}
+	at := time.Now().Truncate(time.Second)
+	s.latest.Store(&summarySnapshot{At: at.Add(-time.Hour)})
+	s.runStatus = summaryRunStatus{Started: at, Running: true, Sessions: 5, Summarized: 3, LastError: "example error"}
+	rec := get(t, h, "GET", "/api/summary/status", local)
+	var status map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if len(status) != 8 || status["enabled"] != true || status["provider"] != "codex" || status["running"] != true || status["sessions"] != float64(5) || status["summarized"] != float64(3) || status["lastError"] != "example error" || status["started"] != at.Format(time.RFC3339) || status["latest"] != at.Add(-time.Hour).Format(time.RFC3339) {
+		t.Fatalf("wire status: %s", rec.Body)
+	}
+}
+
+func TestSummaryStartsSavedRun(t *testing.T) {
+	at := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
+	s := newTestSummarizer(t, &at, t.TempDir())
+	h := serve(&scanner{}, &prTracker{}, &sessionIndex{}, nil, s)
+	rec := get(t, h, "POST", "/api/summary", local)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"state":"started"`) {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body)
+	}
+	waitSummary(t, s)
+	snap := s.latest.Load()
+	if snap == nil || !snap.Window.Start.Equal(at.Add(-24*time.Hour)) || !snap.Window.End.Equal(at) {
+		t.Fatalf("wrong requested window: %+v", snap)
+	}
+	body := get(t, h, "GET", "/summary", local).Body.String()
+	if !strings.Contains(body, "No sessions in this summary.") || !strings.Contains(body, `<select class="summary-run-picker"`) {
+		t.Fatal("completed empty run missing saved-run context")
+	}
 }
