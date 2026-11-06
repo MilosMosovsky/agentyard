@@ -122,11 +122,11 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 	}
 	s.hour, s.minute = hour, minute
 	if s.stateDir == "" {
-		dir, err := os.UserConfigDir()
+		dir, err := summaryStateDir()
 		if err != nil {
 			return nil, err
 		}
-		s.stateDir = filepath.Join(dir, "agentyard", "summary")
+		s.stateDir = dir
 	}
 	p, err := newSummaryProvider(choice, model, s.stateDir)
 	if err != nil {
@@ -178,6 +178,16 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 		}
 	}
 	return s, nil
+}
+
+// summaryStateDir is where summaries keep their private state and history:
+// ~/Library/Application Support/agentyard/summary on macOS.
+func summaryStateDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "agentyard", "summary"), nil
 }
 
 // parseSummaryAt reads a -summary-at value: local time as HH:MM.
