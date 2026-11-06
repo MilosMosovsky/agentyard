@@ -115,10 +115,11 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 			for _, noted := range batch {
 				key := summarySessionKey(noted.Entry)
 				matches := byKey[key]
-				if len(matches) != 1 || !summarySubagentsComplete(noted.Entry, matches[0]) {
+				if len(matches) != 1 {
 					continue
 				}
 				noted.Note, noted.Changed = matches[0], true
+				noted.Note.Subagents = summaryKnownSubagents(noted.Entry, noted.Note.Subagents)
 				if noted.Note.WaitsOn != nil && strings.TrimSpace(*noted.Note.WaitsOn) == "" {
 					noted.Note.WaitsOn = nil
 				}
@@ -150,22 +151,22 @@ func summaryDescendants(e *summarySession) []*summarySession {
 	return all
 }
 
-func summarySubagentsComplete(entry *summarySession, note *summaryNote) bool {
-	agents := summaryDescendants(entry)
-	if len(agents) != len(note.Subagents) {
-		return false
+// summaryKnownSubagents keeps one line per sub-agent the session really has.
+// A sub-agent the answer left out shows as not summarized; the session keeps
+// its note, so a session with many sub-agents is not lost to one omission.
+func summaryKnownSubagents(entry *summarySession, lines []summarySubagentNote) []summarySubagentNote {
+	known := map[string]bool{}
+	for _, child := range summaryDescendants(entry) {
+		known[summarySessionKey(child)] = true
 	}
-	keys := map[string]bool{}
-	for _, child := range agents {
-		keys[summarySessionKey(child)] = true
-	}
-	for _, line := range note.Subagents {
-		if !keys[line.SessionKey] {
-			return false
+	kept := []summarySubagentNote{}
+	for _, line := range lines {
+		if known[line.SessionKey] {
+			kept = append(kept, line)
+			delete(known, line.SessionKey)
 		}
-		delete(keys, line.SessionKey)
 	}
-	return len(keys) == 0
+	return kept
 }
 
 func summaryFingerprint(e *summarySession) string {

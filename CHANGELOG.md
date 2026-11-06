@@ -6,6 +6,16 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-06
+
+### Fixed
+
+- A session whose summary leaves out some of its sub-agents keeps its own note; only the missing
+  sub-agents show as not summarized. Before, one omission cost the whole session its note, which
+  made sessions with many sub-agents come back not summarized run after run.
+- `summarize` in `agentyard mcp` waits up to 50 seconds, under the minute many MCP clients allow a
+  tool call; a longer run answers that it is still running and `get_summary` shows it in progress.
+
 ## [0.11.0] - 2026-11-06
 
 ### Added
@@ -348,7 +358,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.8.0...v0.9.0

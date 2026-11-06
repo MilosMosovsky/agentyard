@@ -34,6 +34,9 @@ const (
 	mcpListLimit = 50
 	mcpListMax   = 500
 	mcpSyncWait  = 3 * time.Minute
+	// Under the minute many MCP clients allow a tool call; a longer run
+	// answers "still running" and get_summary reports it in progress.
+	mcpSummaryWait = 50 * time.Second
 )
 
 // Where a snapshot came from, so the AI can judge how stale it is.
@@ -235,7 +238,7 @@ func agentSource(listen string) mcpSource {
 		},
 		sync:          func() (string, error) { return agentSync(listen, mcpSyncWait) },
 		summaryStatus: func() (summaryStatus, error) { return agentSummaryStatus(listen, 5*time.Second) },
-		summarize:     func() (time.Time, string, error) { return agentSummarize(listen, mcpSyncWait) },
+		summarize:     func() (time.Time, string, error) { return agentSummarize(listen, mcpSummaryWait) },
 		agent: func() string {
 			if st, err := fetchStatus(listen); err == nil && !st.Demo {
 				return st.Version
@@ -597,7 +600,7 @@ func (m *mcpServer) toolList() []mcpTool {
 		},
 		{
 			Name: "summarize", Title: "Summarize sessions now",
-			Description: "Starts or joins an on-demand summary of the last 24 hours through the background agent, sending transcript excerpts to the user's chosen provider. Waits up to " + span(mcpSyncWait) + " and returns the saved summary; if still running, call get_summary later.",
+			Description: "Starts or joins an on-demand summary of the last 24 hours through the background agent, sending transcript excerpts to the user's chosen provider. Waits up to " + span(mcpSummaryWait) + " and returns the saved summary; if still running, call get_summary later.",
 			InputSchema: schema(map[string]any{}),
 			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "openWorldHint": true},
 			run:         m.summarizeTool,
