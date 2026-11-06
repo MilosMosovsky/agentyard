@@ -6,6 +6,22 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Every summary topic has a brief.** A topic is one piece of work and can span many sessions. Its
+  brief is written from all of them: what the work is about, where it stands, what is waiting on you
+  and what comes next, in plain words, with PR numbers, finding codes and plan units explained. The
+  one-line topic status, which often said little more than a PR number, is gone. Topics saved by an
+  earlier version get a brief on the next run. `get_summary` in `agentyard mcp` returns the briefs.
+- **No more "Other" project.** Headless runs in scratch folders, such as cross-model review peers and
+  an app's `claude -p` jobs, are left out and counted, because the session that started them reports
+  on them. A folder outside any repository is its own project, and a removed Orca workspace keeps its
+  repository's name.
+- **A list of projects to jump between.** Beside the summary sits a list of its projects, with each
+  one's topic count and how many sessions wait on you or are blocked, and it marks the project you are
+  reading. On a phone it is a **Jump to project** menu. Topics open to show their sessions, so a long
+  summary is a short page. The run's details say how many headless runs were left out.
+
 ## [0.11.1] - 2026-11-06
 
 ### Fixed
