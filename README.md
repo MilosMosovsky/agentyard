@@ -282,18 +282,28 @@ Agent icons identify Claude Code and Codex. Use the agent icons for quick filter
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/summary-dark.png">
-  <img alt="The Summary page: a repository, its topics, and for each session where it got to, what it waits on, what comes next, its branch and PR, and Copy resume." src="docs/screenshots/summary-light.png" width="100%">
+  <img alt="The Summary page: a list of projects to jump between, and for each topic what the work is about, where it stands, what waits on you and what comes next." src="docs/screenshots/summary-light.png" width="100%">
 </picture>
 
 What each session got to, so you can start the day without rereading transcripts. A summary runs
 every morning (07:00 by default, and right after your Mac wakes if it was asleep then), and
 **Summarize** runs one for the last 24 hours whenever you want it. It is off until you turn it on.
 
-Work is grouped by repository (a worktree counts as its repository), then by topic, then by session,
-with the newest work first and how long ago each session was touched. For each session:
+Work is grouped by repository (a worktree counts as its repository, and a folder outside any
+repository is a project of its own), then by topic, then by session, with the newest work first and
+how long ago each session was touched. A topic is one piece of work, such as a feature or a
+migration, and can span many sessions. Each topic opens with a brief written from all of its
+sessions: what the work is about, where it stands, what is waiting on you, and what comes next.
+A list of projects beside the summary (a **Jump to project** menu on a phone) shows how many topics
+each has and how many sessions wait on you or are blocked, and takes you straight there. Open a
+topic to see its sessions. For each session:
 
 - where it got to, what it is waiting on you for or blocked on, and what comes next;
 - its branch and PR, any sub-agents with a line each, and **Copy resume**.
+
+Headless runs that another session started in a scratch folder, such as cross-model review peers or
+an app's `claude -p` jobs, are left out, because the session that started them reports on them. The
+page says how many were left out.
 
 Topics carry over from one summary to the next and say how long they have been open ("open since
 Mon, Nov 2 · 4 days"). A topic with no activity stays visible for 7 days and leaves the list after
