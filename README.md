@@ -291,7 +291,9 @@ every morning (07:00 by default, and right after your Mac wakes if it was asleep
 
 Work is grouped by repository (a worktree counts as its repository, and a folder outside any
 repository is a project of its own), then by topic, then by session, with the newest work first and
-how long ago each session was touched. A topic is one piece of work, such as a feature or a
+how long ago each session was touched. The first summary that sees a project asks the model for a
+short name for it, such as "AI Adoption Onboarding" for a folder in `~/Documents`, and keeps that
+name; the project's path shows beside it. To change a name, edit `names.json` in the summary folder. A topic is one piece of work, such as a feature or a
 migration, and can span many sessions. Each topic opens with a brief written from all of its
 sessions: what the work is about, where it stands, what is waiting on you, and what comes next.
 A list of projects beside the summary (a **Jump to project** menu on a phone) shows how many topics
@@ -752,7 +754,7 @@ agentyard is a local tool with no login and no telemetry. It talks to GitHub thr
   `--safe-mode --strict-mcp-config --tools "" --no-session-persistence`. Codex runs in a read-only
   sandbox with `--ephemeral`, `--ignore-user-config`, web search disabled and every default-on tool
   feature turned off. The prompt travels on stdin, not in the process list, and answers are checked
-  against a fixed schema before they are saved. Saved runs, notes and topics live in
+  against a fixed schema before they are saved. Saved runs, notes, topics and project names live in
   `~/Library/Application Support/agentyard/summary` (folder `0700`, files `0600`). The Summary page
   follows the Sessions tab's rule: this Mac only, unless `--sessions-lan`. Only this Mac can start a
   run, and a browser must send the page's token and its own `Origin`.

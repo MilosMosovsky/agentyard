@@ -536,6 +536,12 @@ func demoSessions(now time.Time) ([]*Session, map[string][]Message) {
 
 // ---------------------------------------------------------------- summaries
 
+// demoProjectNames stand in for the names summaryNameProjects asks the model for.
+var demoProjectNames = map[string]string{
+	"acme/api": "Acme API", "acme/web": "Acme Web", "acme/infra": "Acme Infrastructure",
+	"acme-labs/tinyhttp": "tinyhttp", "acme": "Acme Workspace",
+}
+
 func demoSummary(at time.Time, sessions []*Session, messages map[string][]Message, wt *Snapshot, prs *PRSnapshot) *summarySnapshot {
 	snap := &summarySnapshot{At: at, Window: summaryWindow{Start: at.Add(-24 * time.Hour), End: at}, Provider: "demo"}
 	projects := map[string]*summarySnapshotProject{}
@@ -552,7 +558,7 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 			}
 		}
 		if projects[project] == nil {
-			projects[project] = &summarySnapshotProject{Project: project}
+			projects[project] = &summarySnapshotProject{Project: project, Name: demoProjectNames[project]}
 			snap.Projects = append(snap.Projects, projects[project])
 		}
 		fixture, known := demoSummaryNotes[session.Label()]

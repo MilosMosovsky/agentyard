@@ -48,6 +48,7 @@ type summaryTopicGroup struct {
 
 type summaryTopicProject struct {
 	Project  string
+	Name     string // display name from summaryNameProjects; Project stays the key
 	Topics   []*summaryTopicGroup
 	Unsorted []*summaryNotedSession
 }
