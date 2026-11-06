@@ -6,6 +6,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-06
+
 ### Changed
 
 - **Every summary topic has a brief.** A topic is one piece of work and can span many sessions. Its
@@ -374,7 +376,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.9.0...v0.10.0
