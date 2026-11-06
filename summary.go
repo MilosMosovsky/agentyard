@@ -116,11 +116,11 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 	if summaryOff(choice) {
 		return s, nil
 	}
-	clock, err := time.Parse("15:04", dailyAt)
-	if err != nil || clock.Format("15:04") != dailyAt {
-		return nil, fmt.Errorf("summary-at must be local HH:MM: %q", dailyAt)
+	hour, minute, err := parseSummaryAt(dailyAt)
+	if err != nil {
+		return nil, err
 	}
-	s.hour, s.minute = clock.Hour(), clock.Minute()
+	s.hour, s.minute = hour, minute
 	if s.stateDir == "" {
 		dir, err := os.UserConfigDir()
 		if err != nil {
@@ -178,6 +178,15 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 		}
 	}
 	return s, nil
+}
+
+// parseSummaryAt reads a -summary-at value: local time as HH:MM.
+func parseSummaryAt(value string) (hour, minute int, err error) {
+	clock, err := time.Parse("15:04", value)
+	if err != nil || clock.Format("15:04") != value {
+		return 0, 0, fmt.Errorf("summary-at must be local HH:MM: %q", value)
+	}
+	return clock.Hour(), clock.Minute(), nil
 }
 
 func (s *summarizer) status() summaryRunStatus {
