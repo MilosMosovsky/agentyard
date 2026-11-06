@@ -270,12 +270,17 @@ func TestSummaryNotesSubagentPromptAndCoverage(t *testing.T) {
 	if err != nil || got[0].Note == nil || len(got[0].Note.Subagents) != 2 {
 		t.Fatalf("subagent notes: %+v %v", got, err)
 	}
-	// A parent answer without its sub-agent lines is incomplete.
+	// A parent answer that leaves out sub-agents keeps its own note; lines for
+	// sessions that are not its sub-agents are dropped.
 	got, err = summaryNotes(entries[:1], t.TempDir(), func(prompt string, schema *summarySchema) (json.RawMessage, error) {
-		return checkedSummaryAnswer(t, schema, map[string]any{"notes": []any{map[string]any{"session_key": "claude:" + entries[0].Session.ID, "state": "done", "progress": "Done", "next": "Nothing", "waits_on": nil, "subagents": []any{}}}})
+		return checkedSummaryAnswer(t, schema, map[string]any{"notes": []any{map[string]any{"session_key": "claude:" + entries[0].Session.ID, "state": "done", "progress": "Done", "next": "Nothing", "waits_on": nil, "subagents": []any{
+			map[string]any{"session_key": "claude:" + entries[2].Session.ID, "progress": "Checked"},
+			map[string]any{"session_key": "claude:someone-else", "progress": "Not mine"},
+			map[string]any{"session_key": "claude:" + entries[2].Session.ID, "progress": "Duplicate"},
+		}}}})
 	})
-	if err != nil || got[0].Note != nil {
-		t.Fatalf("accepted incomplete parent: %+v %v", got, err)
+	if err != nil || got[0].Note == nil || len(got[0].Note.Subagents) != 1 || got[0].Note.Subagents[0].Progress != "Checked" {
+		t.Fatalf("partial sub-agent answer: %+v %v", got, err)
 	}
 }
 
