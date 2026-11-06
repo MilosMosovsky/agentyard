@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -1245,17 +1246,19 @@ func ago(t time.Time) string {
 var pageHTML string
 
 var page = template.Must(template.New("page").Funcs(template.FuncMap{
-	"size":      kbSize,
-	"bytes":     byteSize,
-	"ago":       ago,
-	"tilde":     tilde,
-	"anchorOf":  func(r *Repo) string { return anchor(r.Path) },
-	"base":      filepath.Base,
-	"seq":       func(n int) []int { return make([]int, n) },
-	"join":      strings.Join,
-	"org":       func(repo string) string { o, _, _ := strings.Cut(repo, "/"); return o },
-	"repoShort": func(repo string) string { _, r, _ := strings.Cut(repo, "/"); return r },
-	"fsize":     func(n int64) string { return byteSize(uint64(max(n, 0))) },
+	"summarySessionStatus":  summarySessionStatus,
+	"summaryProjectVisible": summaryProjectVisible,
+	"size":                  kbSize,
+	"bytes":                 byteSize,
+	"ago":                   ago,
+	"tilde":                 tilde,
+	"anchorOf":              func(r *Repo) string { return anchor(r.Path) },
+	"base":                  filepath.Base,
+	"seq":                   func(n int) []int { return make([]int, n) },
+	"join":                  strings.Join,
+	"org":                   func(repo string) string { o, _, _ := strings.Cut(repo, "/"); return o },
+	"repoShort":             func(repo string) string { _, r, _ := strings.Cut(repo, "/"); return r },
+	"fsize":                 func(n int64) string { return byteSize(uint64(max(n, 0))) },
 	"countKind": func(list []*Session, kind string) (n int) {
 		for _, x := range list {
 			if x.Kind == kind {
@@ -1451,11 +1454,60 @@ func (y *syncer) start() string {
 // demoWorld switches serve to synthetic data: nothing on disk is read, the
 // Sessions tab is open to any viewer and Sync does nothing. See demo.go.
 type demoWorld struct {
-	messages map[string][]Message // keyed by tool + "/" + session id
+	messages    map[string][]Message // keyed by tool + "/" + session id
+	summaries   *summarizer
+	summaryRuns []*summarySnapshot // guarded by summaries.mu
+}
+
+// summaryPickerRuns is how many saved runs the Summary page loads and offers.
+const summaryPickerRuns = 30
+
+type summaryPageView struct {
+	Enabled       bool
+	Status        summaryRunStatus
+	Run, Snapshot *summarySnapshot
+	History       []*summarySnapshot
+	Past          bool
+	Error         string
+}
+
+// A single map owns the written state and its existing tone.
+func summarySessionStatus(s *summarySnapshotSession) map[string]string {
+	states := map[string]map[string]string{
+		"in_progress":    {"Label": "In progress", "Tone": "tone-info"},
+		"waiting_on_you": {"Label": "Waiting on you", "Tone": "tone-warn"},
+		"blocked":        {"Label": "Blocked", "Tone": "tone-bad"},
+		"done":           {"Label": "Done", "Tone": "tone-ok"},
+	}
+	if !s.NotSummarized && s.Note != nil {
+		if state, ok := states[s.Note.State]; ok {
+			return state
+		}
+	}
+	return map[string]string{"Label": "Not summarized", "Tone": "tone-muted"}
+}
+
+func summaryProjectVisible(p *summarySnapshotProject) bool {
+	if len(p.Unsorted) > 0 {
+		return true
+	}
+	for _, topic := range p.Topics {
+		if !topic.Hidden {
+			return true
+		}
+	}
+	return false
 }
 
 // serve builds every route of the dashboard. demo is nil in production.
-func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Handler {
+func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources ...*summarizer) http.Handler {
+	var summaries *summarizer
+	if len(sources) > 0 {
+		summaries = sources[0]
+	}
+	if demo != nil {
+		summaries = demo.summaries
+	}
 	t.worktrees = func() *Snapshot { return s.snap.Load() }
 	y := &syncer{s: s, t: t, x: x, demo: demo != nil}
 	removeToken := newRemoveToken()
@@ -1483,6 +1535,7 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 		// call POST /api/remove with RemoveToken. In demo mode removal is simulated.
 		CanRemove   bool
 		RemoveToken string
+		Summary     summaryPageView
 	}
 	newView := func(tab string, r *http.Request) view {
 		v := view{Tab: tab, RefreshSec: int(flagInterval.Seconds()), WT: s.snap.Load(), PR: t.snap.Load(), Local: canSeeSessions(r),
@@ -1514,6 +1567,124 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld) http.Hand
 			x.refresh(20 * time.Second) // cheap: only changed files are re-read
 		}
 		render(w, "sessions", newView("sessions", r))
+	})
+	mux.HandleFunc("GET /summary", func(w http.ResponseWriter, r *http.Request) {
+		v := newView("summary", r)
+		if v.Local && summaries != nil && summaries.enabled {
+			v.Summary = summaryPageView{Enabled: true, Status: summaries.status(), Snapshot: summaries.latest.Load()}
+			var runs []*summarySnapshot
+			if demo != nil {
+				summaries.mu.Lock()
+				runs = append(runs, demo.summaryRuns...)
+				summaries.mu.Unlock()
+			} else {
+				stamps, err := summaries.history()
+				if err != nil {
+					log.Printf("summary history: %v", err)
+				}
+				// The picker offers recent runs; every snapshot is a whole summary.
+				for _, at := range stamps[:min(len(stamps), summaryPickerRuns)] {
+					snap, err := summaries.load(at)
+					if err != nil {
+						log.Printf("summary history: %v", err)
+						continue
+					}
+					runs = append(runs, snap)
+				}
+			}
+			v.Summary.History = runs
+			v.Summary.Run = v.Summary.Snapshot
+			if value := r.URL.Query().Get("at"); value != "" {
+				at, err := time.Parse(time.RFC3339Nano, value)
+				if err != nil {
+					http.Error(w, "invalid summary timestamp", http.StatusBadRequest)
+					return
+				}
+				var chosen *summarySnapshot
+				for _, run := range runs {
+					if run.At.Equal(at) {
+						chosen = run
+						break
+					}
+				}
+				if chosen == nil {
+					http.NotFound(w, r)
+					return
+				}
+				v.Summary.Run, v.Summary.Snapshot, v.Summary.Past = chosen, chosen, true
+				if chosen.Error != "" {
+					v.Summary.Snapshot = nil
+					for _, run := range runs {
+						if run.At.Before(chosen.At) && run.Error == "" {
+							v.Summary.Snapshot = run
+							break
+						}
+					}
+				}
+			}
+			v.Summary.Error = v.Summary.Status.LastError
+			if v.Summary.Past {
+				v.Summary.Error = v.Summary.Run.Error
+			}
+		}
+		render(w, "summary", v)
+	})
+	mux.HandleFunc("POST /api/summary", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fail := func(code int, msg string) {
+			w.WriteHeader(code)
+			json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		}
+		if !fromThisMac(r.RemoteAddr) {
+			fail(http.StatusForbidden, "summaries can only be started from the Mac that runs agentyard")
+			return
+		}
+		if _, present := r.Header["Origin"]; present {
+			if !sameOrigin(r, true) {
+				fail(http.StatusForbidden, "cross-origin or missing Origin")
+				return
+			}
+			if subtle.ConstantTimeCompare([]byte(r.Header.Get(removeTokenHeader)), []byte(removeToken)) != 1 {
+				fail(http.StatusForbidden, "missing or wrong "+removeTokenHeader+"; reload the page")
+				return
+			}
+		}
+		state := "off"
+		if summaries != nil {
+			if demo != nil {
+				state = demo.startSummary()
+			} else {
+				state = summaries.start(summaryWindow{})
+			}
+		}
+		if state == "off" {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"state": "off", "error": "summaries are off; run agentyard install to turn them on"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"state": state})
+	})
+	mux.HandleFunc("GET /api/summary/status", func(w http.ResponseWriter, r *http.Request) {
+		if !canSeeSessions(r) {
+			http.Error(w, "sessions are only viewable on the Mac that runs this", http.StatusForbidden)
+			return
+		}
+		var status summaryRunStatus
+		enabled, provider := false, ""
+		var started, latest *time.Time
+		if summaries != nil {
+			enabled, provider, status = summaries.enabled, summaries.provider, summaries.status()
+			if !status.Started.IsZero() {
+				started = &status.Started
+			}
+			if snap := summaries.latest.Load(); snap != nil {
+				latest = &snap.At
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(map[string]any{"enabled": enabled, "provider": provider, "running": status.Running,
+			"started": started, "sessions": status.Sessions, "summarized": status.Summarized, "lastError": status.LastError, "latest": latest})
 	})
 	mux.HandleFunc("GET /sessions/view", func(w http.ResponseWriter, r *http.Request) {
 		if !canSeeSessions(r) {
@@ -1687,7 +1858,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: serve(s, t, x, nil), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: serve(s, t, x, nil, summaries), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)

@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else}}Worktrees{{end}} · agentyard</title>
+<title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else if eq .Tab "summary"}}Summary{{else}}Worktrees{{end}} · agentyard</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/png" href="/favicon.png">
-{{if and .CanRemove (eq .Tab "worktrees")}}<meta name="agentyard-remove-token" content="{{.RemoveToken}}">{{end}}
+{{if and .CanRemove (or (eq .Tab "worktrees") (and (eq .Tab "summary") .Local .Summary.Enabled))}}<meta name="agentyard-remove-token" content="{{.RemoveToken}}">{{end}}
 <noscript><meta http-equiv="refresh" content="{{.RefreshSec}}"></noscript>
 <script>
 (() => {
@@ -1096,6 +1096,116 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
  .pr-history-ledger .pr-history-detail-row { display:block; padding:0 12px 18px; border:0; background:var(--bg-selected); }
  .pr-history-ledger .pr-history-detail-row td { padding:0; }
 }
+
+/* Saved summary runs reuse the page’s tokens and components. */
+.summary-run { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; padding:4px 0 24px; border-bottom:1px solid var(--line); }
+.summary-run-heading { min-width:0; }
+.summary-run h2 { font-size:28px; line-height:36px; letter-spacing:-.8px; font-weight:550; }
+.summary-run-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin-top:8px; font-size:11px; line-height:18px; color:var(--text-3); }
+.summary-run-meta > span { display:inline-flex; align-items:center; gap:5px; }
+.summary-run-meta .icon { width:13px; height:13px; }
+.summary-run-actions { display:flex; gap:8px; align-items:flex-start; padding-top:2px; flex-shrink:0; }
+.summary-run-picker { height:36px; max-width:220px; padding:0 10px; border:1px solid var(--line); border-radius:var(--radius-control); background:var(--bg-surface); color:var(--text-2); font-size:12px; }
+.summary-run-button { border-color:var(--line); font-size:12px; font-weight:500; }
+.summary-run-button .icon { width:14px; height:14px; }
+.summary-notice { margin:20px 0 0; font-size:12px; line-height:20px; }
+.summary-notice > .icon { color:var(--state-ink,var(--text-3)); }
+.summary-notice > div { flex:1; min-width:0; }
+.summary-notice strong { font-weight:550; }
+.summary-notice p { color:var(--text-3); }
+.summary-notice .button { font-size:12px; border-color:var(--line); }
+.summary-project { margin-top:28px; }
+.summary-project-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin-bottom:12px; }
+.summary-project-header h2 { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:15px; line-height:24px; font-weight:550; }
+.summary-project-header .icon { width:15px; height:15px; color:var(--text-3); margin-right:2px; }
+.summary-owner,.summary-project-separator { color:var(--text-3); font-weight:400; }
+.summary-project-header .meta { font-size:11px; font-weight:400; }
+.summary-topic { margin-top:12px; border:1px solid var(--line); border-radius:var(--radius-panel); background:var(--bg-surface); overflow:clip; }
+.summary-topic > summary { display:grid; grid-template-columns:8px minmax(0,1fr) auto; gap:12px; width:100%; padding:14px 18px; color:var(--text-1); }
+.summary-topic > summary:hover { background:var(--bg-hover); }
+.summary-topic > summary:focus-visible { outline-offset:-3px; border-radius:var(--radius-control); }
+.summary-topic-name { display:block; font-size:14px; line-height:22px; font-weight:550; }
+.summary-topic-status { display:block; margin-top:2px; color:var(--text-2); font-size:12px; line-height:20px; }
+.summary-topic-note { font-size:11px; line-height:18px; font-weight:400; color:var(--text-3); white-space:nowrap; }
+.summary-topic-note.badge { font-size:10px; min-height:20px; padding:1px 6px; color:var(--state-ink); }
+.summary-topic[open] > summary { border-bottom:1px solid var(--line); }
+.summary-session { display:grid; grid-template-columns:30px minmax(0,1fr); gap:12px; padding:16px 18px; }
+.summary-session + .summary-session { border-top:1px solid var(--line); }
+.summary-session-body { min-width:0; }
+.summary-session-header { display:flex; align-items:baseline; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; }
+.summary-session-header h4 { min-width:0; font-size:13px; line-height:20px; font-weight:550; letter-spacing:0; }
+.summary-status { display:inline-flex; align-items:center; gap:6px; color:var(--state-ink,var(--text-3)); font-size:11px; line-height:18px; font-weight:500; white-space:nowrap; }
+.summary-status-dot { width:6px; height:6px; border-radius:var(--radius-pill); background:currentColor; flex-shrink:0; }
+.summary-facts { display:grid; gap:3px; margin:8px 0 0; font-size:12px; line-height:20px; color:var(--text-2); }
+.summary-facts > div { display:grid; grid-template-columns:105px minmax(0,1fr); gap:12px; }
+.summary-facts dt { color:var(--text-3); }
+.summary-facts dd { margin:0; overflow-wrap:anywhere; }
+.summary-session-footer { display:flex; align-items:center; justify-content:space-between; gap:8px 16px; margin-top:8px; }
+.summary-links { display:flex; align-items:center; flex-wrap:wrap; gap:2px 14px; min-width:0; }
+.summary-links a { display:inline-flex; align-items:center; gap:5px; min-height:28px; color:var(--text-3); font-size:11px; line-height:18px; max-width:100%; overflow-wrap:anywhere; }
+.summary-links a:hover { color:var(--accent); }
+.summary-links .icon { width:12px; height:12px; }
+.summary-links .branch { font-size:11px; }
+.summary-session .copy-resume { border-color:transparent; color:var(--text-2); }
+.summary-session .copy-resume:hover,.summary-session .copy-resume:focus-visible { border-color:var(--line); background:var(--bg-hover); color:var(--text-1); }
+.summary-subagents { margin-top:8px; }
+.summary-subagents > summary { font-size:11px; line-height:18px; min-height:24px; color:var(--text-3); }
+.summary-subagents ul { list-style:none; margin:8px 0 0 14px; padding:0; display:grid; gap:7px; }
+.summary-subagents li { display:flex; align-items:center; gap:7px; min-width:0; font-size:11px; line-height:18px; color:var(--text-2); }
+.summary-subagents .agent-mark { width:18px; height:18px; border-radius:4px; background:transparent; }
+.summary-subagents .agent-mark svg { width:15px; height:15px; }
+.summary-subagents .agent-identity { margin:0; }
+.summary-subagent-text { flex:1; min-width:0; overflow-wrap:anywhere; }
+.summary-subagents .summary-status { font-size:10px; }
+.summary-bottom { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px 20px; margin-top:28px; padding-top:16px; border-top:1px solid var(--line); color:var(--text-3); font-size:11px; line-height:18px; }
+.summary-bottom details { max-width:610px; }
+.summary-bottom summary { font-size:11px; }
+.summary-bottom details p { margin-top:8px; }
+.summary-empty { margin-top:24px; }
+.summary-topic > summary { list-style:none; }
+.summary-topic > summary::-webkit-details-marker { display:none; }
+.summary-session-header h4 { margin:0; overflow-wrap:anywhere; }
+.summary-topic-status { overflow-wrap:anywhere; white-space:pre-wrap; }
+.summary-facts dd { white-space:pre-wrap; }
+.summary-empty { margin-top:24px; }
+@media (min-width:640px) and (max-width:1100px) {
+ .summary-run { flex-direction:column; gap:14px; }
+ .summary-run-actions { width:100%; justify-content:space-between; }
+ .summary-topic > summary { padding-inline:14px; }
+ .summary-session { padding-inline:14px; }
+}
+@media (max-width:639px) {
+ .sidebar nav { grid-template-columns:repeat(4,minmax(0,1fr)); }
+ .sidebar nav a { height:auto; min-height:54px; flex-direction:column; gap:2px; font-size:11px; }
+ .sidebar nav .tab-count { display:none; }
+ .summary-run { flex-direction:column; gap:16px; padding-top:0; padding-bottom:20px; }
+ .summary-run h2 { font-size:26px; line-height:34px; }
+ .summary-run-meta { gap:4px 12px; }
+ .summary-run-meta .summary-window { flex-basis:100%; }
+ .summary-run-actions { display:flex; gap:8px; width:100%; padding-top:0; }
+ .summary-run-actions form { flex:1; min-width:0; }
+ .summary-run-picker { width:100%; max-width:100%; height:44px; font-size:12px; }
+ .summary-run-button { min-height:44px; padding-inline:10px; }
+ .summary-project { margin-top:24px; }
+ .summary-topic > summary { grid-template-columns:8px minmax(0,1fr); gap:6px 10px; padding:14px; }
+ .summary-topic-note { grid-column:2; justify-self:start; white-space:normal; }
+ .summary-session { padding:16px 14px; grid-template-columns:24px minmax(0,1fr); gap:10px; }
+ .summary-session > .agent-identity .agent-mark { width:24px; height:24px; border-radius:7px; }
+ .summary-session > .agent-identity .agent-mark svg { width:16px; height:16px; }
+ .summary-session-header { display:block; }
+ .summary-session-header h4 { font-size:14px; }
+ .summary-session-header .session-title { display:inline-block; padding-block:10px; font-size:14px; }
+ .summary-status { margin-top:2px; }
+ .summary-facts { margin-top:10px; gap:8px; }
+ .summary-facts > div { display:block; }
+ .summary-facts dt { font-size:11px; }
+ .summary-facts dd { font-size:13px; line-height:20px; }
+ .summary-session-footer { display:block; margin-top:8px; }
+ .summary-session .copy-resume { width:100%; min-height:44px; margin-top:6px; border-color:var(--line); }
+ .summary-subagents > summary { min-height:44px; padding-block:10px; }
+ .summary-subagents ul { margin-left:0; }
+ .summary-subagents li { flex-wrap:wrap; }
+}
 </style>
 </head>
 <body data-tab="{{.Tab}}" data-refresh="{{.RefreshSec}}">
@@ -1104,14 +1214,14 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <div id="app">
 <aside class="sidebar"><div class="brand-area"><a class="wordmark" href="/"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 2H8V5H6V4H2Z M2 7H11V10H9V9H2Z M2 12H14V15H12V14H2Z"/></svg><span>agentyard</span></a></div>
 
-<nav aria-label="Main"><a href="/" {{if eq .Tab "worktrees"}}aria-current="page"{{end}}>{{template "icon" "branch"}}Worktrees{{with .WT}}{{with .Total}}<span class="tab-count numeric">{{.Count}}</span>{{end}}{{end}}</a><a href="/prs" {{if eq .Tab "prs"}}aria-current="page"{{end}}>{{template "icon" "pull-request"}}Pull requests{{with .PR}}{{if not .At.IsZero}}<span class="tab-count numeric">{{len .PRs}}</span>{{end}}{{end}}</a><a href="/sessions" {{if eq .Tab "sessions"}}aria-current="page"{{end}}>{{template "icon" "terminal"}}Sessions{{if .Local}}{{if .Sessions}}<span class="tab-count numeric">{{len .Sessions}}</span>{{end}}{{end}}</a></nav>
+<nav aria-label="Main"><a href="/" {{if eq .Tab "worktrees"}}aria-current="page"{{end}}>{{template "icon" "branch"}}Worktrees{{with .WT}}{{with .Total}}<span class="tab-count numeric">{{.Count}}</span>{{end}}{{end}}</a><a href="/prs" {{if eq .Tab "prs"}}aria-current="page"{{end}}>{{template "icon" "pull-request"}}Pull requests{{with .PR}}{{if not .At.IsZero}}<span class="tab-count numeric">{{len .PRs}}</span>{{end}}{{end}}</a><a href="/sessions" {{if eq .Tab "sessions"}}aria-current="page"{{end}}>{{template "icon" "terminal"}}Sessions{{if .Local}}{{if .Sessions}}<span class="tab-count numeric">{{len .Sessions}}</span>{{end}}{{end}}</a><a href="/summary" {{if eq .Tab "summary"}}aria-current="page"{{end}}>{{template "icon" "ledger"}}Summary</a></nav>
 
 </aside>
 <div class="frame">
-<header class="brand-header"><h1>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else}}Worktrees{{end}}</h1>
+<header class="brand-header"><h1>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else if eq .Tab "summary"}}Summary{{else}}Worktrees{{end}}</h1>
   <div class="sync-cluster"><span class="meta numeric">{{if eq .Tab "prs"}}{{with .PR}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{else}}{{with .WT}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{end}}</span><button type="button" id="sync" class="button sync-button" data-sync>Sync now</button></div>
   <div class="settings-wrap"><button type="button" class="icon-button" id="settings-toggle" aria-label="Settings" aria-expanded="false" aria-controls="settings">{{template "icon" "gear"}}</button>
-    <div id="settings" class="settings" hidden><fieldset><legend>Theme</legend><div class="theme-options"><label><input type="radio" name="theme" value="system" checked> System</label><label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></div></fieldset><label class="shortcut-toggle"><input type="checkbox" id="shortcuts" checked> Keyboard shortcuts</label><p class="meta shortcut-hint"><kbd>/</kbd> Search · <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> Navigate<br><kbd>g</kbd> then <kbd>s</kbd> Sync now</p></div>
+    <div id="settings" class="settings" hidden><fieldset><legend>Theme</legend><div class="theme-options"><label><input type="radio" name="theme" value="system" checked> System</label><label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></div></fieldset><label class="shortcut-toggle"><input type="checkbox" id="shortcuts" checked> Keyboard shortcuts</label><p class="meta shortcut-hint"><kbd>/</kbd> Search · <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> Navigate<br><kbd>g</kbd> then <kbd>s</kbd> Sync now</p></div>
   </div>
 </header>
 <main id="content" tabindex="-1">
@@ -1310,6 +1420,41 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "session-row"}}<tr class="session-row" {{template "session-data" .}}><td>{{template "session-tool" .}}</td><td><div class="cell-stack">{{template "session-title" .}}<div class="session-labels">{{template "session-kind" .Kind}}{{template "session-pr" .}}</div>{{template "session-preview" .}}</div></td><td>{{template "session-folder" .}}</td><td>{{template "session-activity" .}}</td><td class="n">{{fsize .Size}}</td><td>{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}{{template "resume-noscript" .}}</td></tr>{{end}}
 {{define "session-card"}}<article class="card session-row" {{template "session-data" .}}><div>{{template "session-title" .}}</div><div class="session-card-meta">{{template "session-tool" .}}{{template "session-kind" .Kind}}{{template "session-pr" .}}</div>{{template "session-preview" .}}<div>{{template "session-folder" .}}</div><dl class="metric-grid"><div><dt>Last active</dt><dd>{{template "session-activity" .}}</dd></div><div><dt>Size</dt><dd class="numeric">{{fsize .Size}}</dd></div></dl>{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}{{template "resume-noscript" .}}</article>{{end}}
 
+{{define "summary-facts"}}{{with .}}<dl class="summary-facts">{{if .Progress}}<div><dt>Where it got to</dt><dd>{{.Progress}}</dd></div>{{end}}{{if .WaitsOn}}<div><dt>{{if eq .State "blocked"}}Blocked on{{else}}Waiting on you{{end}}</dt><dd>{{.WaitsOn}}</dd></div>{{end}}{{if .Next}}<div><dt>What’s next</dt><dd>{{.Next}}</dd></div>{{end}}</dl>{{end}}{{end}}
+{{define "summary-state"}}{{with summarySessionStatus .}}<span class="summary-status {{.Tone}}"><span class="summary-status-dot" aria-hidden="true"></span>{{.Label}}</span>{{end}}{{end}}
+{{define "summary-agent"}}<span class="agent-identity" title="{{template "tool-name" .Tool}}">{{template "tool-icon" .Tool}}<span class="sr-only">{{template "tool-name" .Tool}}</span></span>{{end}}
+{{define "summary-session"}}<article class="summary-session session-row" data-key="{{.Tool}}/{{.ID}}" data-tool="{{.Tool}}" data-id="{{.ID}}" data-title="{{.Title}}">
+{{template "summary-agent" .}}<div class="summary-session-body">
+<header class="summary-session-header"><h4><button type="button" class="session-title" data-open-session>{{.Title}}</button></h4>{{template "summary-state" .}}</header>
+{{if .NotSummarized}}<p class="meta">The provider response could not be read. Summarize again to retry, or resume this session.</p>
+{{else}}{{template "summary-facts" .Note}}{{end}}
+{{if .Subagents}}<details class="summary-subagents"><summary>{{counted (len .Subagents) "subagent" "subagents"}}</summary><ul>{{range .Subagents}}{{template "summary-subagent" .}}{{end}}</ul></details>{{end}}
+<div class="summary-session-footer"><div class="summary-links">{{if .Cwd}}<a href="#session={{.Tool}}/{{.ID}}" data-open-session title="Worktree: {{.Cwd}}" aria-label="Open worktree {{.Cwd}}">{{template "icon" "branch"}}<span class="branch">{{if .Branch}}{{.Branch}}{{else}}{{tilde .Cwd}}{{end}}</span></a>{{else}}{{if .Branch}}<span class="branch meta">{{.Branch}}</span>{{end}}{{end}}{{if .PRURL}}<a href="{{.PRURL}}">{{template "icon" "pull-request"}}PR #{{.PRNumber}}</a>{{end}}</div>{{if .ResumeCmd}}{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}{{template "resume-noscript" .}}{{end}}</div>
+<template data-session-meta>{{template "summary-agent" .}} · Saved summary</template>
+<template data-summary-detail><section class="session-detail"><div class="drawer-context"><div class="command-line"><code tabindex="0">{{.ResumeCmd}}</code></div>{{if .ResumeCmd}}{{template "copy" (dict "Command" .ResumeCmd "Resume" true)}}{{end}}<div class="context-values">{{if .Cwd}}<p class="path">{{.Cwd}}</p>{{end}}{{if .Branch}}<p class="branch">{{.Branch}}</p>{{end}}{{if .PRURL}}<p><a href="{{.PRURL}}">PR #{{.PRNumber}}</a></p>{{end}}</div></div>{{template "summary-state" .}}{{if not .NotSummarized}}{{template "summary-facts" .Note}}{{end}}</section></template>
+</div></article>{{end}}
+{{define "summary-subagent"}}<li>{{template "summary-agent" .}}<span class="summary-subagent-text">{{.Title}}{{if .Progress}} · {{.Progress}}{{end}}</span>{{if or .Note .NotSummarized}}{{template "summary-state" .}}{{end}}</li>{{if .Subagents}}<li><details class="summary-subagents"><summary>{{counted (len .Subagents) "subagent" "subagents"}}</summary><ul>{{range .Subagents}}{{template "summary-subagent" .}}{{end}}</ul></details></li>{{end}}{{end}}
+{{define "sessions-restricted"}}<div class="state-panel">{{template "icon" "lock"}}<div><h2>Sessions are available on this Mac only.</h2><p>Open agentyard on the Mac that runs it to view transcripts and resume commands.</p></div></div>{{end}}
+{{define "summary"}}{{template "head" .}}
+{{if not .Local}}{{template "sessions-restricted"}}
+{{else if not .Summary.Enabled}}<div class="state-panel summary-empty">{{template "icon" "ledger"}}<div><h2>Turn on session summaries.</h2><p>Run <code>agentyard install</code> and say yes to morning summaries. Nothing is sent to a model until you turn summaries on.</p><div class="command-line"><code>agentyard install</code>{{template "copy" (dict "Command" "agentyard install")}}</div></div></div>
+{{else}}{{with .Summary}}
+<header class="summary-run"><div class="summary-run-heading"><h2>{{with .Run}}<time datetime="{{.At.Format "2006-01-02T15:04:05.999999999Z07:00"}}">{{.At.Format "Monday, Jan 2"}}</time>{{else}}Your first summary{{end}}</h2>
+{{with .Run}}<div class="summary-run-meta"><span>{{template "icon" "clock"}}{{if .Error}}Attempted{{else}}Summarized{{end}} {{template "exact-time" .At}}</span>{{if not .Window.Start.IsZero}}<span class="summary-window">Covered {{template "exact-time" .Window.Start}} – {{template "exact-time" .Window.End}}</span>{{end}}<span>Via {{.Provider}}</span></div>{{end}}</div>
+<div class="summary-run-actions">{{if .History}}<form action="/summary" method="get"><label><span class="sr-only">Saved summary run</span><select class="summary-run-picker" name="at" aria-label="Saved summary run">{{range .History}}<option value="{{.At.Format "2006-01-02T15:04:05.999999999Z07:00"}}" {{if $.Summary.Run}}{{if .At.Equal $.Summary.Run.At}}selected{{end}}{{end}}>{{.At.Format "Jan 2, 2006 · 15:04:05 MST"}}{{if .Error}} · Failed{{end}}</option>{{end}}</select></label><noscript><button class="button" type="submit">Open run</button></noscript></form>{{end}}
+{{if or $.CanRemove .Status.Running}}<button type="button" class="button summary-run-button" id="summarize" aria-busy="{{.Status.Running}}" {{if .Status.Running}}disabled{{end}}>{{template "icon" "play"}}<span>{{if .Status.Running}}Summarizing…{{else}}Summarize{{end}}</span></button>{{end}}</div></header>
+<div id="summary-feedback" class="update-banner summary-notice" role="status" {{if not .Status.Running}}hidden{{end}}>Summarizing the last 24 hours. Your previous summary stays readable.</div>
+{{if .Error}}<div class="update-banner summary-notice tone-bad" role="status">{{template "icon" "x-circle"}}<div><strong>Couldn’t summarize · {{.Error}}</strong><p>{{with .Snapshot}}Showing the previous successful summary from {{template "exact-time" .At}}. {{end}}Check the provider’s sign-in, then try Summarize again.</p></div></div>{{end}}
+{{if .Past}}<div class="update-banner summary-notice">{{template "icon" "clock"}}<span>Viewing a saved summary run.</span><a href="/summary">Back to latest</a></div>{{end}}
+{{if not .Run}}<div class="state-panel summary-empty">{{template "icon" "ledger"}}<div><h2>Start your first summary.</h2><p>Summarize the last 24 hours to see where each session got to, what it needs from you, and what comes next.</p></div></div>{{end}}
+{{with .Snapshot}}{{$visible := false}}{{range $i, $project := .Projects}}{{if summaryProjectVisible .}}{{$visible = true}}<section class="summary-project" aria-labelledby="summary-project-{{$i}}"><header class="summary-project-header"><h2 id="summary-project-{{$i}}">{{template "icon" "folder"}}{{if repoShort .Project}}<span class="summary-owner">{{org .Project}}</span><span class="summary-project-separator">/</span>{{repoShort .Project}}{{else}}{{.Project}}{{end}}</h2></header>
+{{range .Topics}}{{if not .Hidden}}<details class="summary-topic" open><summary><div><h3 class="summary-topic-name">{{.Name}}</h3><span class="summary-topic-status">{{.Status}}</span></div>{{if or .CarriedOver .IdleDays}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{.OpenDays}} days{{end}}{{if .IdleDays}}{{if .CarriedOver}} · {{end}}last active {{.IdleDays}} {{if eq .IdleDays 1}}day{{else}}days{{end}} ago{{end}}</span>{{end}}</summary>{{range .Sessions}}{{template "summary-session" .}}{{end}}</details>{{end}}{{end}}
+{{if .Unsorted}}<details class="summary-topic" open><summary><div><h3 class="summary-topic-name">Unsorted sessions</h3><span class="summary-topic-status">Topic grouping could not be completed. Session notes are still available.</span></div></summary>{{range .Unsorted}}{{template "summary-session" .}}{{end}}</details>{{end}}</section>{{end}}{{end}}
+{{if not $visible}}<div class="state-panel summary-empty">{{template "icon" "ledger"}}<div><h2>No sessions in this summary.</h2><p>No visible topics or sessions were saved for this window.</p></div></div>{{end}}
+<div class="summary-bottom"><span>Every run is saved. Reopen it from the date picker.</span><details><summary>About inactive topics</summary><p>Inactive topics stay visible for at least 7 days and leave the current topic list after 14 days. Saved runs keep their original content.</p></details></div>{{end}}
+{{end}}{{end}}
+{{template "foot" .}}{{end}}
+
 {{define "sessions"}}{{template "head" .}}
 {{if .Local}}
 {{template "collection" .}}
@@ -1318,7 +1463,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{template "no-matches"}}
 {{if .Sessions}}<section data-repo-group><div class="table-region" tabindex="0" role="region" aria-label="Sessions, scroll horizontally for all columns"><table><caption class="sr-only">Agent sessions</caption><colgroup><col style="width:5%"><col style="width:34%"><col style="width:25%"><col style="width:11%"><col style="width:8%"><col style="width:17%"></colgroup><thead><tr><th scope="col">Agent</th><th scope="col">Session</th><th scope="col">Folder · branch</th><th scope="col">Last active</th><th scope="col" class="n">Size</th><th scope="col">Resume</th></tr></thead><tbody>{{range .Sessions}}{{template "session-row" .}}{{end}}</tbody></table></div><div class="phone-cards">{{range .Sessions}}{{template "session-card" .}}{{end}}</div></section>
 {{else}}<div class="state-panel">{{template "icon" "comment-minus"}}<div><h2>No sessions found.</h2><p>Claude Code and Codex sessions will appear after you use them on this Mac.</p></div></div>{{end}}
-{{else}}<div class="state-panel">{{template "icon" "lock"}}<div><h2>Sessions are available on this Mac only.</h2><p>Open agentyard on the Mac that runs it to view transcripts and resume commands.</p></div></div>{{end}}
+{{else}}{{template "sessions-restricted"}}{{end}}
 <details class="sync-details"><summary>Sync details</summary><div class="detail-lines"><p>Refresh every {{.RefreshSec}} seconds</p><p>Recent activity does not indicate a running process.</p></div></details>
 {{template "foot" .}}{{end}}
 
@@ -1327,7 +1472,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "foot"}}
 </main><footer class="meta"><span>agentyard {{.Version}}</span></footer>
 </div></div>
-{{if and .Local (eq .Tab "sessions")}}<dialog id="session-drawer" class="drawer" aria-labelledby="drawer-title"><header class="drawer-header"><div><h2 id="drawer-title" tabindex="-1">Session</h2><p id="drawer-meta" class="meta numeric"></p></div><button type="button" class="icon-button" id="drawer-close" aria-label="Close session">{{template "icon" "close"}}</button></header><div id="drawer-body" class="drawer-body"></div></dialog>{{end}}
+{{if and .Local (or (eq .Tab "sessions") (eq .Tab "summary"))}}<dialog id="session-drawer" class="drawer" aria-labelledby="drawer-title"><header class="drawer-header"><div><h2 id="drawer-title" tabindex="-1">Session</h2><p id="drawer-meta" class="meta numeric"></p></div><button type="button" class="icon-button" id="drawer-close" aria-label="Close session">{{template "icon" "close"}}</button></header><div id="drawer-body" class="drawer-body"></div></dialog>{{end}}
 {{if eq .Tab "prs"}}<dialog id="pr-overview" class="pr-overview" aria-labelledby="pr-overview-title" aria-describedby="pr-overview-note"><header class="pr-overview-header"><div><h2 id="pr-overview-title">Repository overview</h2><p id="pr-overview-summary"></p></div><button type="button" class="icon-button" id="pr-overview-close" aria-label="Close overview">{{template "icon" "close"}}</button></header><label class="filter-search pr-overview-search">{{template "icon" "search"}}<input type="search" id="pr-overview-search" placeholder="Find an organization or repository…" aria-label="Find repository in overview" autocomplete="off"></label><div class="pr-matrix-wrap"><table class="pr-matrix" id="pr-matrix"><caption class="sr-only">Open pull requests by repository and status. Select a count to view matching pull requests.</caption><thead></thead><tbody></tbody></table></div><p id="pr-overview-empty" class="pr-overview-empty" hidden>No repositories match your search.</p><p class="pr-overview-note" id="pr-overview-note">Ready means approved, all checks passing and confirmed mergeable. Status counts can overlap; failing checks include drafts.</p></dialog>{{end}}
 {{if and .CanRemove (eq .Tab "worktrees")}}<dialog id="remove-panel" class="copy-panel remove-panel" aria-labelledby="remove-heading" aria-describedby="remove-summary" data-max="{{removeMax}}"><h2 id="remove-heading" tabindex="-1">Remove worktrees</h2><p id="remove-summary" class="remove-summary"></p><div id="remove-body" class="remove-body" tabindex="0" role="region" aria-label="Worktrees"></div><div class="remove-actions"><button type="button" class="button" id="remove-cancel">Cancel</button><button type="button" class="button remove-confirm" id="remove-confirm" hidden></button></div></dialog>{{end}}
 <dialog id="copy-panel" class="copy-panel" aria-labelledby="copy-heading"><h2 id="copy-heading">Select and copy this command.</h2><textarea id="copy-text" readonly aria-label="Command to copy" spellcheck="false"></textarea><button type="button" class="button" id="copy-close">Close</button></dialog>
@@ -2454,9 +2599,43 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     }
     $("#apply-update").addEventListener("click", apply);
     const seconds = Number(document.body.dataset.refresh);
-    if (seconds > 0) setInterval(ready, seconds * 1000);
+    if (seconds > 0 && tab !== "summary") setInterval(ready, seconds * 1000);
     return { ready, apply };
   })();
+
+  const summarize = $("#summarize"), summaryFeedback = $("#summary-feedback");
+  if (summaryFeedback) {
+    const picker = $(".summary-run-picker");
+    picker?.addEventListener("change", () => picker.form.requestSubmit());
+    function summaryBusy() {
+      if (summarize) { summarize.disabled = true; summarize.setAttribute("aria-busy", "true"); $("span", summarize).textContent = "Summarizing…"; }
+      summaryFeedback.hidden = false;
+      summaryFeedback.textContent = "Summarizing the last 24 hours. Your previous summary stays readable.";
+    }
+    async function pollSummary() {
+      try {
+        const response = await fetch("/api/summary/status", { cache: "no-store" });
+        if (!response.ok) throw new Error("Could not check summary status. Reload to try again.");
+        const status = await response.json();
+        if (!status.running) { refresh.apply(); return; }
+        setTimeout(pollSummary, 1000);
+      } catch (error) { summaryFeedback.hidden = false; summaryFeedback.textContent = error.message; }
+    }
+    summarize?.addEventListener("click", async () => {
+      summaryBusy();
+      try {
+        const response = await fetch("/api/summary", { method: "POST", headers: { "X-Agentyard-Token": $('meta[name="agentyard-remove-token"]').content } });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not start summary");
+        announce("Summarizing the last 24 hours");
+        setTimeout(pollSummary, 1000);
+      } catch (error) {
+        summarize.disabled = false; summarize.setAttribute("aria-busy", "false"); $("span", summarize).textContent = "Summarize";
+        summaryFeedback.textContent = error.message;
+      }
+    });
+    if (summarize?.getAttribute("aria-busy") === "true" || !summaryFeedback.hidden) setTimeout(pollSummary, 1000);
+  }
 
   // POST/status sync flow, shared by every Sync and Retry control.
   const syncButton = $("#sync");
@@ -2561,6 +2740,8 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     function sessionHash(key) { history.replaceState(null, "", location.pathname + location.search + (key ? "#session=" + key.split("/").map(encodeURIComponent).join("/") : "")); }
     async function loadSession() {
       const current = ++generation;
+      const saved = $("template[data-summary-detail]", selected);
+      if (saved) { body.replaceChildren(saved.content.cloneNode(true)); body.removeAttribute("aria-busy"); return; }
       request?.abort(); request = new AbortController();
       body.replaceChildren();
       const loading = document.createElement("p"); loading.className = "secondary"; loading.textContent = "Loading messages…"; body.append(loading); body.setAttribute("aria-busy", "true");
@@ -2839,7 +3020,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     else if (["ArrowLeft","ArrowRight"].includes(event.key) && !event.shiftKey && navigatePR && prHistory.openActive() && settings.hidden && !$(".filter-menu[open],.pr-workspace-picker[open]") && !window.getSelection()?.toString()) {
       if (navigatePR(event.key === "ArrowRight" ? 1 : -1)) event.preventDefault();
     }
-    else if (["1", "2", "3"].includes(event.key)) { event.preventDefault(); $$("nav a")[Number(event.key) - 1].click(); }
+    else if (["1", "2", "3", "4"].includes(event.key)) { event.preventDefault(); $$("nav a")[Number(event.key) - 1].click(); }
     else if (event.key === "s" && wasSequence && !syncButton.disabled) { event.preventDefault(); sync(); }
     else if (event.key === "g") { sequence = Date.now(); sequenceTimer = setTimeout(cancelSequence, 800); }
   });
