@@ -14,6 +14,24 @@ import (
 	"time"
 )
 
+// ---------------------------------------------------------------- session states
+
+const (
+	summaryInProgress   = "in_progress"
+	summaryWaitingOnYou = "waiting_on_you"
+	summaryBlocked      = "blocked"
+	summaryDone         = "done"
+)
+
+type summarySessionState struct{ State, Label, Tone string }
+
+var summarySessionStates = []summarySessionState{
+	{summaryInProgress, "In progress", "tone-info"},
+	{summaryWaitingOnYou, "Waiting on you", "tone-warn"},
+	{summaryBlocked, "Blocked", "tone-bad"},
+	{summaryDone, "Done", "tone-ok"},
+}
+
 // ---------------------------------------------------------------- snapshots
 
 type summaryWindow struct {

@@ -168,6 +168,8 @@ func TestInstallSummaryDryRun(t *testing.T) {
 		args                                []string
 	}{
 		{"explicit", "", "codex", "06:30", "custom & small", []string{"--summary", "codex", "--summary-at", "06:30", "--summary-model", "custom & small"}},
+		{"switch provider uses its default", "codex", "claude", "06:30", "", []string{"--summary", "claude"}},
+		{"switch provider explicit model", "codex", "claude", "06:30", "chosen-model", []string{"--summary", "claude", "--summary-model", "chosen-model"}},
 		{"reinstall --yes", "codex", "codex", "06:30", "saved-model", []string{"--yes"}},
 		{"first install without terminal", "", "off", "07:00", "", nil},
 		{"older install stays off", "legacy", "off", "07:00", "", []string{"--yes"}},

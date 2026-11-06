@@ -1470,22 +1470,15 @@ type summaryPageView struct {
 	Error         string
 }
 
-type summarySessionState struct{ Label, Tone string }
-
-var summarySessionStates = map[string]summarySessionState{
-	"in_progress":    {"In progress", "tone-info"},
-	"waiting_on_you": {"Waiting on you", "tone-warn"},
-	"blocked":        {"Blocked", "tone-bad"},
-	"done":           {"Done", "tone-ok"},
-}
-
 func summarySessionStatus(s *summarySnapshotSession) summarySessionState {
 	if !s.NotSummarized && s.Note != nil {
-		if state, ok := summarySessionStates[s.Note.State]; ok {
-			return state
+		for _, state := range summarySessionStates {
+			if state.State == s.Note.State {
+				return state
+			}
 		}
 	}
-	return summarySessionState{"Not summarized", "tone-muted"}
+	return summarySessionState{Label: "Not summarized", Tone: "tone-muted"}
 }
 
 func summaryProjectVisible(p *summarySnapshotProject) bool {

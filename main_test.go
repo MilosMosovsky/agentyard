@@ -621,7 +621,7 @@ func TestPageRemoveControls(t *testing.T) {
 		t.Fatal("demo lacks a reclaimable worktree")
 	}
 	const never = "Commands are copied, never run here."
-	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `class="button remove-all remove-safe" data-remove-safe`, `data-remove="`, `<meta name="agentyard-remove-token"`, `id="remove-confirm"`}
+	controls := []string{`id="remove-panel"`, `<button type="button" class="button remove-all" data-remove-all`, `class="button remove-all remove-safe" data-remove-safe`, `data-remove="`, `<meta name="agentyard-page-token"`, `id="remove-confirm"`}
 
 	body := get(t, h, "GET", "/", local).Body.String()
 	for _, w := range controls {
@@ -913,5 +913,21 @@ func TestSummaryStartsSavedRun(t *testing.T) {
 	body := get(t, h, "GET", "/summary", local).Body.String()
 	if !strings.Contains(body, "No sessions in this summary.") || !strings.Contains(body, `<select class="summary-run-picker"`) {
 		t.Fatal("completed empty run missing saved-run context")
+	}
+}
+
+func TestSummaryHistoryInvalidTimestamp(t *testing.T) {
+	_, h, snap := summaryRouteFixture(t)
+	for _, tc := range []struct {
+		at   string
+		code int
+	}{
+		{"not-a-time", http.StatusBadRequest},
+		{snap.At.Add(-time.Hour).Format(time.RFC3339Nano), http.StatusNotFound},
+	} {
+		rec := get(t, h, "GET", "/summary?at="+tc.at, local)
+		if rec.Code != tc.code {
+			t.Fatalf("at=%q: %d, want %d", tc.at, rec.Code, tc.code)
+		}
 	}
 }

@@ -6,7 +6,7 @@
 <title>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else if eq .Tab "summary"}}Summary{{else}}Worktrees{{end}} · agentyard</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" type="image/png" href="/favicon.png">
-{{if and .CanRemove (or (eq .Tab "worktrees") (and (eq .Tab "summary") .Local .Summary.Enabled))}}<meta name="agentyard-remove-token" content="{{.RemoveToken}}">{{end}}
+{{if and .CanRemove (or (eq .Tab "worktrees") (and (eq .Tab "summary") .Local .Summary.Enabled))}}<meta name="agentyard-page-token" content="{{.RemoveToken}}">{{end}}
 <noscript><meta http-equiv="refresh" content="{{.RefreshSec}}"></noscript>
 <script>
 (() => {
@@ -1490,6 +1490,10 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 (() => {
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const pageTokenHeaders = (() => {
+    const token = $('meta[name="agentyard-page-token"]')?.content || "";
+    return () => ({ "X-Agentyard-Token": token });
+  })();
   // Every worktree the page currently offers to remove, once each (a table row
   // and its phone card share a path); rows hidden by a filter are left out.
   const safePaths = () => [...new Set($$("[data-remove]").filter(button => !button.closest("[hidden]")).map(button => button.dataset.remove))];
@@ -2588,19 +2592,21 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 
   // One refresh coordinator owns every reload and retains the user's place.
   const refresh = (() => {
-    let pending = false;
+    let pending = false, destination = "";
     const scrollKey = "agentyard." + tab + ".scroll";
     const position = storage.read("sessionStorage", scrollKey, null);
     if (position !== null) {
       requestAnimationFrame(() => window.scrollTo(0, Number(position) || 0));
       storage.write("sessionStorage", scrollKey, null);
     }
-    const interacting = () => !!document.activeElement.closest(".collection,.pr-history-controls") || document.activeElement === search || !!$("dialog[open]") || !settings.hidden || $$("details[open]").some(detail => detail.getClientRects().length) || !!window.getSelection()?.toString();
+    const interacting = () => !!document.activeElement.closest(".collection,.pr-history-controls") || document.activeElement === search || !!$("dialog[open]") || !settings.hidden || $$("details[open]:not(.summary-topic)").some(detail => detail.getClientRects().length) || !!window.getSelection()?.toString();
     function apply() {
       storage.write("sessionStorage", scrollKey, window.scrollY);
-      location.reload();
+      if (destination) location.assign(destination);
+      else location.reload();
     }
-    function ready() {
+    function ready(url = "") {
+      if (url) destination = url;
       if (!interacting()) { apply(); return; }
       $("#update-ready").hidden = false;
       if (!pending) announce("Updated results ready");
@@ -2621,26 +2627,36 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       summaryFeedback.hidden = false;
       summaryFeedback.textContent = "Summarizing the last 24 hours. Your previous summary stays readable.";
     }
+    let pollFailures = 0;
+    function summaryFailed(error) {
+      if (summarize) { summarize.disabled = false; summarize.setAttribute("aria-busy", "false"); $("span", summarize).textContent = "Summarize"; }
+      summaryFeedback.hidden = false;
+      summaryFeedback.textContent = error.message;
+    }
     async function pollSummary() {
       try {
         const response = await fetch("/api/summary/status", { cache: "no-store" });
-        if (!response.ok) throw new Error("Could not check summary status. Reload to try again.");
+        if (!response.ok) throw new Error("Could not check summary status. Try Summarize again.");
         const status = await response.json();
-        if (!status.running) { refresh.apply(); return; }
+        pollFailures = 0;
+        if (!status.running) { refresh.ready(new URLSearchParams(location.search).has("at") ? "/summary" : ""); return; }
         setTimeout(pollSummary, 1000);
-      } catch (error) { summaryFeedback.hidden = false; summaryFeedback.textContent = error.message; }
+      } catch (error) {
+        if (++pollFailures < 5) { setTimeout(pollSummary, 2000); return; }
+        summaryFailed(error);
+      }
     }
     summarize?.addEventListener("click", async () => {
+      pollFailures = 0;
       summaryBusy();
       try {
-        const response = await fetch("/api/summary", { method: "POST", headers: { "X-Agentyard-Token": $('meta[name="agentyard-remove-token"]').content } });
+        const response = await fetch("/api/summary", { method: "POST", headers: pageTokenHeaders() });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Could not start summary");
         announce("Summarizing the last 24 hours");
         setTimeout(pollSummary, 1000);
       } catch (error) {
-        summarize.disabled = false; summarize.setAttribute("aria-busy", "false"); $("span", summarize).textContent = "Summarize";
-        summaryFeedback.textContent = error.message;
+        summaryFailed(error);
       }
     });
     if (summarize?.getAttribute("aria-busy") === "true" || !summaryFeedback.hidden) setTimeout(pollSummary, 1000);
@@ -2824,7 +2840,6 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
   // one MCP uses); a dry run first, then a confirmation, then the real call.
   const removePanel = $("#remove-panel");
   if (removePanel) {
-    const token = $('meta[name="agentyard-remove-token"]')?.content || "";
     const maxPaths = Number(removePanel.dataset.max) || 50;
     const heading = $("#remove-heading"), summary = $("#remove-summary"), body = $("#remove-body");
     const confirmButton = $("#remove-confirm"), cancelButton = $("#remove-cancel");
@@ -2836,7 +2851,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       if (plans) request.plans = Object.fromEntries(paths.filter(path => plans[path]).map(path => [path, plans[path]]));
       const response = await fetch("/api/remove", {
         method: "POST", cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-Agentyard-Token": token },
+        headers: { "Content-Type": "application/json", ...pageTokenHeaders() },
         body: JSON.stringify(request)
       });
       const data = await response.json().catch(() => ({}));
