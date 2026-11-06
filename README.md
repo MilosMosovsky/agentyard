@@ -278,6 +278,33 @@ Agent icons identify Claude Code and Codex. Use the agent icons for quick filter
 > contain tokens and customer data, so other devices see a notice instead. See
 > [Privacy and security](#privacy-and-security).
 
+### Summary
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/summary-dark.png">
+  <img alt="The Summary page: a repository, its topics, and for each session where it got to, what it waits on, what comes next, its branch and PR, and Copy resume." src="docs/screenshots/summary-light.png" width="100%">
+</picture>
+
+What each session got to, so you can start the day without rereading transcripts. A summary runs
+every morning (07:00 by default, and right after your Mac wakes if it was asleep then), and
+**Summarize** runs one for the last 24 hours whenever you want it. It is off until you turn it on.
+
+Work is grouped by repository (a worktree counts as its repository), then by topic, then by session,
+with the newest work first and how long ago each session was touched. For each session:
+
+- where it got to, what it is waiting on you for or blocked on, and what comes next;
+- its branch and PR, any sub-agents with a line each, and **Copy resume**.
+
+Topics carry over from one summary to the next and say how long they have been open ("open since
+Mon, Nov 2 · 4 days"). A topic with no activity stays visible for 7 days and leaves the list after
+14. Every run is saved, including failed ones, and you can reopen any of the last 30 from the dated
+picker. A failed run keeps showing the previous good summary beneath its error.
+
+One provider writes the summaries, the one you choose: your own Claude Code or Codex CLI, with its
+login. It never switches to the other. Each run sends excerpts of your transcripts to that provider;
+see [Privacy and security](#privacy-and-security). Turn it on with
+[`agentyard install`](#run-in-the-background).
+
 ### On your phone
 
 With [LAN mode](#on-your-local-network) on, the same page works on a phone: tables become cards, and
@@ -462,9 +489,19 @@ $ agentyard uninstall    # stop it and remove the LaunchAgent
 `uninstall` asks `Remove the background agent? [y/N]`, then tells you what it left behind: the cache
 in `~/Library/Caches/agentyard` and the log.
 
+`install` asks one more thing the first time: whether to summarize your sessions each morning. The
+question names the provider it found (Claude, then Codex) and the company that would receive
+excerpts of your transcripts, Anthropic or OpenAI, through your own CLI login. The default is no.
+Later installs keep your answer, and `--yes` keeps the previous choice or leaves summaries off. To
+decide without being asked, pass `--summary off|auto|claude|codex`; `auto` picks `claude` if it is on
+your PATH, else `codex`. The agent's `PATH` includes the folders of `gh`, `git`, `claude` and `codex`,
+since launchd does not read your shell profile. Summaries, their saved runs and their notes live in
+`~/Library/Application Support/agentyard/summary`; `agentyard uninstall` leaves them, and
+`brew uninstall --zap agentyard` removes them.
+
 Removing a Homebrew install? Stop the agent first, or launchd keeps trying to start a binary that is
 gone: `agentyard uninstall && brew uninstall agentyard`. `brew uninstall --zap agentyard` also
-removes the agent, the cache and the log.
+removes the agent, the cache, the saved summaries and the log.
 
 ## Let your AI clean up
 
@@ -496,6 +533,9 @@ anything.
 | `merge_train` | Ranked open PRs, one next step, all lane counts, local validation and linked worktrees. Optional exact `repo` (`owner/name`) and `lane`; `stale_days` defaults to 14 and `limit` to 50 (maximum 500). Counts cover the repository scope before lane filtering and limiting. |
 | `get_pr` | A PR's train step and local evidence, plus its description and changed files via the agent. Requires `repo` and `number`; returns the snapshot with an unavailable-detail notice when offline. |
 | `remove_worktrees` | Removes the given worktrees if they are still reclaimable; `dry_run` reports what would go. |
+| `list_summaries` | Saved [summary](#summary) runs, newest first, failures included: time, window, scheduled or on demand, provider and counts. Reads local files; calls no model. `limit` defaults to 14. |
+| `get_summary` | The latest successful summary, or the run at an `at` timestamp from `list_summaries`, optionally for one `project`: progress, next steps, what each session waits on, resume commands and sub-agents. Calls no model. |
+| `summarize` | Starts (or joins) a summary of the last 24 hours through the background agent and waits for it. It sends transcript excerpts to your chosen provider, and only works when summaries are on. |
 | `sync_worktrees` | Asks the background agent to rescan now, refresh PRs and their local validation, and waits for it, up to a few minutes. |
 
 An MCP server keeps running the code it started with, so after `brew upgrade` the AI may be talking
@@ -503,6 +543,10 @@ to an old version. When its executable changed on disk, the `agentyard` on your 
 elsewhere, or the background agent reports another version, every tool result carries a `warning`,
 and `remove_worktrees` refuses (dry runs too): older code may lack checks the installed version has.
 Reconnect it (`/mcp` in Claude Code) or start a new session.
+
+`list_summaries` and `get_summary` read the saved runs directly, so they work without the background
+agent. `summarize` is the only summary tool that sends anything off this Mac, and the AI client sees
+a clear message instead if summaries are off.
 
 Start a PR session with `merge_train`, then use `get_pr` to read each candidate. Both tools are
 read-only. They read `/api/prs.json`, falling back to the saved `prs.json` snapshot, and report the
@@ -605,6 +649,9 @@ Flags take one dash or two (`-root` and `--root` are the same).
 | `--name NAME` | `agentyard` | with `--lan`: the `.local` name to publish |
 | `--port N` | `4777`, or `80` with `--lan` | port to listen on |
 | `--sessions-lan` | off | with `--lan`: show the Sessions tab to other devices too |
+| `--summary off\|auto\|claude\|codex` | the previous install's, else ask once (no on `--yes` or without a terminal) | who writes the daily summary; `off` runs and sends nothing |
+| `--summary-at HH:MM` | `07:00`, or the previous install's | local time of the daily summary |
+| `--summary-model MODEL` | `haiku` for Claude, `gpt-6-luna` for Codex | model passed to the provider's CLI |
 | `--yes` | | don't ask; install with these settings |
 | `--dry-run` | | show the checks, the plan and the plist; change nothing |
 
@@ -628,7 +675,10 @@ manager.
 | `-size-ttl D` | `30m` | how long a measured worktree size is reused |
 | `-claude-dir DIR` | `~/.claude` | Claude Code config folder (holds `projects/` and live `sessions/`) |
 | `-codex-dir DIR` | `~/.codex` | Codex home folder (holds `sessions/`) |
-| `-sessions-lan` | off | serve the Sessions tab to other devices too |
+| `-sessions-lan` | off | serve the Sessions and Summary tabs to other devices too |
+| `-summary` | `off` | summary provider: `off`, `auto`, `claude` or `codex` |
+| `-summary-at HH:MM` | `07:00` | local time of the daily summary |
+| `-summary-model MODEL` | `haiku` for Claude, `gpt-6-luna` for Codex | model passed to the provider's CLI |
 | `-once` | | scan once, print the worktree JSON to stdout and exit |
 
 #### `agentyard mcp`
@@ -646,11 +696,14 @@ manager.
 
 The page's data is also served as JSON: `/api.json` (worktrees), `/api/prs.json` (pull requests),
 `/api/pr-history.json` (cached 30-day opened/merged PR history),
-`/api/pr-detail?repo=OWNER/REPO&number=123` (description and changed files for a tracked PR), and
-`/api/status` (version, last scan times, whether a sync is running). PR details include up to the first
+`/api/pr-detail?repo=OWNER/REPO&number=123` (description and changed files for a tracked PR),
+`/api/status` (version, last scan times, whether a sync is running) and `/api/summary/status` (whether
+summaries are on, the provider, whether a run is going, its progress and the last error; this Mac only,
+like the Sessions tab). PR details include up to the first
 100 changed files and the total changed-file count.
 
-`POST /api/remove` is the one write. It is meant for the page, not for scripts: it needs the token
+`POST /api/remove` removes worktrees (and `POST /api/summary` starts a summary run, see
+[Privacy and security](#privacy-and-security)). `POST /api/remove` is meant for the page, not for scripts: it needs the token
 the page embeds for viewers on this Mac, and the dashboard's own `Origin`.
 
 ```
@@ -680,6 +733,19 @@ agentyard is a local tool with no login and no telemetry. It talks to GitHub thr
   branch names, PR titles and repository names. Don't use LAN mode on shared or public Wi-Fi.
 - **Sessions stay on this Mac.** Other devices see a notice and no session ids, unless you opt in with
   `--sessions-lan`.
+- **Summaries send transcript excerpts to one provider, only when you turn them on.** With
+  `--summary` off (the default) nothing runs and no model is called. With it on, each run sends clipped
+  excerpts of the Claude Code and Codex sessions active in the window (their titles, first prompts and
+  latest messages) to the provider you chose, Anthropic for `claude` or OpenAI for `codex`, through your
+  own CLI login. Transcripts can contain secrets, so decide that before you opt in. agentyard starts the
+  CLI in an empty folder with every tool, MCP server and session record switched off. Claude runs with
+  `--safe-mode --strict-mcp-config --tools "" --no-session-persistence`. Codex runs in a read-only
+  sandbox with `--ephemeral`, `--ignore-user-config`, web search disabled and every default-on tool
+  feature turned off. The prompt travels on stdin, not in the process list, and answers are checked
+  against a fixed schema before they are saved. Saved runs, notes and topics live in
+  `~/Library/Application Support/agentyard/summary` (folder `0700`, files `0600`). The Summary page
+  follows the Sessions tab's rule: this Mac only, unless `--sessions-lan`. Only this Mac can start a
+  run, and a browser must send the page's token and its own `Origin`.
 - **Sync** refuses cross-origin requests, so another web page cannot trigger scans.
 - **Removal is this Mac's alone.** The dashboard is no longer read-only: `POST /api/remove` removes
   worktrees, through the same re-checked removal as `agentyard mcp`. It answers only a client on this
