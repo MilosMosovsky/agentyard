@@ -1225,18 +1225,34 @@ func byteSize(b uint64) string {
 	return "0"
 }
 
-func ago(t time.Time) string {
+func ago(t time.Time) string { return relativeTime(t, false) }
+
+// agoWords is ago spelled out, "10 minutes ago", for prose.
+func agoWords(t time.Time) string { return relativeTime(t, true) }
+
+func relativeTime(t time.Time, words bool) string {
 	if t.IsZero() {
 		return "—"
 	}
 	d := time.Since(t)
+	unit := func(n int, short, one, many string) string {
+		if !words {
+			return fmt.Sprintf("%d%s ago", n, short)
+		}
+		if n == 1 {
+			return "1 " + one + " ago"
+		}
+		return fmt.Sprintf("%d %s ago", n, many)
+	}
 	switch {
+	case words && d < time.Minute:
+		return "just now"
 	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+		return unit(int(d.Minutes()), "m", "minute", "minutes")
 	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
+		return unit(int(d.Hours()), "h", "hour", "hours")
 	case d < 90*24*time.Hour:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+		return unit(int(d.Hours()/24), "d", "day", "days")
 	}
 	return t.Format("Jan 2006")
 }
@@ -1250,6 +1266,7 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
 	"size":                  kbSize,
 	"bytes":                 byteSize,
 	"ago":                   ago,
+	"agoWords":              agoWords,
 	"tilde":                 tilde,
 	"anchorOf":              func(r *Repo) string { return anchor(r.Path) },
 	"base":                  filepath.Base,

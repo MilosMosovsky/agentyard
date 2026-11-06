@@ -770,7 +770,7 @@ func summaryRouteFixture(t *testing.T) (*summarizer, http.Handler, *summarySnaps
 	at := time.Date(2026, 11, 6, 7, 0, 0, 0, time.UTC)
 	wait := "Approve the migration"
 	snap := &summarySnapshot{At: at, Provider: "claude", Window: summaryWindow{Start: at.Add(-24 * time.Hour), End: at}, Projects: []*summarySnapshotProject{{Project: "private/repository", Topics: []*summarySnapshotTopic{
-		{summaryTopic: summaryTopic{Name: "Migration", Status: "Ready for review", FirstSeen: at.Add(-72 * time.Hour)}, CarriedOver: true, OpenDays: 3, IdleDays: 2, Sessions: []*summarySnapshotSession{{Tool: "codex", ID: "saved-session-id", Title: "Private migration title", Cwd: "/saved/worktree", Branch: "feature/migrate", PRURL: "https://github.com/private/repository/pull/9", PRNumber: 9, ResumeCmd: "saved exact resume command", Note: &summarySnapshotNote{State: "waiting_on_you", Progress: "<script>unsafe()</script>", Next: "Ship after approval", WaitsOn: &wait}, Subagents: []*summarySnapshotSession{{Tool: "claude", Title: "Reviewer", Progress: "Checked the migration"}}}}},
+		{summaryTopic: summaryTopic{Name: "Migration", Status: "Ready for review", FirstSeen: at.Add(-72 * time.Hour), LastActive: time.Now().Add(-49 * time.Hour)}, CarriedOver: true, OpenDays: 3, IdleDays: 2, Sessions: []*summarySnapshotSession{{Tool: "codex", ID: "saved-session-id", Title: "Private migration title", Cwd: "/saved/worktree", Branch: "feature/migrate", PRURL: "https://github.com/private/repository/pull/9", PRNumber: 9, ResumeCmd: "saved exact resume command", Note: &summarySnapshotNote{State: "waiting_on_you", Progress: "<script>unsafe()</script>", Next: "Ship after approval", WaitsOn: &wait}, Subagents: []*summarySnapshotSession{{Tool: "claude", Title: "Reviewer", Progress: "Checked the migration"}}}}},
 		{summaryTopic: summaryTopic{Name: "Hidden private topic"}, Hidden: true},
 	}, Unsorted: []*summarySnapshotSession{{Tool: "claude", Title: "Unreadable note title", NotSummarized: true, ResumeCmd: "original resume"}}}}}
 	s := &summarizer{enabled: true, provider: "claude", stateDir: t.TempDir(), now: func() time.Time { return at.Add(time.Hour) }}
@@ -797,7 +797,7 @@ func TestSummaryPageAndHistory(t *testing.T) {
 	}
 	s.runStatus = summaryRunStatus{Started: failed.At, LastError: failed.Error}
 	body := get(t, h, "GET", "/summary", local).Body.String()
-	for _, want := range []string{"Private migration title", "<template data-summary-detail>", "Ready for review", "Waiting on you", "Approve the migration", "Ship after approval", "Where it got to", "open since", "last active 2 days ago", "saved exact resume command", "feature/migrate", "PR #9", "Checked the migration", "Unsorted sessions", "Not summarized", "Unreadable note title", "Not logged in", " · Failed", "&lt;script&gt;unsafe()&lt;/script&gt;"} {
+	for _, want := range []string{"Private migration title", "<template data-summary-detail>", "Ready for review", "Waiting on you", "Approve the migration", "Ship after approval", "Where it got to", "open since", "last active <time", ">2 days ago</time>", "saved exact resume command", "feature/migrate", "PR #9", "Checked the migration", "Unsorted sessions", "Not summarized", "Unreadable note title", "Not logged in", " · Failed", "&lt;script&gt;unsafe()&lt;/script&gt;"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("summary missing %q", want)
 		}

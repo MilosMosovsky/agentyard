@@ -365,8 +365,8 @@ func TestSummaryCorpusLeavesOutScratchRuns(t *testing.T) {
 		return map[string]any{"type": "user", "cwd": cwd, "message": map[string]any{"content": "Work here"}}
 	}
 	summaryWrite(t, filepath.Join(claude, "peer.jsonl"), at, turn(filepath.Join(scratch, "xmodel-doc-peer-1")))
-	summaryWrite(t, filepath.Join(claude, "orca.jsonl"), at, turn(filepath.Join(home, "orca", "workspaces", "gto-brain", "portal-recovery")))
-	summaryWrite(t, filepath.Join(claude, "workspace.jsonl"), at, turn("/nowhere/gto-wizard-com"))
+	summaryWrite(t, filepath.Join(claude, "orca.jsonl"), at, turn(filepath.Join(home, "orca", "workspaces", "acme-portal", "login-fix")))
+	summaryWrite(t, filepath.Join(claude, "workspace.jsonl"), at, turn("/nowhere/acme"))
 	// A sub-agent working in a scratch folder still belongs to its parent's project.
 	summaryWrite(t, filepath.Join(claude, "workspace", "subagents", "agent-scratch.jsonl"), at,
 		map[string]any{"type": "user", "cwd": filepath.Join(scratch, "probe"), "isSidechain": true, "message": map[string]any{"content": "Probe"}})
@@ -380,7 +380,7 @@ func TestSummaryCorpusLeavesOutScratchRuns(t *testing.T) {
 			projects[child.Session.ID] = child.Project
 		}
 	}
-	want := map[string]string{"orca": "gto-brain", "workspace": "gto-wizard-com", "agent-scratch": "gto-wizard-com"}
+	want := map[string]string{"orca": "acme-portal", "workspace": "acme", "agent-scratch": "acme"}
 	if left != 2 || !reflect.DeepEqual(projects, want) {
 		t.Fatalf("left out %d, projects %v, want 2 and %v", left, projects, want)
 	}
