@@ -178,10 +178,9 @@ func summaryFingerprint(e *summarySession) string {
 	// Use the corpus snapshot so a note and its key describe the same read.
 	stamp := struct {
 		Path     string
-		Size     int64
-		Modified time.Time
+		Active   time.Time
 		Children []string
-	}{e.Session.Path, e.Session.Size, e.Session.Modified.UTC(), children}
+	}{e.Session.Path, e.Session.LastActive().UTC(), children}
 	b, _ := json.Marshal(stamp)
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }

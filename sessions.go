@@ -58,7 +58,8 @@ type Session struct {
 	PRURL       string    `json:"prURL,omitempty"`
 	PRNumber    int       `json:"prNumber,omitempty"`
 	Started     time.Time `json:"started"`
-	Modified    time.Time `json:"modified"`
+	Modified    time.Time `json:"modified"`         // the file's mtime, which bookkeeping lines also move
+	Active      time.Time `json:"active,omitempty"` // the newest message or tool call; read it through LastActive
 	Size        int64     `json:"size"`
 	Hidden      bool      `json:"hidden,omitempty"` // Codex sub-agent and reviewer rollouts
 	FolderGone  bool      `json:"-"`                // its folder was deleted, so resume can't cd there
@@ -66,6 +67,16 @@ type Session struct {
 }
 
 // Label is the title shown in the list, falling back to what was asked.
+// LastActive is when the conversation last moved. Claude Code appends
+// bookkeeping lines (titles, costs, bridge state) to idle transcripts, so the
+// file's mtime can be days newer than the last message.
+func (s *Session) LastActive() time.Time {
+	if s.Active.IsZero() {
+		return s.Modified
+	}
+	return s.Active
+}
+
 func (s *Session) Label() string {
 	for _, t := range []string{s.Title, s.LastPrompt, s.FirstPrompt} {
 		if t != "" {
@@ -93,10 +104,15 @@ type sessionIndex struct {
 	list   atomic.Pointer[[]*Session] // visible sessions, newest first
 }
 
+// sessionCacheFile changes whenever parsing learns a new field, so sessions
+// cached by an older version are read again. v2 added Active.
+const sessionCacheFile = "sessions-v2.json"
+
 func newSessionIndex() *sessionIndex {
 	x := &sessionIndex{byPath: map[string]*Session{}}
+	os.Remove(cachePath("sessions.json")) // written before v2
 	var cached []*Session
-	if loadCache("sessions.json", &cached) {
+	if loadCache(sessionCacheFile, &cached) {
 		for _, s := range cached {
 			x.byPath[s.Path] = s
 		}
@@ -134,7 +150,7 @@ func (x *sessionIndex) publish() {
 
 // show publishes list as the visible sessions, newest activity first.
 func (x *sessionIndex) show(list []*Session) {
-	sort.Slice(list, func(a, b int) bool { return list[a].Modified.After(list[b].Modified) })
+	sort.Slice(list, func(a, b int) bool { return list[a].LastActive().After(list[b].LastActive()) })
 	x.list.Store(&list)
 }
 
@@ -204,7 +220,7 @@ func (x *sessionIndex) refresh(maxAge time.Duration) {
 		for _, s := range x.byPath {
 			all = append(all, s)
 		}
-		saveCache("sessions.json", all)
+		saveCache(sessionCacheFile, all)
 		log.Printf("sessions: %d parsed, %d removed, %d listed, took %s", parsed, removed, len(*x.list.Load()), time.Since(start).Round(time.Millisecond))
 	}
 }
@@ -400,6 +416,9 @@ func parseClaudeWithOptions(path string, fi os.FileInfo, opts transcriptOptions)
 		if s.Started.IsZero() && !l.Timestamp.IsZero() {
 			s.Started = l.Timestamp
 		}
+		if (l.Type == "user" || l.Type == "assistant") && l.Timestamp.After(s.Active) {
+			s.Active = l.Timestamp
+		}
 		switch l.Type {
 		case "custom-title": // set by the person; beats the generated one
 			s.Title, customTitled = oneLine(l.CustomTitle, maxPromptLen), true
@@ -569,10 +588,18 @@ func parseCodexWithOptions(path string, fi os.FileInfo, opts transcriptOptions) 
 		s.Hidden = true // no usable id, so no resume command
 		return s
 	}
+	moved := func(l *codexLine) {
+		if role, text, tools := codexContent(l); (role != "" && text != "") || tools > 0 {
+			if l.Timestamp.After(s.Active) {
+				s.Active = l.Timestamp
+			}
+		}
+	}
 	eachLine(readHead(path, headWindow), func(b []byte) {
 		var l codexLine
-		if s.FirstPrompt == "" && json.Unmarshal(b, &l) == nil {
-			if role, text, _ := codexContent(&l); role == "user" && text != "" {
+		if json.Unmarshal(b, &l) == nil {
+			moved(&l)
+			if role, text, _ := codexContent(&l); s.FirstPrompt == "" && role == "user" && text != "" {
 				s.FirstPrompt = oneLine(text, maxPromptLen)
 			}
 		}
@@ -580,6 +607,7 @@ func parseCodexWithOptions(path string, fi os.FileInfo, opts transcriptOptions) 
 	eachLine(readTail(path, tailWindow), func(b []byte) {
 		var l codexLine
 		if json.Unmarshal(b, &l) == nil {
+			moved(&l)
 			if role, text, _ := codexContent(&l); role == "user" && text != "" {
 				s.LastPrompt = oneLine(text, maxPromptLen)
 			}

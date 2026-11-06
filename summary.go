@@ -466,7 +466,7 @@ func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapsh
 	if note != nil {
 		view.Note = &summarySnapshotNote{State: note.State, Progress: note.Progress, Next: note.Next, WaitsOn: note.WaitsOn}
 	}
-	view.Touched = session.Modified
+	view.Touched = session.LastActive()
 	for _, child := range entry.Subagents {
 		agent := snapshotSummarySession(child, nil, wt, prs)
 		view.Subagents = append(view.Subagents, agent)

@@ -39,7 +39,9 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) ([]*s
 	var all []*summarySession
 	byID := map[string]*summarySession{}
 	titles := codexTitles()
-	inWindow := func(t time.Time) bool { return summaryInWindow(t, start, end) }
+	// A file written before start cannot hold activity in the window. One
+	// written after end can: bookkeeping lines move mtime, not activity.
+	touchedSince := func(fi os.FileInfo) bool { return !fi.ModTime().Before(start) }
 	visit := func(path, tool, parent string, sidechain bool, fi os.FileInfo) {
 		opts := transcriptOptions{keepSidechain: sidechain, keepAutomated: true}
 		var s *Session
@@ -81,7 +83,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) ([]*s
 		parent := filepath.Base(filepath.Dir(dir))
 		filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err == nil && !d.IsDir() && strings.HasSuffix(d.Name(), ".jsonl") {
-				if fi := stat(path); fi != nil && inWindow(fi.ModTime()) {
+				if fi := stat(path); fi != nil && touchedSince(fi) {
 					activeParents[parent] = true
 					visit(path, "claude", parent, true, fi)
 				}
@@ -92,7 +94,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) ([]*s
 	files, _ := filepath.Glob(filepath.Join(*flagClaudeDir, "projects", "*", "*.jsonl"))
 	for _, path := range files {
 		id := strings.TrimSuffix(filepath.Base(path), ".jsonl")
-		if fi := stat(path); fi != nil && (inWindow(fi.ModTime()) || activeParents[id]) {
+		if fi := stat(path); fi != nil && (touchedSince(fi) || activeParents[id]) {
 			visit(path, "claude", "", strings.HasPrefix(filepath.Base(path), "agent-"), fi)
 		}
 	}
@@ -101,7 +103,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) ([]*s
 	filepath.WalkDir(filepath.Join(*flagCodexDir, "sessions"), func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "rollout-") && strings.HasSuffix(d.Name(), ".jsonl") {
 			rollouts = append(rollouts, path)
-			if fi := stat(path); fi != nil && inWindow(fi.ModTime()) {
+			if fi := stat(path); fi != nil && touchedSince(fi) {
 				visit(path, "codex", "", false, fi)
 			}
 		}
@@ -151,7 +153,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) ([]*s
 func summaryInWindow(t, start, end time.Time) bool { return !t.Before(start) && t.Before(end) }
 
 func summaryActive(e *summarySession, start, end time.Time) bool {
-	if summaryInWindow(e.Session.Modified, start, end) {
+	if summaryInWindow(e.Session.LastActive(), start, end) {
 		return true
 	}
 	for _, child := range e.Subagents {

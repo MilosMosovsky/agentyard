@@ -6,6 +6,14 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Sessions are dated by their last message, not by their transcript file. Claude Code keeps writing
+  bookkeeping lines (titles, costs, its bridge state) to idle transcripts, so a session untouched for
+  days could look active now: it showed up in the last 24 hours of a summary and near the top of
+  Sessions with a wrong "Last active". Summaries no longer re-summarize a session when only those
+  lines change. Sessions are read again once after upgrading.
+
 ## [0.12.0] - 2026-11-06
 
 ### Changed
