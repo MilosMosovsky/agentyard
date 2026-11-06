@@ -125,13 +125,23 @@ func TestMCPProtocol(t *testing.T) {
 			if a["destructiveHint"] != true || a["idempotentHint"] != true || a["readOnlyHint"] != false {
 				t.Errorf("remove annotations: %v", a)
 			}
+		} else if name == "summarize" {
+			if a["readOnlyHint"] != false || a["destructiveHint"] != false || a["openWorldHint"] != true ||
+				!strings.Contains(tool["description"].(string), "transcript excerpts") {
+				t.Errorf("summarize annotations or disclosure: %v", tool)
+			}
 		} else if name != "sync_worktrees" && (a["readOnlyHint"] != true || a["openWorldHint"] != false) {
 			t.Errorf("%s: reader annotations: %v", name, a)
 		}
 	}
-	for _, want := range []string{"worktree_summary", "list_worktrees", "get_worktree", "remove_worktrees", "sync_worktrees", "merge_train", "get_pr"} {
+	for _, want := range []string{"worktree_summary", "list_worktrees", "get_worktree", "remove_worktrees", "sync_worktrees", "merge_train", "get_pr", "list_summaries", "get_summary", "summarize"} {
 		if !names[want] {
 			t.Errorf("tools/list lacks %s", want)
+		}
+	}
+	for _, name := range []string{"list_summaries", "get_summary", "summarize"} {
+		if !strings.Contains(init["instructions"].(string), name) {
+			t.Errorf("instructions lack %s", name)
 		}
 	}
 	// Errors echo the request's id; nil where there was none to read, or it was not a string or number.
@@ -834,5 +844,267 @@ func TestMCPPathAliasRetargeted(t *testing.T) {
 	os.Symlink(v2, link)
 	if m.stale() == "" {
 		t.Fatal("a retargeted PATH alias went unnoticed")
+	}
+}
+
+// ---------------------------------------------------------------- summaries
+
+func mcpSummaryServer(t *testing.T, src mcpSource) *mcpServer {
+	t.Helper()
+	m := newMCPServer(src)
+	m.summaryDir = t.TempDir()
+	return m
+}
+
+func saveMCPSummary(t *testing.T, dir string, snap *summarySnapshot) {
+	t.Helper()
+	s := &summarizer{stateDir: dir}
+	if err := saveSummaryState(dir, s.historyName(snap.At), snap); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mcpSummaryFixture(at time.Time) *summarySnapshot {
+	waits := "approve the PR"
+	return &summarySnapshot{
+		At: at, Window: summaryWindow{Start: at.Add(-24 * time.Hour), End: at},
+		Scheduled: true, Provider: "claude",
+		Projects: []*summarySnapshotProject{
+			{Project: "api", Topics: []*summarySnapshotTopic{
+				{summaryTopic: summaryTopic{ID: "auth", Name: "Authentication", Status: "Ready for review"},
+					Sessions: []*summarySnapshotSession{{
+						Tool: "codex", ID: "parent", Title: "Finish login", Branch: "login",
+						PRURL: "https://github.com/acme/api/pull/1", ResumeCmd: "codex resume parent",
+						Note:      &summarySnapshotNote{State: "waiting_on_you", Progress: "Login implemented", Next: "Merge", WaitsOn: &waits},
+						Subagents: []*summarySnapshotSession{{Tool: "codex", ID: "child", Title: "Tests", Progress: "Tests pass"}},
+					}}},
+				{summaryTopic: summaryTopic{ID: "old", Name: "Hidden old work"}, Hidden: true,
+					Sessions: []*summarySnapshotSession{{Tool: "claude", ID: "hidden", Title: "Hidden session"}}},
+			}, Unsorted: []*summarySnapshotSession{{Tool: "claude", ID: "unsorted", Title: "Unclassified work", NotSummarized: true}}},
+			{Project: "api-tools", Topics: []*summarySnapshotTopic{}, Unsorted: []*summarySnapshotSession{}},
+		},
+	}
+}
+
+func TestMCPSummaryHistory(t *testing.T) {
+	m := mcpSummaryServer(t, mcpSource{})
+	at := time.Date(2026, 11, 6, 7, 0, 0, 123, time.UTC)
+	snap := mcpSummaryFixture(at)
+	saveMCPSummary(t, m.summaryDir, snap)
+	failedAt := at.Add(time.Hour)
+	saveMCPSummary(t, m.summaryDir, &summarySnapshot{At: failedAt, Window: summaryWindow{Start: at, End: failedAt}, Provider: "codex", Error: "not logged in"})
+
+	out, text, failed := callTool(t, m, "list_summaries", nil)
+	if failed {
+		t.Fatal(text)
+	}
+	runs := out["runs"].([]any)
+	if len(runs) != 2 || out["returned"] != 2.0 || out["truncated"] != false {
+		t.Fatalf("history: %v", out)
+	}
+	first, second := runs[0].(map[string]any), runs[1].(map[string]any)
+	if first["at"] != failedAt.Format(time.RFC3339Nano) || first["scheduled"] != false || first["provider"] != "codex" || first["error"] != "not logged in" {
+		t.Fatalf("failed run missing or not newest: %v", first)
+	}
+	if second["at"] != at.Format(time.RFC3339Nano) || second["scheduled"] != true || second["provider"] != "claude" ||
+		second["window"].(map[string]any)["start"] != snap.Window.Start.Format(time.RFC3339Nano) ||
+		second["window"].(map[string]any)["end"] != at.Format(time.RFC3339Nano) ||
+		second["projects"] != 2.0 || second["topics"] != 2.0 || second["sessions"] != 3.0 || second["notSummarized"] != 1.0 {
+		t.Fatalf("saved run metadata/counts: %v", second)
+	}
+	out, _, failed = callTool(t, m, "list_summaries", map[string]any{"limit": 1})
+	if failed || out["returned"] != 1.0 || out["truncated"] != true || len(out["runs"].([]any)) != 1 {
+		t.Fatalf("limit: %v", out)
+	}
+	out, text, failed = callTool(t, m, "get_summary", nil)
+	if failed || out["at"] != at.Format(time.RFC3339Nano) || out["hiddenTopics"] != 1.0 ||
+		strings.Contains(text, "Hidden old work") || strings.Contains(text, "Hidden session") {
+		t.Fatalf("latest successful, hidden topics: %v %s", failed, text)
+	}
+	projects := out["projects"].([]any)
+	if len(projects) != 2 {
+		t.Fatalf("projects: %v", projects)
+	}
+	project := projects[0].(map[string]any)
+	topics := project["topics"].([]any)
+	if len(topics) != 1 {
+		t.Fatalf("topics: %v", topics)
+	}
+	session := topics[0].(map[string]any)["sessions"].([]any)[0].(map[string]any)
+	note := session["note"].(map[string]any)
+	if session["tool"] != "codex" || session["title"] != "Finish login" || session["branch"] != "login" ||
+		session["prURL"] != snap.Projects[0].Topics[0].Sessions[0].PRURL || session["resumeCmd"] != "codex resume parent" ||
+		note["state"] != "waiting_on_you" || note["progress"] != "Login implemented" || note["next"] != "Merge" || note["waitsOn"] != "approve the PR" ||
+		session["subagents"].([]any)[0].(map[string]any)["progress"] != "Tests pass" {
+		t.Fatalf("session details: %v", session)
+	}
+	if project["unsorted"].([]any)[0].(map[string]any)["notSummarized"] != true {
+		t.Fatalf("unsorted sessions: %v", project)
+	}
+	out, _, failed = callTool(t, m, "get_summary", map[string]any{"at": second["at"], "project": "api"})
+	if failed || len(out["projects"].([]any)) != 1 || out["projects"].([]any)[0].(map[string]any)["project"] != "api" {
+		t.Fatalf("timestamp and exact project filter: %v", out)
+	}
+	out, _, failed = callTool(t, m, "get_summary", map[string]any{"project": "API"})
+	if failed || len(out["projects"].([]any)) != 0 {
+		t.Fatalf("project filter must be exact: %v", out)
+	}
+	out, _, failed = callTool(t, m, "get_summary", map[string]any{"at": first["at"]})
+	if failed || out["error"] != "not logged in" || out["at"] != first["at"] {
+		t.Fatalf("failed run by timestamp: %v", out)
+	}
+	for i := 1; i <= 14; i++ {
+		saveMCPSummary(t, m.summaryDir, mcpSummaryFixture(at.Add(-time.Duration(i)*time.Hour)))
+	}
+	out, _, failed = callTool(t, m, "list_summaries", nil)
+	if failed || out["returned"] != 14.0 || out["truncated"] != true {
+		t.Fatalf("default limit: %v", out)
+	}
+	for name, args := range map[string]any{
+		"list_summaries": map[string]any{"limit": 0},
+		"get_summary":    map[string]any{"at": "yesterday"},
+	} {
+		if _, _, failed := callTool(t, m, name, args); !failed {
+			t.Errorf("accepted %s %v", name, args)
+		}
+	}
+}
+
+func TestMCPSummaryEmptyAndOff(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "off", true: "never run"}[enabled], func(t *testing.T) {
+			srv := testAgentServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					t.Fatal("reading a summary started a run")
+				}
+				json.NewEncoder(w).Encode(map[string]any{"enabled": enabled})
+			}))
+			m := mcpSummaryServer(t, agentSource(strings.TrimPrefix(srv.URL, "http://")))
+			_, text, failed := callTool(t, m, "get_summary", nil)
+			want := "off"
+			if enabled {
+				want = "never run"
+			}
+			if !failed || !strings.Contains(text, want) || !strings.Contains(text, "agentyard install") || !strings.Contains(text, "yes to morning summaries") {
+				t.Fatalf("empty/off explanation: %v %s", failed, text)
+			}
+			if !enabled {
+				saveMCPSummary(t, m.summaryDir, mcpSummaryFixture(time.Now()))
+				out, text, failed := callTool(t, m, "get_summary", nil)
+				if failed || out["projects"] == nil || !strings.Contains(text, "summaries are off") {
+					t.Fatalf("saved summary while off: %v %s", failed, text)
+				}
+			}
+		})
+	}
+}
+
+func TestMCPSummarize(t *testing.T) {
+	defer func(d time.Duration) { syncPoll = d }(syncPoll)
+	syncPoll = time.Millisecond
+	for _, state := range []string{"started", "running"} {
+		t.Run(state, func(t *testing.T) {
+			dir := t.TempDir()
+			oldAt := time.Date(2026, 11, 5, 7, 0, 0, 0, time.UTC)
+			at := oldAt.Add(24 * time.Hour)
+			saveMCPSummary(t, dir, mcpSummaryFixture(oldAt))
+			posts, polls := 0, 0
+			srv := testAgentServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method + " " + r.URL.Path {
+				case "POST /api/summary":
+					posts++
+					if r.Header.Get("Origin") != "" {
+						t.Error("MCP sent an Origin")
+					}
+					json.NewEncoder(w).Encode(map[string]any{"state": state})
+				case "GET /api/summary/status":
+					polls++
+					if polls == 2 {
+						snap := mcpSummaryFixture(at)
+						snap.Scheduled = false
+						saveMCPSummary(t, dir, snap)
+					}
+					json.NewEncoder(w).Encode(map[string]any{"enabled": true, "running": polls < 2, "started": at, "latest": at})
+				default:
+					json.NewEncoder(w).Encode(map[string]any{})
+				}
+			}))
+			listen := strings.TrimPrefix(srv.URL, "http://")
+			src := agentSource(listen)
+			src.summarize = func() (time.Time, string, error) { return agentSummarize(listen, time.Second) }
+			m := mcpSummaryServer(t, src)
+			m.summaryDir = dir
+			out, text, failed := callTool(t, m, "summarize", nil)
+			if failed || posts != 1 || polls != 2 || out["at"] != at.Format(time.RFC3339Nano) ||
+				out["hiddenTopics"] != 1.0 || out["scheduled"] != false || len(out["projects"].([]any)) != 2 {
+				t.Fatalf("completed/joined run: posts=%d polls=%d failed=%v %s", posts, polls, failed, text)
+			}
+			get, _, failed := callTool(t, m, "get_summary", map[string]any{"at": out["at"]})
+			if failed || get["at"] != out["at"] || get["hiddenTopics"] != out["hiddenTopics"] {
+				t.Fatalf("summarize/get shapes differ: %v %v", out, get)
+			}
+		})
+	}
+}
+
+func TestMCPSummarizeOffAndOffline(t *testing.T) {
+	for _, code := range []int{http.StatusOK, http.StatusConflict} {
+		t.Run(http.StatusText(code), func(t *testing.T) {
+			srv := testAgentServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/summary" {
+					w.WriteHeader(code)
+					json.NewEncoder(w).Encode(map[string]any{"state": "off", "error": "summaries are off; run agentyard install to turn them on"})
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]any{})
+			}))
+			m := mcpSummaryServer(t, agentSource(strings.TrimPrefix(srv.URL, "http://")))
+			_, text, failed := callTool(t, m, "summarize", nil)
+			if !failed || !strings.Contains(text, "summaries are off") || !strings.Contains(text, "agentyard install") {
+				t.Fatalf("off refusal: %v %s", failed, text)
+			}
+			srv.Close()
+			_, text, failed = callTool(t, m, "summarize", nil)
+			if !failed || !strings.Contains(text, "background agent is not answering") {
+				t.Fatalf("offline: %v %s", failed, text)
+			}
+		})
+	}
+}
+
+func TestMCPSummarizeDeadline(t *testing.T) {
+	defer func(d time.Duration) { syncPoll = d }(syncPoll)
+	syncPoll = time.Millisecond
+	polls := 0
+	srv := testAgentServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/summary":
+			json.NewEncoder(w).Encode(map[string]any{"state": "started"})
+		case "/api/summary/status":
+			polls++
+			json.NewEncoder(w).Encode(map[string]any{"enabled": true, "running": true, "started": time.Now()})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{})
+		}
+	}))
+	listen := strings.TrimPrefix(srv.URL, "http://")
+	src := agentSource(listen)
+	src.summarize = func() (time.Time, string, error) { return agentSummarize(listen, 15*time.Millisecond) }
+	m := mcpSummaryServer(t, src)
+	saveMCPSummary(t, m.summaryDir, mcpSummaryFixture(time.Now().Add(-24*time.Hour)))
+	out, text, failed := callTool(t, m, "summarize", nil)
+	if failed || polls == 0 || out["at"] != nil || !strings.Contains(text, "still running") || !strings.Contains(text, "get_summary") {
+		t.Fatalf("deadline: polls=%d failed=%v %s", polls, failed, text)
+	}
+}
+
+func TestMCPSummaryDemo(t *testing.T) {
+	m := mcpSummaryServer(t, demoSource())
+	saveMCPSummary(t, m.summaryDir, mcpSummaryFixture(time.Now()))
+	for _, name := range []string{"list_summaries", "get_summary", "summarize"} {
+		_, text, failed := callTool(t, m, name, nil)
+		if !failed || !strings.Contains(text, "demo data") || strings.Contains(text, "Finish login") {
+			t.Errorf("demo must not read saved summaries or start a run: %s: %v %s", name, failed, text)
+		}
 	}
 }

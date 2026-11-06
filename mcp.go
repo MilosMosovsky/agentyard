@@ -1,9 +1,8 @@
 package main
 
 // "agentyard mcp": a Model Context Protocol server on stdin/stdout, so an AI
-// assistant can ask which worktrees can go and then remove them. It reads the
-// background agent's snapshot. The one write it can make is removing a
-// worktree that a fresh scan, taken at that moment, still judges reclaimable.
+// assistant can inspect worktrees, PRs and saved session summaries, start a
+// summary run, and remove worktrees a fresh scan still judges reclaimable.
 
 import (
 	"bufio"
@@ -79,6 +78,8 @@ func mcpInstructions() string {
 		"or one whose submodules it has just re-checked to hold nothing their remote lacks (their checkouts go with it), " +
 		"and keeps a copy of such a worktree (and of a detached HEAD's own commits) under the ref in each result's backup.\n" +
 		"Data is the background agent's last scan: check snapshot.age, and call sync_worktrees when it is old; it also refreshes PRs.\n" +
+		"Session summaries: list_summaries lists saved runs; get_summary reads the latest successful run or one at a listed timestamp, optionally by project. " +
+		"summarize starts or joins a last-24-hours run through the background agent and sends transcript excerpts to the user's chosen provider.\n" +
 		"Merge train: call merge_train for the ranked open PRs, then get_pr to read a PR's description and changed files. " +
 		"agentyard itself never changes anything on GitHub; you perform GitHub actions with gh. " +
 		"For merge, use gh pr merge respecting branch protection, never --admin. " +
@@ -99,21 +100,24 @@ func span(d time.Duration) string {
 // mcpSource is where the server's data comes from and where it reports back.
 // Tests swap it so they never reach a running agent.
 type mcpSource struct {
-	snapshot func() (snap *Snapshot, from string, err error)
-	prs      func() (snap *PRSnapshot, from string, err error)
-	prDetail func(*TrackedPR) (PRDetail, error)
-	sync     func() (string, error) // rescan now and wait for it
-	poke     func() string          // after a removal: start a rescan, don't wait
-	agent    func() string          // the running agent's version, "" when unknown
-	demo     bool                   // synthetic data: nothing may be removed
+	snapshot      func() (snap *Snapshot, from string, err error)
+	prs           func() (snap *PRSnapshot, from string, err error)
+	prDetail      func(*TrackedPR) (PRDetail, error)
+	summaryStatus func() (mcpSummaryStatus, error)
+	summarize     func() (time.Time, string, error)
+	sync          func() (string, error) // rescan now and wait for it
+	poke          func() string          // after a removal: start a rescan, don't wait
+	agent         func() string          // the running agent's version, "" when unknown
+	demo          bool                   // synthetic data: nothing may be removed
 }
 
 type mcpServer struct {
-	src     mcpSource
-	tools   []mcpTool
-	gone    removedPaths // paths this process removed, hidden from snapshots begun before
-	binary  mcpBinary
-	version func() string
+	src        mcpSource
+	tools      []mcpTool
+	gone       removedPaths // paths this process removed, hidden from snapshots begun before
+	binary     mcpBinary
+	version    func() string
+	summaryDir string // empty selects summaryStateDir; tests use a private fixture folder
 }
 
 func newMCPServer(src mcpSource) *mcpServer {
@@ -228,7 +232,9 @@ func agentSource(listen string) mcpSource {
 			err := agentJSON(http.MethodGet, listen, "/api/pr-detail?"+params.Encode(), 30*time.Second, 8<<20, &detail)
 			return detail, err
 		},
-		sync: func() (string, error) { return agentSync(listen, mcpSyncWait) },
+		sync:          func() (string, error) { return agentSync(listen, mcpSyncWait) },
+		summaryStatus: func() (mcpSummaryStatus, error) { return agentSummaryStatus(listen, 5*time.Second) },
+		summarize:     func() (time.Time, string, error) { return agentSummarize(listen, mcpSyncWait) },
 		agent: func() string {
 			if st, err := fetchStatus(listen); err == nil && !st.Demo {
 				return st.Version
@@ -571,6 +577,30 @@ func (m *mcpServer) toolList() []mcpTool {
 	}
 	gone := strings.Join(reclaimableVerdicts(), " and ")
 	return []mcpTool{
+		{
+			Name: "list_summaries", Title: "List session summaries",
+			Description: "Saved summary runs, newest first, including failures: time, activity window, scheduled or on demand, provider, error, and project, topic, top-level session and not-summarized counts. Reads local history without model calls.",
+			InputSchema: schema(map[string]any{
+				"limit": map[string]any{"type": "integer", "minimum": 1, "default": 14},
+			}),
+			Annotations: reader, run: m.listSummariesTool,
+		},
+		{
+			Name: "get_summary", Title: "Get a session summary",
+			Description: "The latest successful saved summary, or a run at a listed timestamp, grouped by project, topic and session with progress, next steps, waits, resume commands and sub-agents. Hidden topics are counted and omitted. Reads local history without model calls.",
+			InputSchema: schema(map[string]any{
+				"at":      map[string]any{"type": "string", "description": "RFC3339 timestamp from list_summaries (optional)"},
+				"project": map[string]any{"type": "string", "description": "exact project name (optional)"},
+			}),
+			Annotations: reader, run: m.getSummaryTool,
+		},
+		{
+			Name: "summarize", Title: "Summarize sessions now",
+			Description: "Starts or joins an on-demand summary of the last 24 hours through the background agent, sending transcript excerpts to the user's chosen provider. Waits up to " + span(mcpSyncWait) + " and returns the saved summary; if still running, call get_summary later.",
+			InputSchema: schema(map[string]any{}),
+			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "openWorldHint": true},
+			run:         m.summarizeTool,
+		},
 		{
 			Name: "merge_train", Title: "Merge train",
 			Description: "Ranked open PRs with one next step, local merge evidence and worktree paths. Lane counts include every lane within the repository scope, before lane filtering or limiting. Read-only toward GitHub.",
@@ -1112,6 +1142,248 @@ func (m *mcpServer) prTool(raw json.RawMessage) *toolResult {
 		return toolOK(out)
 	}
 	return toolFail("%s#%d is not in the open PR snapshot (%s, %s)", a.Repo, a.Number, meta.Source, meta.Age)
+}
+
+// ---------------------------------------------------------------- mcp session summaries
+
+const mcpSummaryOff = "summaries are off; run agentyard install and answer yes to morning summaries to turn them on"
+
+type mcpSummaryStatus struct {
+	Enabled   bool      `json:"enabled"`
+	Running   bool      `json:"running"`
+	Started   time.Time `json:"started"`
+	LastError string    `json:"lastError"`
+}
+
+func agentSummaryStatus(listen string, timeout time.Duration) (mcpSummaryStatus, error) {
+	var st mcpSummaryStatus
+	err := agentJSON(http.MethodGet, listen, "/api/summary/status", timeout, 1<<16, &st)
+	return st, err
+}
+
+func agentSummarize(listen string, wait time.Duration) (time.Time, string, error) {
+	deadline := time.Now().Add(wait)
+	var reply struct {
+		State string `json:"state"`
+	}
+	err := agentJSON(http.MethodPost, listen, "/api/summary", min(5*time.Second, time.Until(deadline)), 1<<12, &reply)
+	// agentJSON does not decode non-200 bodies; this endpoint uses 409 only for off.
+	if reply.State == "off" || (err != nil && err.Error() == "409 Conflict") {
+		return time.Time{}, "", errors.New(mcpSummaryOff)
+	}
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("the background agent is not answering on %s (%v); run agentyard install or agentyard serve", listen, err)
+	}
+	if reply.State != "started" && reply.State != "running" {
+		return time.Time{}, "", fmt.Errorf("the background agent did not start a summary (state %q)", reply.State)
+	}
+	for remaining := time.Until(deadline); remaining > 0; remaining = time.Until(deadline) {
+		st, err := agentSummaryStatus(listen, min(5*time.Second, remaining))
+		if err != nil {
+			if !time.Now().Before(deadline) {
+				break
+			}
+			return time.Time{}, "", fmt.Errorf("the background agent is not answering on %s (%v); call get_summary later", listen, err)
+		}
+		if !st.Running {
+			if st.LastError != "" {
+				return time.Time{}, "", fmt.Errorf("the summary run failed: %s", st.LastError)
+			}
+			if st.Started.IsZero() {
+				return time.Time{}, "", fmt.Errorf("no completed summary is available: %s", st.LastError)
+			}
+			return st.Started, "", nil
+		}
+		if remaining := time.Until(deadline); remaining > 0 {
+			time.Sleep(min(syncPoll, remaining))
+		}
+	}
+	return time.Time{}, "the summary is still running; call get_summary later", nil
+}
+
+// A history reader has no provider or caller: reading saved runs cannot start a model.
+func (m *mcpServer) summaryHistory() (*summarizer, error) {
+	if m.src.demo {
+		return nil, errors.New("demo data; no saved summaries are read")
+	}
+	dir := m.summaryDir
+	if dir == "" {
+		var err error
+		dir, err = summaryStateDir()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &summarizer{stateDir: dir}, nil
+}
+
+type mcpSummaryRun struct {
+	At            time.Time     `json:"at"`
+	Window        summaryWindow `json:"window"`
+	Scheduled     bool          `json:"scheduled"`
+	Provider      string        `json:"provider"`
+	Error         string        `json:"error,omitempty"`
+	Projects      int           `json:"projects"`
+	Topics        int           `json:"topics"`
+	Sessions      int           `json:"sessions"`
+	NotSummarized int           `json:"notSummarized"`
+}
+
+func (m *mcpServer) listSummariesTool(raw json.RawMessage) *toolResult {
+	a := struct {
+		Limit int `json:"limit"`
+	}{Limit: 14}
+	if err := decodeArgs(raw, &a); err != nil {
+		return toolFail("%v", err)
+	}
+	if a.Limit < 1 {
+		return toolFail("limit must be at least 1")
+	}
+	s, err := m.summaryHistory()
+	if err != nil {
+		return toolFail("summary history: %v", err)
+	}
+	stamps, err := s.history()
+	if err != nil {
+		return toolFail("summary history: %v", err)
+	}
+	runs := []mcpSummaryRun{}
+	for _, stamp := range stamps[:min(a.Limit, len(stamps))] {
+		snap, err := s.load(stamp)
+		if err != nil {
+			return toolFail("summary history: %v", err)
+		}
+		run := mcpSummaryRun{At: snap.At, Window: snap.Window, Scheduled: snap.Scheduled,
+			Provider: snap.Provider, Error: snap.Error, Projects: len(snap.Projects)}
+		for _, project := range snap.Projects {
+			run.Topics += len(project.Topics)
+			sessions := append([]*summarySnapshotSession{}, project.Unsorted...)
+			for _, topic := range project.Topics {
+				sessions = append(sessions, topic.Sessions...)
+			}
+			run.Sessions += len(sessions)
+			for _, session := range sessions {
+				if session.NotSummarized {
+					run.NotSummarized++
+				}
+			}
+		}
+		runs = append(runs, run)
+	}
+	return toolOK(struct {
+		Runs      []mcpSummaryRun `json:"runs"`
+		Returned  int             `json:"returned"`
+		Truncated bool            `json:"truncated"`
+	}{runs, len(runs), len(stamps) > len(runs)})
+}
+
+func (m *mcpServer) getSummaryTool(raw json.RawMessage) *toolResult {
+	var a struct {
+		At      string `json:"at"`
+		Project string `json:"project"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return toolFail("%v", err)
+	}
+	var at time.Time
+	if a.At != "" {
+		var err error
+		at, err = time.Parse(time.RFC3339Nano, a.At)
+		if err != nil {
+			return toolFail("at must be an RFC3339 timestamp from list_summaries")
+		}
+	}
+	s, err := m.summaryHistory()
+	if err != nil {
+		return toolFail("summary history: %v", err)
+	}
+	var snap *summarySnapshot
+	if !at.IsZero() {
+		snap, err = s.load(at)
+	} else {
+		var stamps []time.Time
+		stamps, err = s.history()
+		if err == nil {
+			for _, stamp := range stamps {
+				snap, err = s.load(stamp)
+				if err != nil || snap.Error == "" {
+					break
+				}
+				snap = nil
+			}
+		}
+	}
+	if err != nil {
+		return toolFail("summary history: %v", err)
+	}
+	note := ""
+	if m.src.summaryStatus != nil {
+		if st, err := m.src.summaryStatus(); err == nil && !st.Enabled {
+			note = mcpSummaryOff
+		}
+	}
+	if snap == nil {
+		if note != "" {
+			return toolFail("%s", note)
+		}
+		return toolFail("no successful summary is saved; summaries may have never run or be off. Run agentyard install and answer yes to morning summaries to turn them on")
+	}
+	return mcpSummaryResult(snap, a.Project, note)
+}
+
+func mcpSummaryResult(snap *summarySnapshot, project string, note string) *toolResult {
+	view := *snap
+	view.Projects = []*summarySnapshotProject{}
+	hidden := 0
+	for _, p := range snap.Projects {
+		if project != "" && p.Project != project {
+			continue
+		}
+		pv := *p
+		pv.Topics = []*summarySnapshotTopic{}
+		for _, topic := range p.Topics {
+			if topic.Hidden {
+				hidden++
+			} else {
+				pv.Topics = append(pv.Topics, topic)
+			}
+		}
+		view.Projects = append(view.Projects, &pv)
+	}
+	return toolOK(struct {
+		Snapshot mcpMeta `json:"snapshot"`
+		*summarySnapshot
+		HiddenTopics int    `json:"hiddenTopics"`
+		Note         string `json:"note,omitempty"`
+	}{mcpMeta{Source: fromCache, At: snap.At, Age: ago(snap.At)}, &view, hidden, note})
+}
+
+func (m *mcpServer) summarizeTool(raw json.RawMessage) *toolResult {
+	if err := decodeArgs(raw, &struct{}{}); err != nil {
+		return toolFail("%v", err)
+	}
+	if m.src.demo {
+		return toolFail("demo data; no summary run is started")
+	}
+	if m.src.summarize == nil {
+		return toolFail("no background agent summary source is available; run agentyard install")
+	}
+	at, note, err := m.src.summarize()
+	if err != nil {
+		return toolFail("%v", err)
+	}
+	if at.IsZero() {
+		return toolOK(map[string]string{"state": "running", "note": note})
+	}
+	s, err := m.summaryHistory()
+	if err != nil {
+		return toolFail("summary history: %v", err)
+	}
+	snap, err := s.load(at)
+	if err != nil {
+		return toolFail("summary history: %v", err)
+	}
+	return mcpSummaryResult(snap, "", "")
 }
 
 // ---------------------------------------------------------------- mcp removal
