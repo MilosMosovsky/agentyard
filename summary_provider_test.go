@@ -135,7 +135,7 @@ printf '%s\n' '` + noteAnswer + `' > "$output"`
 			}
 			want := []string{"--no-session-persistence", "--safe-mode", "--strict-mcp-config", "--tools\n\n", "--json-schema", "--model\nhaiku"}
 			if name == "codex" {
-				want = []string{"exec", "--ephemeral", "-s\nread-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--output-schema", "model_reasoning_effort=low", "features.shell_tool=false", "-m\n" + defaultSummaryCodexModel}
+				want = []string{"exec", "--ephemeral", "-s\nread-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--output-schema", "model_reasoning_effort=low", "web_search=disabled", "--disable\nshell_tool", "--disable\napps", "--disable\ncomputer_use", "--disable\nmulti_agent", "-m\n" + defaultSummaryCodexModel}
 			}
 			for _, w := range want {
 				if !strings.Contains(string(b), w) {
@@ -363,5 +363,20 @@ printf '%s\n' '{"type":"result","structured_output":`+noteAnswer+`}'`)
 	entries, err := os.ReadDir(p.stateDir)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("temporary files remain: %v %v", entries, err)
+	}
+}
+
+func TestSummaryCodexDisablesListedFeatures(t *testing.T) {
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	fakeSummaryCLI(t, bin, "codex", `[ "$1 $2" = "features list" ] || exit 1
+printf '%s\n' 'apps          stable  true' 'fast_mode     stable  true' 'new_tool      beta    true' 'old_tool      removed true' 'artifact      beta    false'`)
+	p, err := newSummaryProvider("codex", "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(p.codexFeatures, " ")
+	if got != "-c web_search=disabled --disable apps --disable new_tool" {
+		t.Fatalf("codex feature arguments: %s", got)
 	}
 }

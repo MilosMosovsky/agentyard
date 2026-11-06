@@ -113,7 +113,7 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 		now = time.Now
 	}
 	s := &summarizer{now: now, stateDir: stateDir, corpus: summaryCorpus, folderProjects: map[string]string{}}
-	if choice == "" || choice == "off" {
+	if summaryOff(choice) {
 		return s, nil
 	}
 	clock, err := time.Parse("15:04", dailyAt)
@@ -146,26 +146,31 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 		}
 	}
 	s.enabled = true
+	// Unreadable summary state never stops the dashboard: the schedule starts
+	// over and a damaged snapshot is skipped.
 	if err := loadSummaryState(s.stateDir, "schedule.json", &s.schedule); err != nil {
-		return nil, err
+		log.Printf("summary: %v; starting the schedule over", err)
+		s.schedule = summarySchedule{}
 	}
-	if err := loadSummaryState(s.stateDir, "folders.json", &s.folderProjects); err != nil {
-		return nil, err
-	}
-	if s.folderProjects == nil {
+	if err := loadSummaryState(s.stateDir, "folders.json", &s.folderProjects); err != nil || s.folderProjects == nil {
+		if err != nil {
+			log.Printf("summary: %v", err)
+		}
 		s.folderProjects = map[string]string{}
 	}
 	stamps, err := s.history()
 	if err != nil {
-		return nil, err
+		log.Printf("summary: %v", err)
 	}
-	for i, stamp := range stamps {
+	first := true
+	for _, stamp := range stamps {
 		snap, err := s.load(stamp)
 		if err != nil {
-			return nil, err
+			log.Printf("summary: skipping history %s: %v", stamp.Format(time.RFC3339), err)
+			continue
 		}
-		if i == 0 {
-			s.runStatus.Started, s.runStatus.LastError = snap.At, snap.Error
+		if first {
+			s.runStatus.Started, s.runStatus.LastError, first = snap.At, snap.Error, false
 		}
 		if snap.Error == "" {
 			s.latest.Store(snap)
