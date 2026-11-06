@@ -62,6 +62,7 @@ type Session struct {
 	Size        int64     `json:"size"`
 	Hidden      bool      `json:"hidden,omitempty"` // Codex sub-agent and reviewer rollouts
 	FolderGone  bool      `json:"-"`                // its folder was deleted, so resume can't cd there
+	ParentID    string    `json:"-"`
 }
 
 // Label is the title shown in the list, falling back to what was asked.
@@ -321,16 +322,31 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
+type transcriptOptions struct {
+	keepSidechain bool
+	keepAutomated bool
+	textLimit     bool // count text messages, retaining tool counts between them
+	role          string
+}
+
+func transcriptPrompt(text string, opts transcriptOptions) string {
+	text = strings.TrimSpace(text)
+	if opts.keepAutomated && (strings.HasPrefix(text, "<teammate-message") || scheduledRe.MatchString(text)) {
+		return text
+	}
+	return realPrompt(text)
+}
+
 // claudeContent returns the line's text and how many tool calls it carries.
 // A user line holding a tool_result is tool output, not a prompt.
-func claudeContent(l *claudeLine) (text string, tools int) {
-	if l.Message == nil || l.IsSidechain || l.IsMeta {
+func claudeContent(l *claudeLine, opts transcriptOptions) (text string, tools int) {
+	if l.Message == nil || (l.IsSidechain && !opts.keepSidechain) || l.IsMeta {
 		return "", 0
 	}
 	var str string
 	if json.Unmarshal(l.Message.Content, &str) == nil {
 		if l.Type == "user" {
-			return realPrompt(str), 0
+			return transcriptPrompt(str, opts), 0
 		}
 		return str, 0
 	}
@@ -351,12 +367,16 @@ func claudeContent(l *claudeLine) (text string, tools int) {
 	}
 	text = strings.Join(parts, "\n\n")
 	if l.Type == "user" {
-		text = realPrompt(text)
+		text = transcriptPrompt(text, opts)
 	}
 	return text, tools
 }
 
 func parseClaude(path string, fi os.FileInfo) *Session {
+	return parseClaudeWithOptions(path, fi, transcriptOptions{})
+}
+
+func parseClaudeWithOptions(path string, fi os.FileInfo, opts transcriptOptions) *Session {
 	s := &Session{Tool: "claude", ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Path: path, Modified: fi.ModTime(), Size: fi.Size()}
 	if !sessionIDRe.MatchString(s.ID) {
 		s.Hidden = true // not a session Claude Code wrote; nothing to resume
@@ -408,7 +428,7 @@ func parseClaude(path string, fi os.FileInfo) *Session {
 					}
 				}
 			}
-			if text, _ := claudeContent(l); text != "" {
+			if text, _ := claudeContent(l, opts); text != "" {
 				if s.FirstPrompt == "" && !fromTail {
 					s.FirstPrompt = oneLine(text, maxPromptLen)
 				}
@@ -458,6 +478,7 @@ type codexLine struct {
 		Timestamp    time.Time       `json:"timestamp"`
 		Source       json.RawMessage `json:"source"`
 		ThreadSource string          `json:"thread_source"`
+		ParentID     string          `json:"parent_thread_id"`
 		Originator   string          `json:"originator"`
 		Git          struct {
 			Branch string `json:"branch"`
@@ -494,6 +515,10 @@ func codexContent(l *codexLine) (role, text string, tools int) {
 }
 
 func parseCodex(path string, fi os.FileInfo) *Session {
+	return parseCodexWithOptions(path, fi, transcriptOptions{})
+}
+
+func parseCodexWithOptions(path string, fi os.FileInfo, opts transcriptOptions) *Session {
 	s := &Session{Tool: "codex", Path: path, Modified: fi.ModTime(), Size: fi.Size()}
 	// The id is the trailing UUID of rollout-<time>-<uuid>.jsonl.
 	if name := strings.TrimSuffix(filepath.Base(path), ".jsonl"); len(name) >= 36 && sessionIDRe.MatchString(name[len(name)-36:]) {
@@ -517,9 +542,27 @@ func parseCodex(path string, fi os.FileInfo) *Session {
 		if json.Unmarshal(p.Source, &src) == nil {
 			s.Kind = src
 		}
+		var source struct {
+			Internal string `json:"internal"`
+			Subagent struct {
+				ThreadSpawn struct {
+					ParentID string `json:"parent_thread_id"`
+				} `json:"thread_spawn"`
+			} `json:"subagent"`
+		}
+		json.Unmarshal(p.Source, &source)
+		if opts.keepAutomated && source.Internal != "" {
+			s.Kind = source.Internal
+		}
+		s.ParentID = p.ParentID
+		if s.ParentID == "" {
+			s.ParentID = source.Subagent.ThreadSpawn.ParentID
+		}
 		if p.ThreadSource == "subagent" || p.ThreadSource == "guardian_review" || bytes.Contains(p.Source, []byte(`"subagent"`)) {
 			s.Hidden = true
-			return s
+			if !opts.keepAutomated {
+				return s
+			}
 		}
 	}
 	if s.ID == "" {
@@ -579,17 +622,35 @@ type Message struct {
 // latestMessages returns up to want messages from the end of the transcript,
 // oldest first, with runs of tool calls collapsed into one count.
 func latestMessages(s *Session, want int) []Message {
+	return latestMessagesWithOptions(s, want, transcriptOptions{})
+}
+
+func latestMessagesWithOptions(s *Session, want int, opts transcriptOptions) []Message {
 	window := int64(detailWindow)
 	for {
-		msgs := parseMessages(s, readTail(s.Path, window))
+		msgs := parseMessages(s, readTail(s.Path, window), opts)
 		texts := 0
 		for _, m := range msgs {
 			if m.Role != "tools" {
 				texts++
 			}
 		}
-		if texts >= 12 || window >= s.Size || window >= 4*detailWindow {
-			if len(msgs) > want {
+		enough := texts >= 12
+		if opts.textLimit {
+			enough = texts >= want
+		}
+		if enough || window >= s.Size || window >= 4*detailWindow {
+			if opts.textLimit {
+				texts = 0
+				for i := len(msgs) - 1; i >= 0; i-- {
+					if msgs[i].Role != "tools" {
+						texts++
+					}
+					if texts == want {
+						return msgs[i:]
+					}
+				}
+			} else if len(msgs) > want {
 				msgs = msgs[len(msgs)-want:]
 			}
 			return msgs
@@ -598,10 +659,10 @@ func latestMessages(s *Session, want int) []Message {
 	}
 }
 
-func parseMessages(s *Session, b []byte) []Message {
+func parseMessages(s *Session, b []byte, opts transcriptOptions) []Message {
 	var msgs []Message
 	add := func(role, text string, tools int, at time.Time) {
-		if tools > 0 {
+		if tools > 0 && opts.role == "" {
 			if n := len(msgs); n > 0 && msgs[n-1].Role == "tools" {
 				msgs[n-1].Tools += tools
 				msgs[n-1].At = at
@@ -609,7 +670,7 @@ func parseMessages(s *Session, b []byte) []Message {
 				msgs = append(msgs, Message{Role: "tools", Tools: tools, At: at})
 			}
 		}
-		if strings.TrimSpace(text) != "" {
+		if strings.TrimSpace(text) != "" && (opts.role == "" || role == opts.role) {
 			msgs = append(msgs, Message{Role: role, Text: clip(strings.TrimSpace(text), maxMsgLen), At: at})
 		}
 	}
@@ -619,7 +680,7 @@ func parseMessages(s *Session, b []byte) []Message {
 			if json.Unmarshal(line, &l) != nil || (l.Type != "user" && l.Type != "assistant") {
 				return
 			}
-			text, tools := claudeContent(&l)
+			text, tools := claudeContent(&l, opts)
 			add(l.Type, text, tools, l.Timestamp)
 			return
 		}
