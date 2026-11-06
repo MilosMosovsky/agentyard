@@ -385,3 +385,27 @@ func TestSummaryCorpusLeavesOutScratchRuns(t *testing.T) {
 		t.Fatalf("left out %d, projects %v, want 2 and %v", left, projects, want)
 	}
 }
+
+// Claude Code appends bookkeeping lines to idle transcripts, which moves the
+// file's mtime but not the conversation.
+func TestSummaryCorpusIgnoresBookkeepingWrites(t *testing.T) {
+	claude, _, at := summaryTestDirs(t)
+	old := at.Add(-72 * time.Hour)
+	turn := func(role string, when time.Time) any {
+		return map[string]any{"type": role, "cwd": summaryTestCwd, "timestamp": when, "message": map[string]any{"content": "Work " + role}}
+	}
+	summaryWrite(t, filepath.Join(claude, "idle.jsonl"), at, turn("user", old), turn("assistant", old.Add(time.Minute)),
+		map[string]any{"type": "custom-title", "customTitle": "Idle"}, map[string]any{"type": "last-prompt", "lastPrompt": "Work user"})
+	summaryWrite(t, filepath.Join(claude, "busy.jsonl"), at, turn("user", at.Add(-time.Minute)), turn("assistant", at))
+	got, _ := summaryCorpus(at.Add(-24*time.Hour), at.Add(time.Hour), map[string]string{})
+	if len(got) != 1 || got[0].Session.ID != "busy" {
+		t.Fatalf("want only the busy session, got %d", len(got))
+	}
+	fi, err := os.Stat(filepath.Join(claude, "idle.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := parseClaude(filepath.Join(claude, "idle.jsonl"), fi); !s.LastActive().Equal(old.Add(time.Minute)) || !s.Modified.Equal(at) {
+		t.Fatalf("last active %v, modified %v", s.LastActive(), s.Modified)
+	}
+}

@@ -106,7 +106,7 @@ func TestSummaryNotesCache(t *testing.T) {
 }
 
 func TestSummaryNotesCacheIdentity(t *testing.T) {
-	for _, field := range []string{"path", "size", "time", "new subagent", "subagent size", "subagent time", "subagent path"} {
+	for _, field := range []string{"path", "time", "activity", "new subagent", "subagent time", "subagent activity", "subagent path", "bookkeeping"} {
 		t.Run(field, func(t *testing.T) {
 			entries := noteEntries(t, 2)
 			parent, child := entries[0], entries[1]
@@ -123,20 +123,31 @@ func TestSummaryNotesCacheIdentity(t *testing.T) {
 			switch field {
 			case "path":
 				parent.Session.Path += ".moved"
-			case "size":
-				parent.Session.Size++
+			case "activity":
+				parent.Session.Active = parent.Session.Modified.Add(time.Second)
 			case "time":
 				parent.Session.Modified = parent.Session.Modified.Add(time.Nanosecond)
 			case "new subagent":
 				parent.Subagents = append(parent.Subagents, noteEntries(t, 3)[2])
-			case "subagent size":
-				child.Session.Size++
+			case "subagent activity":
+				child.Session.Active = child.Session.Modified.Add(time.Second)
 			case "subagent time":
 				child.Session.Modified = child.Session.Modified.Add(time.Nanosecond)
 			case "subagent path":
 				child.Session.Path += ".moved"
+			case "bookkeeping":
+				// Its first note was keyed by mtime, as no message had a time yet.
+				parent.Session.Active = parent.Session.Modified
+				parent.Session.Size++
+				parent.Session.Modified = parent.Session.Modified.Add(time.Hour)
 			}
 			got, err := summaryNotes(entries[:1], state, caller)
+			if field == "bookkeeping" {
+				if err != nil || calls != 1 || got[0].Changed {
+					t.Fatalf("bookkeeping lines re-summarized the session: calls=%d err=%v", calls, err)
+				}
+				return
+			}
 			if err != nil || calls != 2 || !got[0].Changed || got[0].Note == nil || len(got[0].Note.Subagents) != len(parent.Subagents) {
 				t.Fatalf("invalidation: %+v calls=%d err=%v", got, calls, err)
 			}

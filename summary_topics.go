@@ -383,7 +383,7 @@ func summaryTopicView(project string, state *summaryProjectTopicState, notes []*
 func summaryDays(age time.Duration) int { return max(0, int(age/(24*time.Hour))) }
 
 func summaryLastActive(e *summarySession) time.Time {
-	active := e.Session.Modified
+	active := e.Session.LastActive()
 	for _, child := range e.Subagents {
 		if at := summaryLastActive(child); at.After(active) {
 			active = at
