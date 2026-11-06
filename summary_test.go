@@ -289,7 +289,13 @@ printf '%s' "$answer" > "$output"`)
 		t.Fatal(err)
 	}
 	reopened, err := restarted.load(at)
-	if err != nil || !reflect.DeepEqual(reopened, snap) || !reflect.DeepEqual(restarted.latest.Load(), snap) {
+	// Compared as saved: a reloaded time carries its offset, not time.Local.
+	same := func(a, b *summarySnapshot) bool {
+		x, errX := json.Marshal(a)
+		y, errY := json.Marshal(b)
+		return errX == nil && errY == nil && string(x) == string(y)
+	}
+	if err != nil || !same(reopened, snap) || !same(restarted.latest.Load(), snap) {
 		t.Fatalf("history changed on restart: %v", err)
 	}
 	for _, path := range []string{dir, filepath.Join(dir, "history")} {
