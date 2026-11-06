@@ -310,6 +310,10 @@ Headless runs that another session started in a scratch folder, such as cross-mo
 an app's `claude -p` jobs, are left out, because the session that started them reports on them. The
 page says how many were left out.
 
+**Snooze** on a topic moves it to the **Snoozed** tab until one of its sessions is active again; it
+then comes back on its own, or **Unsnooze** brings it back sooner. Snoozing changes only the page, not
+saved runs, and `get_summary` leaves snoozed topics out and counts them.
+
 Topics carry over from one summary to the next and say how long they have been open ("open since
 Mon, Nov 2 · 4 days"). A topic with no activity stays visible for 7 days and leaves the list after
 14. Every run is saved, including failed ones, and you can reopen any of the last 30 from the dated
@@ -757,7 +761,7 @@ agentyard is a local tool with no login and no telemetry. It talks to GitHub thr
   `--safe-mode --strict-mcp-config --tools "" --no-session-persistence`. Codex runs in a read-only
   sandbox with `--ephemeral`, `--ignore-user-config`, web search disabled and every default-on tool
   feature turned off. The prompt travels on stdin, not in the process list, and answers are checked
-  against a fixed schema before they are saved. Saved runs, notes, topics and project names live in
+  against a fixed schema before they are saved. Saved runs, notes, topics, project names and snoozes live in
   `~/Library/Application Support/agentyard/summary` (folder `0700`, files `0600`). The Summary page
   follows the Sessions tab's rule: this Mac only, unless `--sessions-lan`. Only this Mac can start a
   run, and a browser must send the page's token and its own `Origin`.

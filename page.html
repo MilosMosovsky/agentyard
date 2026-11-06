@@ -1155,6 +1155,18 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 .summary-topic-waits .icon { width:13px; height:13px; }
 .summary-topic-about,.summary-topic-status,.summary-topic-next,.summary-topic-waits > span { overflow-wrap:anywhere; white-space:pre-wrap; }
 .summary-topic-meta { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin-top:10px; }
+.summary-snooze { display:inline-flex; align-items:center; gap:4px; margin-left:auto; padding:2px 8px; min-height:28px; background:none; border:1px solid transparent; border-radius:var(--radius-control); color:var(--text-3); font-size:12px; }
+.summary-snooze:hover:not(:disabled) { background:var(--bg-hover); color:var(--text-2); }
+.summary-snooze:focus-visible { border-color:var(--accent); }
+.summary-snooze .icon { width:13px; height:13px; }
+.summary-views { display:flex; gap:4px; margin-top:20px; }
+.summary-views a { display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:0 12px; border-radius:var(--radius-control); color:var(--text-2); font-size:13px; font-weight:550; }
+.summary-views a:hover { background:var(--bg-hover); text-decoration:none; }
+.summary-views a[aria-current="page"] { background:var(--bg-selected); color:var(--accent); }
+.summary-views .numeric { font-weight:400; color:var(--text-3); }
+.summary-snoozed { display:grid; gap:8px; margin-top:20px; }
+.summary-snoozed-label { margin-top:12px; font-size:12px; color:var(--text-3); }
+.summary-snoozed-project { font-weight:550; color:var(--text-2); }
 .summary-topic-note,.summary-topic-sessions { font-size:11px; line-height:18px; font-weight:400; color:var(--text-3); }
 .summary-topic-sessions { color:var(--text-2); }
 .summary-topic-hide,.summary-topic[open] .summary-topic-show { display:none; }
@@ -1485,8 +1497,16 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{$topics := ""}}{{$waiting := ""}}{{$blocked := ""}}
 {{range .Topics}}{{if not .Hidden}}{{$topics = printf "%s." $topics}}{{range .Sessions}}{{with summarySessionStatus .}}{{if eq .State "waiting_on_you"}}{{$waiting = printf "%s." $waiting}}{{else if eq .State "blocked"}}{{$blocked = printf "%s." $blocked}}{{end}}{{end}}{{end}}{{end}}{{end}}
 {{range .Unsorted}}{{with summarySessionStatus .}}{{if eq .State "waiting_on_you"}}{{$waiting = printf "%s." $waiting}}{{else if eq .State "blocked"}}{{$blocked = printf "%s." $blocked}}{{end}}{{end}}{{end}}
-<li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}{{if not .LastActive.IsZero}}<span>· <time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time></span>{{end}}</span>{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
+<li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}</span>{{if not .LastActive.IsZero}}<span class="summary-toc-counts"><time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">active {{agoWords .LastActive}}</time></span>{{end}}{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
 {{end}}{{end}}</ul>{{end}}
+{{define "summary-topic"}}{{with .Topic}}<details class="summary-topic" data-summary-topic-key="{{$.Key}}"><summary><div class="summary-topic-heading">
+<h3 class="summary-topic-name">{{.Name}}</h3>
+{{with .About}}<p class="summary-topic-about">{{.}}</p>{{end}}
+{{with .Status}}<p class="summary-topic-status"><span class="summary-topic-label">Status</span>{{.}}</p>{{end}}
+{{with .WaitsOn}}<p class="summary-topic-waits tone-warn"><strong>{{template "icon" "clock"}}Waiting on you</strong><span>{{.}}</span></p>{{end}}
+{{with .Next}}<p class="summary-topic-next"><span class="summary-topic-label">Next</span>{{.}}</p>{{end}}
+<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span>{{if $.Snooze}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="true">{{template "icon" "clock"}}<span>Snooze</span></button>{{else if $.Wake}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="false">{{template "icon" "clock"}}<span>Unsnooze</span></button>{{end}}</div>
+</div></summary>{{range .Sessions}}{{template "summary-session" .}}{{end}}</details>{{end}}{{end}}
 {{define "summary-topic-sessions"}}<span class="summary-topic-sessions">{{if .}}<span class="summary-topic-show">Show</span><span class="summary-topic-hide">Hide</span> {{counted (len .) "session" "sessions"}}{{else}}No sessions in this run{{end}}</span>{{end}}
 {{define "summary"}}{{template "head" .}}
 {{if not .Local}}{{template "sessions-restricted"}}
@@ -1500,23 +1520,19 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{if .Error}}<div class="update-banner summary-notice tone-bad" role="status">{{template "icon" "x-circle"}}<div><strong>Couldn’t summarize · {{.Error}}</strong><p>{{with .Snapshot}}Showing the previous successful summary from {{template "exact-time" .At}}. {{end}}Check the provider’s sign-in, then try Summarize again.</p></div></div>{{end}}
 {{if .Past}}<div class="update-banner summary-notice">{{template "icon" "clock"}}<span>Viewing a saved summary run.</span><a href="/summary">Back to latest</a></div>{{end}}
 {{if not .Run}}<div class="state-panel summary-empty">{{template "icon" "ledger"}}<div><h2>Start your first summary.</h2><p>Summarize the last 24 hours to see where each session got to, what it needs from you, and what comes next.</p></div></div>{{end}}
-{{with .Snapshot}}{{$projects := ""}}{{range .Projects}}{{if summaryProjectVisible .}}{{$projects = printf "%s." $projects}}{{end}}{{end}}
+{{if not .Past}}{{if or .Snoozed .ShowSnoozed}}<nav class="summary-views" aria-label="Summary views"><a href="/summary"{{if not .ShowSnoozed}} aria-current="page"{{end}}>Topics</a><a href="/summary?view=snoozed"{{if .ShowSnoozed}} aria-current="page"{{end}}>Snoozed <span class="numeric">{{len .Snoozed}}</span></a></nav>{{end}}{{end}}
+{{if .ShowSnoozed}}<div class="summary-snoozed">{{range .Snoozed}}<p class="summary-snoozed-label"><span class="summary-snoozed-project">{{or .ProjectName .Project}}</span> · snoozed <time datetime="{{.Snooze.At.Format "2006-01-02T15:04:05Z07:00"}}">{{agoWords .Snooze.At}}</time></p>{{template "summary-topic" (dict "Topic" .Topic "Key" (printf "snoozed-%x" .Topic.ID) "Wake" $.CanRemove)}}{{else}}<div class="state-panel summary-empty">{{template "icon" "clock"}}<div><h2>Nothing is snoozed.</h2><p>Snooze a topic to move it here. It comes back to Topics when one of its sessions is active again.</p></div></div>{{end}}
+<p class="summary-bottom"><span>A snoozed topic comes back when one of its sessions is active again.</span></p></div>
+{{else}}{{with .Snapshot}}{{$projects := ""}}{{range .Projects}}{{if summaryProjectVisible .}}{{$projects = printf "%s." $projects}}{{end}}{{end}}
 {{if $projects}}<div class="summary-layout"><aside class="summary-toc">
 <nav class="summary-toc-rail" aria-label="Summary projects"><h2 class="summary-toc-title">Projects <span class="meta numeric">· {{len $projects}}</span></h2>{{template "summary-project-links" .Projects}}</nav>
 <details class="summary-jump"><summary>Jump to project <span class="meta numeric">{{counted (len $projects) "project" "projects"}}</span></summary><nav aria-label="Summary projects">{{template "summary-project-links" .Projects}}</nav></details>
 </aside><div class="summary-content">
 {{range $project := .Projects}}{{if summaryProjectVisible .}}<section class="summary-project" id="summary-project-{{printf "%x" .Project}}" aria-labelledby="summary-project-{{printf "%x" .Project}}-heading" tabindex="-1"><header class="summary-project-header"><h2 id="summary-project-{{printf "%x" .Project}}-heading">{{template "icon" "folder"}}<span class="summary-project-title">{{if .Name}}{{.Name}}{{else if repoShort .Project}}<span class="summary-owner">{{org .Project}}</span><span class="summary-project-separator"> / </span>{{repoShort .Project}}{{else}}{{.Project}}{{end}}</span></h2>{{if .Name}}<span class="meta summary-project-key">{{.Project}}</span>{{end}}</header>
-{{range $i, $topic := .Topics}}{{if not .Hidden}}<details class="summary-topic" data-summary-topic-key="{{printf "%x" $project.Project}}-{{if .ID}}{{printf "%x" .ID}}{{else}}legacy-{{printf "%x" .Name}}-{{$i}}{{end}}"><summary><div class="summary-topic-heading">
-<h3 class="summary-topic-name">{{.Name}}</h3>
-{{with .About}}<p class="summary-topic-about">{{.}}</p>{{end}}
-{{with .Status}}<p class="summary-topic-status"><span class="summary-topic-label">Status</span>{{.}}</p>{{end}}
-{{with .WaitsOn}}<p class="summary-topic-waits tone-warn"><strong>{{template "icon" "clock"}}Waiting on you</strong><span>{{.}}</span></p>{{end}}
-{{with .Next}}<p class="summary-topic-next"><span class="summary-topic-label">Next</span>{{.}}</p>{{end}}
-<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span></div>
-</div></summary>{{range .Sessions}}{{template "summary-session" .}}{{end}}</details>{{end}}{{end}}
+{{range $i, $topic := .Topics}}{{if not .Hidden}}{{template "summary-topic" (dict "Topic" $topic "Key" (printf "%x-%s" $project.Project (or (and .ID (printf "%x" .ID)) (printf "legacy-%x-%d" .Name $i))) "Snooze" (and $.CanRemove (ne .ID "")))}}{{end}}{{end}}
 {{if .Unsorted}}<details class="summary-topic" data-summary-topic-key="{{printf "%x" .Project}}-unsorted" open><summary><div class="summary-topic-heading"><h3 class="summary-topic-name">Unsorted sessions</h3><p class="summary-topic-status">Topic grouping could not be completed. Session notes are still available.</p><div class="summary-topic-meta">{{template "summary-topic-sessions" .Unsorted}}</div></div></summary>{{range .Unsorted}}{{template "summary-session" .}}{{end}}</details>{{end}}</section>{{end}}{{end}}
 </div></div>{{else}}<div class="state-panel summary-empty">{{template "icon" "ledger"}}<div><h2>No sessions in this summary.</h2><p>No visible topics or sessions were saved for this window.</p></div></div>{{end}}
-<div class="summary-bottom"><span>Every run is saved. Reopen it from the date picker.</span><details><summary>About inactive topics</summary><p>Inactive topics stay visible for at least 7 days and leave the current topic list after 14 days. Saved runs keep their original content.</p></details></div>{{end}}
+<div class="summary-bottom"><span>Every run is saved. Reopen it from the date picker.</span><details><summary>About inactive topics</summary><p>Inactive topics stay visible for at least 7 days and leave the current topic list after 14 days. Saved runs keep their original content.</p></details></div>{{end}}{{end}}
 {{end}}{{end}}
 {{template "foot" .}}{{end}}
 
@@ -2772,6 +2788,30 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
         summaryFailed(error);
       }
     }
+    // Snooze and Unsnooze sit inside a topic's <summary>, so a click must not
+    // also open or close the topic.
+    document.addEventListener("click", async event => {
+      const button = event.target.closest("[data-summary-snooze]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const snooze = button.dataset.snooze === "true";
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/summary/snooze", {
+          method: "POST",
+          headers: { ...pageTokenHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ topic: button.dataset.summarySnooze, snooze }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Could not change the snooze");
+        announce(snooze ? "Topic snoozed" : "Topic is back in Topics");
+        location.reload();
+      } catch (error) {
+        button.disabled = false;
+        announce(error.message);
+      }
+    });
     summarize?.addEventListener("click", async () => {
       pollFailures = 0;
       summaryBusy();
