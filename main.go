@@ -41,15 +41,18 @@ import (
 // Serve flags live on their own FlagSet so every subcommand can parse its own;
 // the pointers keep their defaults when nothing is parsed (tests, demo).
 var (
-	home, _      = os.UserHomeDir()
-	serveFlags   = flag.NewFlagSet("serve", flag.ContinueOnError)
-	flagRoot     = serveFlags.String("root", filepath.Join(home, "Projects"), "folder to search for repositories")
-	flagDepth    = serveFlags.Int("depth", 5, "max folder depth below -root to look for repositories")
-	flagListen   = serveFlags.String("listen", defaultListen, "HTTP listen address (\":80\" serves the whole LAN)")
-	flagInterval = serveFlags.Duration("interval", 5*time.Minute, "rescan interval")
-	flagSizeTTL  = serveFlags.Duration("size-ttl", 30*time.Minute, "how long a measured worktree size is reused")
-	flagMDNS     = serveFlags.String("mdns", "", "publish as http://<name>.local over mDNS (empty: off; ignored on loopback)")
-	flagOnce     = serveFlags.Bool("once", false, "scan once, print the worktree JSON to stdout and exit")
+	home, _          = os.UserHomeDir()
+	serveFlags       = flag.NewFlagSet("serve", flag.ContinueOnError)
+	flagRoot         = serveFlags.String("root", filepath.Join(home, "Projects"), "folder to search for repositories")
+	flagDepth        = serveFlags.Int("depth", 5, "max folder depth below -root to look for repositories")
+	flagListen       = serveFlags.String("listen", defaultListen, "HTTP listen address (\":80\" serves the whole LAN)")
+	flagInterval     = serveFlags.Duration("interval", 5*time.Minute, "rescan interval")
+	flagSizeTTL      = serveFlags.Duration("size-ttl", 30*time.Minute, "how long a measured worktree size is reused")
+	flagMDNS         = serveFlags.String("mdns", "", "publish as http://<name>.local over mDNS (empty: off; ignored on loopback)")
+	flagOnce         = serveFlags.Bool("once", false, "scan once, print the worktree JSON to stdout and exit")
+	flagSummary      = serveFlags.String("summary", "off", "summary provider: off, auto, claude or codex")
+	flagSummaryAt    = serveFlags.String("summary-at", "07:00", "daily summary time (local HH:MM)")
+	flagSummaryModel = serveFlags.String("summary-model", "", "summary model (default: haiku for Claude, gpt-6-luna for Codex)")
 )
 
 const (
@@ -207,6 +210,16 @@ func runIsolated(timeout time.Duration, dir string, env []string, name string, a
 	return execute(timeout, dir, base, env, "", name, args...)
 }
 
+// commandError preserves the deadline and final stderr line for provider callers.
+type commandError struct {
+	Err      error
+	LastLine string
+	message  string
+}
+
+func (e *commandError) Error() string { return e.message }
+func (e *commandError) Unwrap() error { return e.Err }
+
 func execute(timeout time.Duration, dir string, base, env []string, input, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -229,13 +242,21 @@ func execute(timeout time.Duration, dir string, base, env []string, input, name 
 		// The last line, unless git said fatal:/error: earlier; its hint lines
 		// ("use 'remove -f -f'") are not the reason.
 		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
-		msg := lines[len(lines)-1]
+		last := lines[len(lines)-1]
+		msg := last
 		for _, l := range lines {
 			if strings.HasPrefix(l, "fatal: ") || strings.HasPrefix(l, "error: ") {
 				msg = l
 			}
 		}
-		return out.String(), fmt.Errorf("%s %s: %w %s", name, args[0], err, msg)
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		first := ""
+		if len(args) > 0 {
+			first = args[0]
+		}
+		return out.String(), &commandError{Err: err, LastLine: last, message: fmt.Sprintf("%s %s: %v %s", name, first, err, msg)}
 	}
 	return out.String(), nil
 }
