@@ -1133,6 +1133,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 .summary-session + .summary-session { border-top:1px solid var(--line); }
 .summary-session-body { min-width:0; }
 .summary-session-header { display:flex; align-items:baseline; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; }
+.summary-session-state { display:inline-flex; align-items:baseline; gap:12px; }
 .summary-session-header h4 { min-width:0; font-size:13px; line-height:20px; font-weight:550; letter-spacing:0; }
 .summary-status { display:inline-flex; align-items:center; gap:6px; color:var(--state-ink,var(--text-3)); font-size:11px; line-height:18px; font-weight:500; white-space:nowrap; }
 .summary-status-dot { width:6px; height:6px; border-radius:var(--radius-pill); background:currentColor; flex-shrink:0; }
@@ -1425,7 +1426,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{define "summary-agent"}}<span class="agent-identity" title="{{template "tool-name" .Tool}}">{{template "tool-icon" .Tool}}<span class="sr-only">{{template "tool-name" .Tool}}</span></span>{{end}}
 {{define "summary-session"}}<article class="summary-session session-row" data-key="{{.Tool}}/{{.ID}}" data-tool="{{.Tool}}" data-id="{{.ID}}" data-title="{{.Title}}">
 {{template "summary-agent" .}}<div class="summary-session-body">
-<header class="summary-session-header"><h4><button type="button" class="session-title" data-open-session>{{.Title}}</button></h4>{{template "summary-state" .}}</header>
+<header class="summary-session-header"><h4><button type="button" class="session-title" data-open-session>{{.Title}}</button></h4><span class="summary-session-state">{{if not .Touched.IsZero}}<span class="meta">{{template "time" .Touched}}</span>{{end}}{{template "summary-state" .}}</span></header>
 {{if .NotSummarized}}<p class="meta">The provider response could not be read. Summarize again to retry, or resume this session.</p>
 {{else}}{{template "summary-facts" .Note}}{{end}}
 {{if .Subagents}}<details class="summary-subagents"><summary>{{counted (len .Subagents) "subagent" "subagents"}}</summary><ul>{{range .Subagents}}{{template "summary-subagent" .}}{{end}}</ul></details>{{end}}

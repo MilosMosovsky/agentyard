@@ -601,6 +601,7 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 			topic.IdleDays = max(0, int(at.Sub(session.Modified).Hours()/24))
 		}
 	}
+	sortSummaryProjects(snap.Projects)
 	return snap
 }
 
