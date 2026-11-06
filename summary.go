@@ -38,6 +38,14 @@ type summarySnapshotProject struct {
 	Unsorted []*summarySnapshotSession `json:"unsorted"`
 }
 
+func (p *summarySnapshotProject) sessions() []*summarySnapshotSession {
+	sessions := append([]*summarySnapshotSession{}, p.Unsorted...)
+	for _, topic := range p.Topics {
+		sessions = append(sessions, topic.Sessions...)
+	}
+	return sessions
+}
+
 type summarySnapshotTopic struct {
 	summaryTopic
 	CarriedOver bool                      `json:"carriedOver"`
@@ -80,6 +88,17 @@ type summaryRunStatus struct {
 	Sessions   int       `json:"sessions"`
 	Summarized int       `json:"summarized"`
 	LastError  string    `json:"lastError,omitempty"`
+}
+
+type summaryStatus struct {
+	Enabled    bool       `json:"enabled"`
+	LastError  string     `json:"lastError"`
+	Latest     *time.Time `json:"latest"`
+	Provider   string     `json:"provider"`
+	Running    bool       `json:"running"`
+	Sessions   int        `json:"sessions"`
+	Started    *time.Time `json:"started"`
+	Summarized int        `json:"summarized"`
 }
 
 type summarySchedule struct {
@@ -457,6 +476,27 @@ func fillSummarySubagents(agents []*summarySnapshotSession, progress map[string]
 
 const summaryStamp = "20060102T150405.000000000Z"
 
+type summaryHistoryRun struct {
+	At    time.Time `json:"at"`
+	Error string    `json:"error,omitempty"`
+}
+
+func latestSuccessfulSummaryRun(stamps []time.Time, before time.Time, load func(time.Time) (*summaryHistoryRun, error)) (*summaryHistoryRun, error) {
+	for _, at := range stamps {
+		if !before.IsZero() && !at.Before(before) {
+			continue
+		}
+		run, err := load(at)
+		if err != nil {
+			return nil, err
+		}
+		if run.Error == "" {
+			return run, nil
+		}
+	}
+	return nil, nil
+}
+
 func (s *summarizer) historyName(at time.Time) string {
 	return filepath.Join("history", at.UTC().Format(summaryStamp)+".json")
 }
@@ -490,4 +530,16 @@ func (s *summarizer) load(at time.Time) (*summarySnapshot, error) {
 		return nil, err
 	}
 	return &snap, nil
+}
+
+func (s *summarizer) loadHistoryRun(at time.Time) (*summaryHistoryRun, error) {
+	b, err := os.ReadFile(filepath.Join(s.stateDir, s.historyName(at)))
+	if err != nil {
+		return nil, err
+	}
+	var run summaryHistoryRun
+	if err := json.Unmarshal(b, &run); err != nil {
+		return nil, err
+	}
+	return &run, nil
 }

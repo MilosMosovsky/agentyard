@@ -103,7 +103,7 @@ type mcpSource struct {
 	snapshot      func() (snap *Snapshot, from string, err error)
 	prs           func() (snap *PRSnapshot, from string, err error)
 	prDetail      func(*TrackedPR) (PRDetail, error)
-	summaryStatus func() (mcpSummaryStatus, error)
+	summaryStatus func() (summaryStatus, error)
 	summarize     func() (time.Time, string, error)
 	sync          func() (string, error) // rescan now and wait for it
 	poke          func() string          // after a removal: start a rescan, don't wait
@@ -233,7 +233,7 @@ func agentSource(listen string) mcpSource {
 			return detail, err
 		},
 		sync:          func() (string, error) { return agentSync(listen, mcpSyncWait) },
-		summaryStatus: func() (mcpSummaryStatus, error) { return agentSummaryStatus(listen, 5*time.Second) },
+		summaryStatus: func() (summaryStatus, error) { return agentSummaryStatus(listen, 5*time.Second) },
 		summarize:     func() (time.Time, string, error) { return agentSummarize(listen, mcpSyncWait) },
 		agent: func() string {
 			if st, err := fetchStatus(listen); err == nil && !st.Demo {
@@ -1148,15 +1148,8 @@ func (m *mcpServer) prTool(raw json.RawMessage) *toolResult {
 
 const mcpSummaryOff = "summaries are off; run agentyard install and answer yes to morning summaries to turn them on"
 
-type mcpSummaryStatus struct {
-	Enabled   bool      `json:"enabled"`
-	Running   bool      `json:"running"`
-	Started   time.Time `json:"started"`
-	LastError string    `json:"lastError"`
-}
-
-func agentSummaryStatus(listen string, timeout time.Duration) (mcpSummaryStatus, error) {
-	var st mcpSummaryStatus
+func agentSummaryStatus(listen string, timeout time.Duration) (summaryStatus, error) {
+	var st summaryStatus
 	err := agentJSON(http.MethodGet, listen, "/api/summary/status", timeout, 1<<16, &st)
 	return st, err
 }
@@ -1189,10 +1182,10 @@ func agentSummarize(listen string, wait time.Duration) (time.Time, string, error
 			if st.LastError != "" {
 				return time.Time{}, "", fmt.Errorf("the summary run failed: %s", st.LastError)
 			}
-			if st.Started.IsZero() {
-				return time.Time{}, "", fmt.Errorf("no completed summary is available: %s", st.LastError)
+			if st.Started == nil || st.Started.IsZero() {
+				return time.Time{}, "", errors.New("no completed summary is available")
 			}
-			return st.Started, "", nil
+			return *st.Started, "", nil
 		}
 		if remaining := time.Until(deadline); remaining > 0 {
 			time.Sleep(min(syncPoll, remaining))
@@ -1201,7 +1194,6 @@ func agentSummarize(listen string, wait time.Duration) (time.Time, string, error
 	return time.Time{}, "the summary is still running; call get_summary later", nil
 }
 
-// A history reader has no provider or caller: reading saved runs cannot start a model.
 func (m *mcpServer) summaryHistory() (*summarizer, error) {
 	if m.src.demo {
 		return nil, errors.New("demo data; no saved summaries are read")
@@ -1257,10 +1249,7 @@ func (m *mcpServer) listSummariesTool(raw json.RawMessage) *toolResult {
 			Provider: snap.Provider, Error: snap.Error, Projects: len(snap.Projects)}
 		for _, project := range snap.Projects {
 			run.Topics += len(project.Topics)
-			sessions := append([]*summarySnapshotSession{}, project.Unsorted...)
-			for _, topic := range project.Topics {
-				sessions = append(sessions, topic.Sessions...)
-			}
+			sessions := project.sessions()
 			run.Sessions += len(sessions)
 			for _, session := range sessions {
 				if session.NotSummarized {
@@ -1304,11 +1293,16 @@ func (m *mcpServer) getSummaryTool(raw json.RawMessage) *toolResult {
 		var stamps []time.Time
 		stamps, err = s.history()
 		if err == nil {
-			for _, stamp := range stamps {
-				snap, err = s.load(stamp)
-				if err != nil || snap.Error == "" {
-					break
+			var run *summaryHistoryRun
+			run, err = latestSuccessfulSummaryRun(stamps, time.Time{}, func(at time.Time) (*summaryHistoryRun, error) {
+				var err error
+				snap, err = s.load(at)
+				if err != nil {
+					return nil, err
 				}
+				return &summaryHistoryRun{At: snap.At, Error: snap.Error}, nil
+			})
+			if run == nil {
 				snap = nil
 			}
 		}

@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -1456,7 +1455,7 @@ func (y *syncer) start() string {
 type demoWorld struct {
 	messages    map[string][]Message // keyed by tool + "/" + session id
 	summaries   *summarizer
-	summaryRuns []*summarySnapshot // guarded by summaries.mu
+	summaryRuns []*summarySnapshot
 }
 
 // summaryPickerRuns is how many saved runs the Summary page loads and offers.
@@ -1466,25 +1465,27 @@ type summaryPageView struct {
 	Enabled       bool
 	Status        summaryRunStatus
 	Run, Snapshot *summarySnapshot
-	History       []*summarySnapshot
+	History       []*summaryHistoryRun
 	Past          bool
 	Error         string
 }
 
-// A single map owns the written state and its existing tone.
-func summarySessionStatus(s *summarySnapshotSession) map[string]string {
-	states := map[string]map[string]string{
-		"in_progress":    {"Label": "In progress", "Tone": "tone-info"},
-		"waiting_on_you": {"Label": "Waiting on you", "Tone": "tone-warn"},
-		"blocked":        {"Label": "Blocked", "Tone": "tone-bad"},
-		"done":           {"Label": "Done", "Tone": "tone-ok"},
-	}
+type summarySessionState struct{ Label, Tone string }
+
+var summarySessionStates = map[string]summarySessionState{
+	"in_progress":    {"In progress", "tone-info"},
+	"waiting_on_you": {"Waiting on you", "tone-warn"},
+	"blocked":        {"Blocked", "tone-bad"},
+	"done":           {"Done", "tone-ok"},
+}
+
+func summarySessionStatus(s *summarySnapshotSession) summarySessionState {
 	if !s.NotSummarized && s.Note != nil {
-		if state, ok := states[s.Note.State]; ok {
+		if state, ok := summarySessionStates[s.Note.State]; ok {
 			return state
 		}
 	}
-	return map[string]string{"Label": "Not summarized", "Tone": "tone-muted"}
+	return summarySessionState{"Not summarized", "tone-muted"}
 }
 
 func summaryProjectVisible(p *summarySnapshotProject) bool {
@@ -1572,24 +1573,22 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 		v := newView("summary", r)
 		if v.Local && summaries != nil && summaries.enabled {
 			v.Summary = summaryPageView{Enabled: true, Status: summaries.status(), Snapshot: summaries.latest.Load()}
-			var runs []*summarySnapshot
+			var runs []*summaryHistoryRun
+			load := summaries.load
 			if demo != nil {
-				summaries.mu.Lock()
-				runs = append(runs, demo.summaryRuns...)
-				summaries.mu.Unlock()
+				runs, load = demo.summaryHistory()
 			} else {
 				stamps, err := summaries.history()
 				if err != nil {
 					log.Printf("summary history: %v", err)
 				}
-				// The picker offers recent runs; every snapshot is a whole summary.
 				for _, at := range stamps[:min(len(stamps), summaryPickerRuns)] {
-					snap, err := summaries.load(at)
+					run, err := summaries.loadHistoryRun(at)
 					if err != nil {
 						log.Printf("summary history: %v", err)
 						continue
 					}
-					runs = append(runs, snap)
+					runs = append(runs, run)
 				}
 			}
 			v.Summary.History = runs
@@ -1603,7 +1602,10 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 				var chosen *summarySnapshot
 				for _, run := range runs {
 					if run.At.Equal(at) {
-						chosen = run
+						chosen, err = load(run.At)
+						if err != nil {
+							log.Printf("summary history: %v", err)
+						}
 						break
 					}
 				}
@@ -1614,10 +1616,19 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 				v.Summary.Run, v.Summary.Snapshot, v.Summary.Past = chosen, chosen, true
 				if chosen.Error != "" {
 					v.Summary.Snapshot = nil
+					stamps := make([]time.Time, 0, len(runs))
+					byTime := make(map[time.Time]*summaryHistoryRun, len(runs))
 					for _, run := range runs {
-						if run.At.Before(chosen.At) && run.Error == "" {
-							v.Summary.Snapshot = run
-							break
+						stamps = append(stamps, run.At)
+						byTime[run.At] = run
+					}
+					previous, _ := latestSuccessfulSummaryRun(stamps, chosen.At, func(at time.Time) (*summaryHistoryRun, error) {
+						return byTime[at], nil
+					})
+					if previous != nil {
+						v.Summary.Snapshot, err = load(previous.At)
+						if err != nil {
+							log.Printf("summary history: %v", err)
 						}
 					}
 				}
@@ -1631,23 +1642,8 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 	})
 	mux.HandleFunc("POST /api/summary", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fail := func(code int, msg string) {
-			w.WriteHeader(code)
-			json.NewEncoder(w).Encode(map[string]string{"error": msg})
-		}
-		if !fromThisMac(r.RemoteAddr) {
-			fail(http.StatusForbidden, "summaries can only be started from the Mac that runs agentyard")
+		if !localMutationAllowed(w, r, removeToken, "summaries can only be started from the Mac that runs agentyard", true) {
 			return
-		}
-		if _, present := r.Header["Origin"]; present {
-			if !sameOrigin(r, true) {
-				fail(http.StatusForbidden, "cross-origin or missing Origin")
-				return
-			}
-			if subtle.ConstantTimeCompare([]byte(r.Header.Get(removeTokenHeader)), []byte(removeToken)) != 1 {
-				fail(http.StatusForbidden, "missing or wrong "+removeTokenHeader+"; reload the page")
-				return
-			}
 		}
 		state := "off"
 		if summaries != nil {
@@ -1683,8 +1679,8 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		json.NewEncoder(w).Encode(map[string]any{"enabled": enabled, "provider": provider, "running": status.Running,
-			"started": started, "sessions": status.Sessions, "summarized": status.Summarized, "lastError": status.LastError, "latest": latest})
+		json.NewEncoder(w).Encode(summaryStatus{Enabled: enabled, Provider: provider, Running: status.Running,
+			Started: started, Sessions: status.Sessions, Summarized: status.Summarized, LastError: status.LastError, Latest: latest})
 	})
 	mux.HandleFunc("GET /sessions/view", func(w http.ResponseWriter, r *http.Request) {
 		if !canSeeSessions(r) {
