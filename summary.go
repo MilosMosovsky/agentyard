@@ -1,0 +1,430 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+// ---------------------------------------------------------------- snapshots
+
+type summaryWindow struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// Snapshots contain everything a history view needs, even after transcripts,
+// worktrees and the mutable topic store have gone away.
+type summarySnapshot struct {
+	At        time.Time                 `json:"at"`
+	Window    summaryWindow             `json:"window"`
+	Scheduled bool                      `json:"scheduled"`
+	Provider  string                    `json:"provider"`
+	Error     string                    `json:"error,omitempty"`
+	Projects  []*summarySnapshotProject `json:"projects"`
+}
+
+type summarySnapshotProject struct {
+	Project  string                    `json:"project"`
+	Topics   []*summarySnapshotTopic   `json:"topics"`
+	Unsorted []*summarySnapshotSession `json:"unsorted"`
+}
+
+type summarySnapshotTopic struct {
+	summaryTopic
+	CarriedOver bool                      `json:"carriedOver"`
+	OpenDays    int                       `json:"openDays"`
+	IdleDays    int                       `json:"idleDays"`
+	Hidden      bool                      `json:"hidden"`
+	Sessions    []*summarySnapshotSession `json:"sessions"`
+}
+
+type summarySnapshotNote struct {
+	State    string  `json:"state"`
+	Progress string  `json:"progress"`
+	Next     string  `json:"next"`
+	WaitsOn  *string `json:"waitsOn"`
+}
+
+type summarySnapshotSession struct {
+	Tool          string                    `json:"tool"`
+	ID            string                    `json:"id"`
+	Title         string                    `json:"title"`
+	Goal          string                    `json:"goal"`
+	Cwd           string                    `json:"cwd"`
+	Branch        string                    `json:"branch,omitempty"`
+	PRURL         string                    `json:"prURL,omitempty"`
+	PRNumber      int                       `json:"prNumber,omitempty"`
+	ResumeCmd     string                    `json:"resumeCmd"`
+	Automated     bool                      `json:"automated"`
+	Note          *summarySnapshotNote      `json:"note"`
+	NotSummarized bool                      `json:"notSummarized"`
+	Subagents     []*summarySnapshotSession `json:"subagents"`
+	Progress      string                    `json:"progress,omitempty"` // sub-agent's line in its parent's note
+}
+
+// ---------------------------------------------------------------- orchestration
+
+type summaryRunStatus struct {
+	Running    bool      `json:"running"`
+	Started    time.Time `json:"started"`
+	Sessions   int       `json:"sessions"`
+	Summarized int       `json:"summarized"`
+	LastError  string    `json:"lastError,omitempty"`
+}
+
+type summarySchedule struct {
+	LastAttempt time.Time `json:"lastAttempt"`
+	LastSuccess time.Time `json:"lastSuccess"`
+}
+
+type summarizer struct {
+	enabled        bool
+	stateDir       string
+	provider       string
+	providerErr    error
+	call           summaryCaller
+	now            func() time.Time
+	hour, minute   int
+	corpus         func(time.Time, time.Time, map[string]string) []*summarySession
+	worktrees      func() *Snapshot
+	prs            func() *PRSnapshot
+	folderProjects map[string]string
+	latest         atomic.Pointer[summarySnapshot]
+
+	mu        sync.Mutex
+	runStatus summaryRunStatus
+	schedule  summarySchedule
+	done      chan struct{}
+}
+
+// An empty stateDir selects the private OS config directory. The provider is
+// resolved once here; a missing CLI remains a visible run failure, never a switch.
+func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time) (*summarizer, error) {
+	if now == nil {
+		now = time.Now
+	}
+	s := &summarizer{now: now, stateDir: stateDir, corpus: summaryCorpus, folderProjects: map[string]string{}}
+	if choice == "" || choice == "off" {
+		return s, nil
+	}
+	clock, err := time.Parse("15:04", dailyAt)
+	if err != nil || clock.Format("15:04") != dailyAt {
+		return nil, fmt.Errorf("summary-at must be local HH:MM: %q", dailyAt)
+	}
+	s.hour, s.minute = clock.Hour(), clock.Minute()
+	if s.stateDir == "" {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return nil, err
+		}
+		s.stateDir = filepath.Join(dir, "agentyard", "summary")
+	}
+	p, err := newSummaryProvider(choice, model, s.stateDir)
+	if err != nil {
+		var failure *summaryProviderError
+		if !errors.As(err, &failure) {
+			return nil, err
+		}
+		s.provider, s.providerErr = choice, err
+	} else {
+		s.provider, s.call = p.name, p.call
+	}
+	if choice == "auto" {
+		if s.providerErr != nil {
+			log.Printf("summary: auto provider resolution: %v", s.providerErr)
+		} else {
+			log.Printf("summary: auto resolved to %s", s.provider)
+		}
+	}
+	s.enabled = true
+	if err := loadSummaryState(s.stateDir, "schedule.json", &s.schedule); err != nil {
+		return nil, err
+	}
+	if err := loadSummaryState(s.stateDir, "folders.json", &s.folderProjects); err != nil {
+		return nil, err
+	}
+	if s.folderProjects == nil {
+		s.folderProjects = map[string]string{}
+	}
+	stamps, err := s.history()
+	if err != nil {
+		return nil, err
+	}
+	for i, stamp := range stamps {
+		snap, err := s.load(stamp)
+		if err != nil {
+			return nil, err
+		}
+		if i == 0 {
+			s.runStatus.Started, s.runStatus.LastError = snap.At, snap.Error
+		}
+		if snap.Error == "" {
+			s.latest.Store(snap)
+			break
+		}
+	}
+	return s, nil
+}
+
+func (s *summarizer) status() summaryRunStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runStatus
+}
+
+// start joins a running summary. A zero window is the button's last 24 hours.
+func (s *summarizer) start(window summaryWindow) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.startLocked(window, false, s.now())
+}
+
+func (s *summarizer) startLocked(window summaryWindow, scheduled bool, at time.Time) string {
+	if !s.enabled {
+		return "off"
+	}
+	if s.runStatus.Running {
+		return "running"
+	}
+	if window.End.IsZero() {
+		window.End = at
+	}
+	if window.Start.IsZero() {
+		window.Start = window.End.Add(-24 * time.Hour)
+	}
+	// A clock can repeat after adjustment. Preserve every history address
+	// without changing the activity window or the scheduled boundary.
+	for {
+		if _, err := os.Stat(filepath.Join(s.stateDir, s.historyName(at))); err != nil {
+			break
+		}
+		at = at.Add(time.Nanosecond)
+	}
+	if scheduled {
+		s.schedule.LastAttempt = at
+		// Persist before launching: even a failed morning gets one attempt.
+		if err := saveSummaryState(s.stateDir, "schedule.json", s.schedule); err != nil {
+			s.runStatus.LastError = err.Error()
+			log.Printf("summary: %v", err)
+			return "error"
+		}
+	}
+	s.runStatus = summaryRunStatus{Running: true, Started: at}
+	s.done = make(chan struct{})
+	go s.run(window, scheduled, at)
+	return "started"
+}
+
+func (s *summarizer) tick() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.enabled || s.runStatus.Running {
+		return
+	}
+	at := s.now()
+	today := time.Date(at.Year(), at.Month(), at.Day(), s.hour, s.minute, 0, 0, at.Location())
+	if at.Before(today) || !s.schedule.LastAttempt.Before(today) {
+		return
+	}
+	s.startLocked(summaryWindow{Start: s.schedule.LastSuccess, End: at}, true, at)
+}
+
+func (s *summarizer) run(window summaryWindow, scheduled bool, at time.Time) {
+	snap := &summarySnapshot{At: at, Window: window, Scheduled: scheduled, Provider: s.provider, Projects: []*summarySnapshotProject{}}
+	projects, err := s.pipeline(window, at)
+	if err != nil {
+		snap.Error = err.Error()
+	} else {
+		snap.Projects = s.snapshotProjects(projects)
+	}
+	if err := saveSummaryState(s.stateDir, s.historyName(at), snap); err != nil {
+		if snap.Error != "" {
+			snap.Error += "; "
+		}
+		snap.Error += err.Error()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if snap.Error == "" && scheduled {
+		next := s.schedule
+		next.LastSuccess = window.End
+		if err := saveSummaryState(s.stateDir, "schedule.json", next); err != nil {
+			snap.Error = err.Error()
+			if err := saveSummaryState(s.stateDir, s.historyName(at), snap); err != nil {
+				snap.Error += "; " + err.Error()
+			}
+		} else {
+			s.schedule = next
+		}
+	}
+	if snap.Error == "" {
+		s.latest.Store(snap)
+	} else {
+		log.Printf("summary: %s", snap.Error)
+	}
+	s.runStatus.LastError, s.runStatus.Running = snap.Error, false
+	close(s.done)
+}
+
+func (s *summarizer) pipeline(window summaryWindow, at time.Time) ([]*summaryTopicProject, error) {
+	if s.providerErr != nil {
+		return nil, s.providerErr
+	}
+	entries := s.corpus(window.Start, window.End, s.folderProjects)
+	s.mu.Lock()
+	s.runStatus.Sessions = len(entries)
+	s.mu.Unlock()
+	if err := saveSummaryState(s.stateDir, "folders.json", s.folderProjects); err != nil {
+		return nil, err
+	}
+	notes, err := summaryNotesAt(entries, s.stateDir, at, s.call)
+	s.mu.Lock()
+	for _, noted := range notes {
+		if noted.Note != nil {
+			s.runStatus.Summarized++
+		}
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return summaryClassify(notes, s.stateDir, at, s.call)
+}
+
+// ---------------------------------------------------------------- rendering data
+
+func (s *summarizer) snapshotProjects(projects []*summaryTopicProject) []*summarySnapshotProject {
+	var wt *Snapshot
+	var prs *PRSnapshot
+	if s.worktrees != nil {
+		wt = s.worktrees()
+	}
+	if s.prs != nil {
+		prs = s.prs()
+	}
+	result := []*summarySnapshotProject{}
+	for _, project := range projects {
+		view := &summarySnapshotProject{Project: project.Project, Topics: []*summarySnapshotTopic{}, Unsorted: []*summarySnapshotSession{}}
+		for _, topic := range project.Topics {
+			group := &summarySnapshotTopic{summaryTopic: *topic.summaryTopic, CarriedOver: topic.CarriedOver, OpenDays: topic.OpenDays, IdleDays: topic.IdleDays, Hidden: topic.Hidden, Sessions: []*summarySnapshotSession{}}
+			for _, noted := range topic.Sessions {
+				group.Sessions = append(group.Sessions, snapshotSummarySession(noted.Entry, noted.Note, wt, prs))
+			}
+			view.Topics = append(view.Topics, group)
+		}
+		for _, noted := range project.Unsorted {
+			view.Unsorted = append(view.Unsorted, snapshotSummarySession(noted.Entry, noted.Note, wt, prs))
+		}
+		result = append(result, view)
+	}
+	return result
+}
+
+func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapshot, prs *PRSnapshot) *summarySnapshotSession {
+	session := entry.Session
+	view := &summarySnapshotSession{
+		Tool: session.Tool, ID: session.ID, Title: session.Label(), Goal: entry.Goal,
+		Cwd: session.Cwd, Branch: session.Branch, PRURL: session.PRURL, PRNumber: session.PRNumber,
+		ResumeCmd: session.ResumeCmd(), Automated: entry.Automated, NotSummarized: note == nil, Subagents: []*summarySnapshotSession{},
+	}
+	slug := ""
+	if wt != nil {
+		for _, repo := range wt.Repos {
+			if repo.Path == session.Cwd {
+				slug = repo.Slug
+			}
+			for _, worktree := range repo.Worktrees {
+				if worktree.Path != session.Cwd {
+					continue
+				}
+				slug = repo.Slug
+				if view.Branch == "" {
+					view.Branch = worktree.Branch
+				}
+				if worktree.PR != nil && worktree.Branch == view.Branch && view.PRURL == "" {
+					view.PRURL, view.PRNumber = worktree.PR.URL, worktree.PR.Number
+				}
+			}
+		}
+	}
+	if prs != nil && slug != "" && view.Branch != "" && view.PRURL == "" {
+		for _, pr := range prs.PRs {
+			if pr.Repo == slug && pr.Branch == view.Branch {
+				view.PRURL, view.PRNumber = pr.URL, pr.Number
+				break
+			}
+		}
+	}
+	if note != nil {
+		view.Note = &summarySnapshotNote{State: note.State, Progress: note.Progress, Next: note.Next, WaitsOn: note.WaitsOn}
+	}
+	for _, child := range entry.Subagents {
+		agent := snapshotSummarySession(child, nil, wt, prs)
+		view.Subagents = append(view.Subagents, agent)
+	}
+	if note != nil {
+		var fill func(*summarySnapshotSession)
+		fill = func(agent *summarySnapshotSession) {
+			for _, line := range note.Subagents {
+				if line.SessionKey == agent.Tool+":"+agent.ID {
+					agent.Progress, agent.NotSummarized = line.Progress, false
+				}
+			}
+			for _, child := range agent.Subagents {
+				fill(child)
+			}
+		}
+		for _, agent := range view.Subagents {
+			fill(agent)
+		}
+	}
+	return view
+}
+
+// ---------------------------------------------------------------- history
+
+const summaryStamp = "20060102T150405.000000000Z"
+
+func (s *summarizer) historyName(at time.Time) string {
+	return filepath.Join("history", at.UTC().Format(summaryStamp)+".json")
+}
+
+// history lists run timestamps newest first, including failed runs.
+func (s *summarizer) history() ([]time.Time, error) {
+	files, err := os.ReadDir(filepath.Join(s.stateDir, "history"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stamps []time.Time
+	for _, file := range files {
+		if stamp, err := time.Parse(summaryStamp, strings.TrimSuffix(file.Name(), ".json")); err == nil && strings.HasSuffix(file.Name(), ".json") {
+			stamps = append(stamps, stamp)
+		}
+	}
+	sort.Slice(stamps, func(i, j int) bool { return stamps[i].After(stamps[j]) })
+	return stamps, nil
+}
+
+func (s *summarizer) load(at time.Time) (*summarySnapshot, error) {
+	b, err := os.ReadFile(filepath.Join(s.stateDir, s.historyName(at)))
+	if err != nil {
+		return nil, err
+	}
+	var snap summarySnapshot
+	if err := json.Unmarshal(b, &snap); err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
