@@ -1669,6 +1669,13 @@ func runServe(args []string) error {
 		return json.NewEncoder(os.Stdout).Encode(s.scan())
 	}
 
+	summaries, err := newSummarizer(*flagSummary, *flagSummaryModel, *flagSummaryAt, "", time.Now)
+	if err != nil {
+		return err
+	}
+	summaries.worktrees = func() *Snapshot { return s.snap.Load() }
+	summaries.prs = func() *PRSnapshot { return t.snap.Load() }
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -1691,11 +1698,11 @@ func runServe(args []string) error {
 		go advertise(ctx, mdns, ln.Addr().(*net.TCPAddr).Port)
 	}
 
-	every := func(fn func(), fresh time.Time) {
-		if time.Since(fresh) > *flagInterval { // a recent cache is good enough for the first tick
+	every := func(interval time.Duration, fn func(), fresh time.Time) {
+		if time.Since(fresh) > interval { // a recent cache is good enough for the first tick
 			fn()
 		}
-		tick := time.NewTicker(*flagInterval)
+		tick := time.NewTicker(interval)
 		defer tick.Stop()
 		for {
 			select {
@@ -1706,13 +1713,16 @@ func runServe(args []string) error {
 			}
 		}
 	}
-	go every(func() { s.scan() }, cachedWT.At)
+	go every(*flagInterval, func() { s.scan() }, cachedWT.At)
 	prFresh := cachedPR.At
 	if cachedHistory.At.Before(prFresh) {
 		prFresh = cachedHistory.At
 	}
-	go every(t.refresh, prFresh)
-	go every(func() { x.refresh(0) }, time.Time{})
+	go every(*flagInterval, t.refresh, prFresh)
+	go every(*flagInterval, func() { x.refresh(0) }, time.Time{})
+	if summaries.enabled {
+		go every(time.Minute, summaries.tick, time.Time{})
+	}
 
 	<-ctx.Done()
 	shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)

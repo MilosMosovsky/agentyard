@@ -49,6 +49,10 @@ const summaryNoteKeep = 7 * 24 * time.Hour
 // ---------------------------------------------------------------- notes
 
 func summaryNotes(entries []*summarySession, stateDir string, call summaryCaller) ([]*summaryNotedSession, error) {
+	return summaryNotesAt(entries, stateDir, time.Now(), call)
+}
+
+func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, call summaryCaller) ([]*summaryNotedSession, error) {
 	cache := map[string]summaryCachedNote{}
 	if err := loadSummaryState(stateDir, "notes.json", &cache); err != nil {
 		return nil, err
@@ -61,7 +65,7 @@ func summaryNotes(entries []*summarySession, stateDir string, call summaryCaller
 		inRun[summarySessionKey(entry)] = true
 	}
 	for key, cached := range cache {
-		if !inRun[key] && time.Since(cached.Saved) > summaryNoteKeep {
+		if !inRun[key] && at.Sub(cached.Saved) > summaryNoteKeep {
 			delete(cache, key)
 		}
 	}
@@ -111,7 +115,7 @@ func summaryNotes(entries []*summarySession, stateDir string, call summaryCaller
 					continue
 				}
 				noted.Note, noted.Changed = matches[0], true
-				cache[key] = summaryCachedNote{Fingerprint: noted.Fingerprint, Note: noted.Note, Saved: time.Now()}
+				cache[key] = summaryCachedNote{Fingerprint: noted.Fingerprint, Note: noted.Note, Saved: at}
 			}
 			if err := saveSummaryState(stateDir, "notes.json", cache); err != nil {
 				return result, err
