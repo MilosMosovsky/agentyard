@@ -24,6 +24,7 @@ func TestMain(m *testing.M) {
 	// Test repositories' origins are local folders, never GitHub.
 	prFetch = func(repo, _ string, patient bool) error { return fetch(repo, "", patient) }
 	*flagClaudeDir, *flagCodexDir, *flagRoot = tmp+"/.claude", tmp+"/.codex", tmp+"/code"
+	summaryScratchRoots = nil // test folders live in the temp folder
 	code := m.Run()
 	os.RemoveAll(tmp)
 	os.Exit(code)
@@ -70,7 +71,7 @@ func TestDemoPages(t *testing.T) {
 	pages := map[string][]string{
 		"/":             {"claude/fix-auth-race", "codex/migrate-payments-ledger", "Fix token refresh race in auth middleware", "worktree remove"},
 		"/prs":          {"Migrate payments to the v2 ledger", "test (postgres-16)", "acme-labs/tinyhttp", "ada/dotfiles", "tkowalski"},
-		"/summary":      {"Fix token refresh race in auth middleware", "In progress", "Waiting on you", "Blocked", "Done", "Unsorted sessions", "Other"},
+		"/summary":      {"Fix token refresh race in auth middleware", "In progress", "Waiting on you", "Blocked", "Done", "Unsorted sessions"},
 		"/sessions":     {"Fix token refresh race in auth middleware", "claude --resume", "codex resume", "Scheduled: nightly-dependency-audit"},
 		"/api.json":     {`"verdict":"merged"`, `"verdict":"prunable"`, `"verdict":"unmerged"`, `"verdict":"open"`, `"verdict":"keep"`},
 		"/api/prs.json": {`"state":"In merge queue"`, `"state":"Draft"`, `"state":"Conflicts"`},

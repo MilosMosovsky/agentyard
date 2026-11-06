@@ -47,6 +47,7 @@ type summarySnapshot struct {
 	Scheduled bool                      `json:"scheduled"`
 	Provider  string                    `json:"provider"`
 	Error     string                    `json:"error,omitempty"`
+	LeftOut   int                       `json:"leftOut,omitempty"` // headless runs in scratch folders, which their launchers report on
 	Projects  []*summarySnapshotProject `json:"projects"`
 }
 
@@ -132,7 +133,7 @@ type summarizer struct {
 	call           summaryCaller
 	now            func() time.Time
 	hour, minute   int
-	corpus         func(time.Time, time.Time, map[string]string) []*summarySession
+	corpus         func(time.Time, time.Time, map[string]string) ([]*summarySession, int)
 	worktrees      func() *Snapshot
 	prs            func() *PRSnapshot
 	folderProjects map[string]string
@@ -302,7 +303,8 @@ func (s *summarizer) tick() {
 
 func (s *summarizer) run(window summaryWindow, scheduled bool, at time.Time) {
 	snap := &summarySnapshot{At: at, Window: window, Scheduled: scheduled, Provider: s.provider, Projects: []*summarySnapshotProject{}}
-	projects, err := s.pipeline(window, at)
+	projects, leftOut, err := s.pipeline(window, at)
+	snap.LeftOut = leftOut
 	if err != nil {
 		snap.Error = err.Error()
 	} else {
@@ -337,16 +339,16 @@ func (s *summarizer) run(window summaryWindow, scheduled bool, at time.Time) {
 	close(s.done)
 }
 
-func (s *summarizer) pipeline(window summaryWindow, at time.Time) ([]*summaryTopicProject, error) {
+func (s *summarizer) pipeline(window summaryWindow, at time.Time) ([]*summaryTopicProject, int, error) {
 	if s.providerErr != nil {
-		return nil, s.providerErr
+		return nil, 0, s.providerErr
 	}
-	entries := s.corpus(window.Start, window.End, s.folderProjects)
+	entries, leftOut := s.corpus(window.Start, window.End, s.folderProjects)
 	s.mu.Lock()
 	s.runStatus.Sessions = len(entries)
 	s.mu.Unlock()
 	if err := saveSummaryState(s.stateDir, "folders.json", s.folderProjects); err != nil {
-		return nil, err
+		return nil, leftOut, err
 	}
 	notes, err := summaryNotesAt(entries, s.stateDir, at, s.call)
 	s.mu.Lock()
@@ -357,9 +359,10 @@ func (s *summarizer) pipeline(window summaryWindow, at time.Time) ([]*summaryTop
 	}
 	s.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return nil, leftOut, err
 	}
-	return summaryClassify(notes, s.stateDir, at, s.call)
+	projects, err := summaryClassify(notes, s.stateDir, at, s.call)
+	return projects, leftOut, err
 }
 
 // ---------------------------------------------------------------- rendering data

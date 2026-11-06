@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,9 +49,24 @@ func topicAssignments(t *testing.T, prompt string, schema *summarySchema, id, na
 		} else {
 			newName = name
 		}
-		assignments = append(assignments, map[string]any{"session_key": note["session_key"], "topic_id": topicID, "new_topic_name": newName, "status": "Parser ready for review"})
+		assignments = append(assignments, map[string]any{"session_key": note["session_key"], "topic_id": topicID, "new_topic_name": newName})
 	}
 	return checkedSummaryAnswer(t, schema, map[string]any{"assignments": assignments})
+}
+
+// answerTopics answers both topic calls: classification files every note under
+// id or name, and the brief call briefs every topic it is given.
+func answerTopics(t *testing.T, prompt string, schema *summarySchema, id, name string) (json.RawMessage, error) {
+	t.Helper()
+	if schema != summaryTopicBriefSchema {
+		return topicAssignments(t, prompt, schema, id, name)
+	}
+	var briefs []any
+	for _, v := range topicInput(t, prompt)["topics"].([]any) {
+		topic := v.(map[string]any)
+		briefs = append(briefs, map[string]any{"topic_id": topic["topic_id"], "about": "A parser for the config format.", "status": "Parser ready for review", "waits_on": nil, "next": "Merge it."})
+	}
+	return checkedSummaryAnswer(t, schema, map[string]any{"briefs": briefs})
 }
 
 func TestSummaryTopicsCarryAndReuse(t *testing.T) {
@@ -61,7 +77,7 @@ func TestSummaryTopicsCarryAndReuse(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "summary")
 	notes := topicNotes(t, entries[:1], state)
 	first, err := summaryClassify(notes, state, monday, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	})
 	if err != nil || len(first) != 1 || len(first[0].Topics) != 1 {
 		t.Fatalf("first: %+v %v", first, err)
@@ -75,13 +91,16 @@ func TestSummaryTopicsCarryAndReuse(t *testing.T) {
 	notes = topicNotes(t, entries, state)
 	calls := 0
 	next, err := summaryClassify(notes, state, thursday, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema { // classification calls are counted
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		calls++
 		input := topicInput(t, prompt)
 		live := input["topics"].([]any)
-		if len(live) != 1 || live[0].(map[string]any)["id"] != id || live[0].(map[string]any)["status"] != "Parser ready for review" || len(input["notes"].([]any)) != 1 {
+		if len(live) != 1 || live[0].(map[string]any)["id"] != id || live[0].(map[string]any)["about"] != "A parser for the config format." || len(input["notes"].([]any)) != 1 {
 			t.Fatalf("lost live topic/cached assignment: %s", prompt)
 		}
-		return topicAssignments(t, prompt, schema, id, "")
+		return answerTopics(t, prompt, schema, id, "")
 	})
 	if err != nil || calls != 1 || len(next[0].Topics) != 1 {
 		t.Fatalf("Thursday: %+v calls=%d %v", next, calls, err)
@@ -113,9 +132,9 @@ func TestSummaryTopicsNewAndUnknownIDs(t *testing.T) {
 			at := entries[2].Session.Modified
 			got, err := summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
 				if unknown {
-					return topicAssignments(t, prompt, schema, "model-invented-id", "")
+					return answerTopics(t, prompt, schema, "model-invented-id", "")
 				}
-				return topicAssignments(t, prompt, schema, "", "Parser")
+				return answerTopics(t, prompt, schema, "", "Parser")
 			})
 			if err != nil || len(got) != 1 || len(got[0].Topics) != 1 {
 				t.Fatalf("new topic: %+v %v", got, err)
@@ -144,7 +163,7 @@ func TestSummaryTopicsRetention(t *testing.T) {
 			state := t.TempDir()
 			notes := topicNotes(t, entries, state)
 			initial, err := summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
-				return topicAssignments(t, prompt, schema, "", "Parser")
+				return answerTopics(t, prompt, schema, "", "Parser")
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -197,11 +216,14 @@ func TestSummaryTopicsProjectFailureAndRetry(t *testing.T) {
 	fakeSummaryCLI(t, bin, "claude", `printf 'not JSON'`)
 	calls := 0
 	got, err := summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema { // classification calls are counted
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		calls++
 		if topicInput(t, prompt)["project"] == "agentyard" {
 			return p.call(prompt, schema)
 		}
-		return topicAssignments(t, prompt, schema, "", "Other parser")
+		return answerTopics(t, prompt, schema, "", "Other parser")
 	})
 	if err != nil || calls != 2 || len(got) != 2 {
 		t.Fatalf("classification: %+v calls=%d %v", got, calls, err)
@@ -214,11 +236,14 @@ func TestSummaryTopicsProjectFailureAndRetry(t *testing.T) {
 	notes = topicNotes(t, entries, state)
 	calls = 0
 	got, err = summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema { // classification calls are counted
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		calls++
 		if topicInput(t, prompt)["project"] != "agentyard" {
 			t.Fatal("reclassified unchanged successful project")
 		}
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	})
 	if err != nil || calls != 1 || len(got[0].Unsorted) != 0 || got[1].Topics[0].ID != otherID {
 		t.Fatalf("retry: %+v calls=%d %v", got, calls, err)
@@ -235,8 +260,11 @@ func TestSummaryTopicsInterruptedBetweenPasses(t *testing.T) {
 	}
 	calls := 0
 	got, err := summaryClassify(notes, state, entries[0].Session.Modified, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema { // classification calls are counted
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		calls++
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	})
 	if err != nil || calls != 1 || len(got[0].Topics) != 1 {
 		t.Fatalf("interrupted classification: %+v calls=%d %v", got, calls, err)
@@ -249,13 +277,16 @@ func TestSummaryTopicsMissingAssignmentsAndFailedNotes(t *testing.T) {
 	notes := topicNotes(t, entries, state)
 	notes[2].Note = nil
 	got, err := summaryClassify(notes, state, entries[2].Session.Modified, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema {
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		input := topicInput(t, prompt)
 		if len(input["notes"].([]any)) != 2 {
 			t.Fatal("sent failed note for classification")
 		}
 		return checkedSummaryAnswer(t, schema, map[string]any{"assignments": []any{
-			map[string]any{"session_key": notes[1].Note.SessionKey, "topic_id": nil, "new_topic_name": "Parser", "status": "Ready"},
-			map[string]any{"session_key": "unrequested", "topic_id": nil, "new_topic_name": "Phantom", "status": "Ignore"},
+			map[string]any{"session_key": notes[1].Note.SessionKey, "topic_id": nil, "new_topic_name": "Parser"},
+			map[string]any{"session_key": "unrequested", "topic_id": nil, "new_topic_name": "Phantom"},
 		}})
 	})
 	if err != nil || len(got[0].Topics) != 1 || len(got[0].Topics[0].Sessions) != 1 || got[0].Topics[0].Sessions[0] != notes[1] || len(got[0].Unsorted) != 2 {
@@ -272,19 +303,25 @@ func TestSummaryTopicsProviderFailure(t *testing.T) {
 	calls := 0
 	failure := &summaryProviderError{Provider: "claude", LastLine: "Not logged in"}
 	_, err := summaryClassify(notes, state, entries[2].Session.Modified, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema { // classification calls are counted
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		calls++
 		if calls == 2 {
 			return nil, failure
 		}
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	})
 	if !errors.Is(err, failure) || calls != 2 {
 		t.Fatalf("provider stop: calls=%d %v", calls, err)
 	}
 	calls = 0
 	_, err = summaryClassify(notes, state, entries[2].Session.Modified, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema == summaryTopicBriefSchema { // classification calls are counted
+			return answerTopics(t, prompt, schema, "", "")
+		}
 		calls++
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	})
 	if err != nil || calls != 2 {
 		t.Fatalf("successful project not saved: calls=%d %v", calls, err)
@@ -300,7 +337,7 @@ func TestSummaryTopicsChangedNoteAndSubagentActivity(t *testing.T) {
 	state := t.TempDir()
 	notes := topicNotes(t, entries[:1], state)
 	first, err := summaryClassify(notes, state, monday, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +357,7 @@ func TestSummaryTopicsChangedNoteAndSubagentActivity(t *testing.T) {
 	}
 	notes = topicNotes(t, entries[:1], state)
 	got, err = summaryClassify(notes, state, thursday, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
-		return topicAssignments(t, prompt, schema, id, "")
+		return answerTopics(t, prompt, schema, id, "")
 	})
 	if err != nil || len(got[0].Topics) != 1 || len(got[0].Unsorted) != 0 {
 		t.Fatalf("reclassification: %+v %v", got, err)
@@ -335,5 +372,116 @@ func TestSummaryTopicsChangedNoteAndSubagentActivity(t *testing.T) {
 	})
 	if err != nil || got[0].Topics[0].IdleDays != 1 || !got[0].Topics[0].LastActive.Equal(thursday) {
 		t.Fatalf("cached note refreshed activity: %+v %v", got, err)
+	}
+}
+
+func TestSummaryTopicBriefs(t *testing.T) {
+	entries := noteEntries(t, 8)
+	state := t.TempDir()
+	notes := topicNotes(t, entries, state)
+	at := entries[7].Session.Modified
+	var batches [][]any
+	got, err := summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		input := topicInput(t, prompt)
+		if schema == summaryTopicSchema {
+			// Every session becomes its own topic.
+			var assignments []any
+			for i, v := range input["notes"].([]any) {
+				assignments = append(assignments, map[string]any{"session_key": v.(map[string]any)["session_key"], "topic_id": nil, "new_topic_name": fmt.Sprintf("Topic %d", i)})
+			}
+			return checkedSummaryAnswer(t, schema, map[string]any{"assignments": assignments})
+		}
+		topics := input["topics"].([]any)
+		batches = append(batches, topics)
+		var briefs []any
+		for _, v := range topics {
+			topic := v.(map[string]any)
+			sessions := topic["sessions"].([]any)
+			if topic["previous_brief"] != nil || len(sessions) != 1 || sessions[0].(map[string]any)["progress"] != "Parser implemented" {
+				t.Fatalf("brief input: %v", topic)
+			}
+			wait := any(nil)
+			if topic["name"] == "Topic 0" {
+				wait = "  " // blank means nothing waits
+			}
+			briefs = append(briefs, map[string]any{"topic_id": topic["topic_id"], "about": "About " + topic["name"].(string), "status": "Status", "waits_on": wait, "next": "Next"})
+		}
+		// An unrequested id and a duplicate answer for the last topic are ignored.
+		last := briefs[len(briefs)-1].(map[string]any)
+		briefs = append(briefs, map[string]any{"topic_id": "unrequested", "about": "x", "status": "x", "waits_on": nil, "next": "x"})
+		if len(batches) == 2 {
+			briefs = append(briefs, map[string]any{"topic_id": last["topic_id"], "about": "Second answer", "status": "x", "waits_on": nil, "next": "x"})
+		}
+		return checkedSummaryAnswer(t, schema, map[string]any{"briefs": briefs})
+	})
+	if err != nil || len(batches) != 2 || len(batches[0]) != summaryBriefTopics || len(batches[1]) != 2 {
+		t.Fatalf("batches: %d %v", len(batches), err)
+	}
+	briefed := 0
+	for _, topic := range got[0].Topics {
+		if topic.About != "" {
+			briefed++
+			if topic.About != "About "+topic.Name || topic.Status != "Status" || topic.Next != "Next" || topic.WaitsOn != nil {
+				t.Fatalf("brief: %+v", topic.summaryTopic)
+			}
+		}
+	}
+	if briefed != 7 {
+		t.Fatalf("briefed %d topics, want 7 (the duplicated one keeps none)", briefed)
+	}
+
+	// A store written before briefs existed is briefed on the next run, and a
+	// failed brief call keeps what the topic had.
+	var stored map[string]*summaryProjectTopicState
+	if err := loadSummaryState(state, "topics.json", &stored); err != nil {
+		t.Fatal(err)
+	}
+	for _, topic := range stored["agentyard"].Topics {
+		topic.About = ""
+		topic.Status = "Old one-line status"
+	}
+	if err := saveSummaryState(state, "topics.json", stored); err != nil {
+		t.Fatal(err)
+	}
+	notes = topicNotes(t, entries, state)
+	got, err = summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		if schema != summaryTopicBriefSchema {
+			t.Fatal("unchanged classification called")
+		}
+		for _, v := range topicInput(t, prompt)["topics"].([]any) {
+			if v.(map[string]any)["previous_brief"].(map[string]any)["status"] != "Old one-line status" {
+				t.Fatalf("previous brief missing: %v", v)
+			}
+		}
+		return nil, &summaryBatchError{Provider: "claude", Err: errors.New("bad output")}
+	})
+	if err != nil || len(got[0].Topics) != 8 || got[0].Topics[0].Status != "Old one-line status" {
+		t.Fatalf("failed brief: %+v %v", got, err)
+	}
+	calls := 0
+	notes = topicNotes(t, entries, state)
+	if _, err := summaryClassify(notes, state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		calls++
+		return answerTopics(t, prompt, schema, "", "")
+	}); err != nil || calls != 2 {
+		t.Fatalf("upgrade briefs: calls=%d %v", calls, err)
+	}
+	if err := loadSummaryState(state, "topics.json", &stored); err != nil || stored["agentyard"].Topics[0].About == "" {
+		t.Fatalf("upgraded brief not saved: %v", err)
+	}
+}
+
+func TestSummaryTopicsDropLegacyOther(t *testing.T) {
+	state := t.TempDir()
+	legacy := map[string]*summaryProjectTopicState{"Other": {Topics: []*summaryTopic{{ID: "x", Name: "Loose ends", LastActive: time.Now()}}}}
+	if err := saveSummaryState(state, "topics.json", legacy); err != nil {
+		t.Fatal(err)
+	}
+	got, err := summaryClassify(nil, state, time.Now(), func(string, *summarySchema) (json.RawMessage, error) {
+		t.Fatal("no call expected")
+		return nil, nil
+	})
+	if err != nil || len(got) != 0 {
+		t.Fatalf("legacy Other project shown: %+v %v", got, err)
 	}
 }

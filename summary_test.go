@@ -21,7 +21,7 @@ func newTestSummarizer(t *testing.T, now *time.Time, dir string) *summarizer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.corpus = func(time.Time, time.Time, map[string]string) []*summarySession { return nil }
+	s.corpus = func(time.Time, time.Time, map[string]string) ([]*summarySession, int) { return nil, 0 }
 	s.call = func(prompt string, schema *summarySchema) (json.RawMessage, error) {
 		if schema == summaryNoteSchema {
 			return answerNotes(t, prompt, schema)
@@ -115,7 +115,7 @@ func TestSummarizerFailedMorningAndButton(t *testing.T) {
 	waitSummary(t, s)
 	monday := s.latest.Load()
 	entries := noteEntries(t, 1)
-	s.corpus = func(time.Time, time.Time, map[string]string) []*summarySession { return entries }
+	s.corpus = func(time.Time, time.Time, map[string]string) ([]*summarySession, int) { return entries, 0 }
 	s.call = func(string, *summarySchema) (json.RawMessage, error) {
 		return nil, &summaryProviderError{Provider: "claude", LastLine: "Not logged in", Err: errors.New("exit 1")}
 	}
@@ -162,10 +162,10 @@ func TestSummarizerSingleFlight(t *testing.T) {
 	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	s := newTestSummarizer(t, &at, t.TempDir())
 	entered, release := make(chan struct{}), make(chan struct{})
-	s.corpus = func(time.Time, time.Time, map[string]string) []*summarySession {
+	s.corpus = func(time.Time, time.Time, map[string]string) ([]*summarySession, int) {
 		close(entered)
 		<-release
-		return nil
+		return nil, 0
 	}
 	window := summaryWindow{Start: at.Add(-24 * time.Hour), End: at}
 	if s.start(window) != "started" {
@@ -178,7 +178,7 @@ func TestSummarizerSingleFlight(t *testing.T) {
 	s.tick() // a busy tick must leave the scheduled attempt available
 	close(release)
 	waitSummary(t, s)
-	s.corpus = func(time.Time, time.Time, map[string]string) []*summarySession { return nil }
+	s.corpus = func(time.Time, time.Time, map[string]string) ([]*summarySession, int) { return nil, 0 }
 	s.tick()
 	waitSummary(t, s)
 	if !s.latest.Load().Scheduled {
@@ -204,16 +204,19 @@ func testSummarizerFixtureHistory(t *testing.T, choice string) {
 		summaryClaudeTurn("user", "Review parser", true), summaryClaudeTurn("assistant", "Looks good", true))
 	summaryWrite(t, filepath.Join(claude, "missing.jsonl"), modified, summaryClaudeTurn("user", "Note fails", false))
 	summaryWrite(t, filepath.Join(codex, "rollout-auto.jsonl"), modified,
-		map[string]any{"type": "session_meta", "payload": map[string]any{"id": "auto", "source": "exec"}},
+		map[string]any{"type": "session_meta", "payload": map[string]any{"id": "auto", "cwd": summaryTestCwd, "source": "exec"}},
 		summaryCodexTurn("user", "Scheduled cleanup"))
 	dir, bin := filepath.Join(t.TempDir(), "summary"), t.TempDir()
 	t.Setenv("PATH", bin)
 	// These fake CLIs honor the same persistence contract as the real runner.
 	notes := `{"notes":[{"session_key":"claude:parent","state":"waiting_on_you","progress":"Parser ready","next":"Merge","waits_on":"Review","subagents":[{"session_key":"claude:agent-review","progress":"Looks good"}]},{"session_key":"codex:auto","state":"done","progress":"Cleaned","next":"None","waits_on":null,"subagents":[]}]}`
-	topics := `{"assignments":[{"session_key":"claude:parent","topic_id":null,"new_topic_name":"Parser","status":"Ready"},{"session_key":"codex:auto","topic_id":null,"new_topic_name":"Cleanup","status":"Done"}]}`
+	topics := `{"assignments":[{"session_key":"claude:parent","topic_id":null,"new_topic_name":"Parser"},{"session_key":"codex:auto","topic_id":null,"new_topic_name":"Cleanup"}]}`
+	// The brief answers carry no topic ids, so every topic stays unbriefed.
+	briefs := `{"briefs":[]}`
 	fakeSummaryCLI(t, bin, "claude", `input=$(/bin/cat)
 case "$input" in
 Write*) answer='`+notes+`' ;;
+Brief*) answer='`+briefs+`' ;;
 *) answer='`+topics+`' ;;
 esac
 printf '{"type":"result","structured_output":%s}' "$answer"`)
@@ -224,6 +227,7 @@ shift
 done
 case "$input" in
 Write*) answer='`+notes+`' ;;
+Brief*) answer='`+briefs+`' ;;
 *) answer='`+topics+`' ;;
 esac
 printf '%s' "$answer" > "$output"`)
@@ -237,7 +241,7 @@ printf '%s' "$answer" > "$output"`)
 	s.worktrees = func() *Snapshot {
 		return &Snapshot{Repos: []*Repo{{Worktrees: []*Worktree{{Path: cwd, Branch: "feature", PR: &PR{Number: 42, URL: "https://github.com/example/agentyard/pull/42"}}}}}}
 	}
-	before := summaryCorpus(at.Add(-24*time.Hour), at, map[string]string{cwd: "agentyard"})
+	before, _ := summaryCorpus(at.Add(-24*time.Hour), at, map[string]string{cwd: "agentyard"})
 	s.start(summaryWindow{Start: at.Add(-24 * time.Hour), End: at})
 	waitSummary(t, s)
 	snap := s.latest.Load()
@@ -251,7 +255,7 @@ printf '%s' "$answer" > "$output"`)
 	var parent, automated, missing *summarySnapshotSession
 	for _, project := range snap.Projects {
 		for _, topic := range project.Topics {
-			if topic.Name == "" || topic.Status == "" || topic.CarriedOver || topic.OpenDays != 0 || topic.Hidden {
+			if topic.Name == "" || topic.Status != "" || topic.CarriedOver || topic.OpenDays != 0 || topic.Hidden {
 				t.Fatalf("topic: %+v", topic)
 			}
 			for _, session := range topic.Sessions {
@@ -280,7 +284,7 @@ printf '%s' "$answer" > "$output"`)
 		t.Fatalf("cache did not use injected clock: %+v %v", cache, err)
 	}
 	// A subsequent corpus has exactly the original sessions, including agents.
-	after := summaryCorpus(at.Add(-24*time.Hour), at.Add(time.Hour), map[string]string{cwd: "agentyard"})
+	after, _ := summaryCorpus(at.Add(-24*time.Hour), at.Add(time.Hour), map[string]string{cwd: "agentyard"})
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("summary calls created sessions")
 	}
@@ -373,7 +377,7 @@ func TestSummarizerEveryCallFailedKeepsLatest(t *testing.T) {
 	waitSummary(t, s)
 	monday, schedule := s.latest.Load(), s.schedule
 	entries := noteEntries(t, 3)
-	s.corpus = func(time.Time, time.Time, map[string]string) []*summarySession { return entries }
+	s.corpus = func(time.Time, time.Time, map[string]string) ([]*summarySession, int) { return entries, 0 }
 	s.call = func(string, *summarySchema) (json.RawMessage, error) {
 		return nil, &summaryBatchError{Provider: "claude", Err: context.DeadlineExceeded}
 	}
