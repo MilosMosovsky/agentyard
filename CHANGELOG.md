@@ -6,6 +6,33 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Session summaries, off by default.** A Summary page says where each Claude Code and Codex session
+  got to, what it is waiting on you for or blocked on, and what comes next. A summary runs every
+  morning (07:00 by default, after wake if the Mac was asleep) and **Summarize** runs one for the last
+  24 hours. Work is grouped by repository (worktrees count as their repository), then topic, then
+  session, newest first, with how long ago each session was touched, its branch and PR, sub-agents and
+  Copy resume. Topics carry over with how long they have been open, stay visible 7 days after their
+  last activity and leave after 14. Every run is saved, failed ones included, and reopens from a dated
+  picker; a failed run shows the previous good summary under its error.
+- One provider writes the summaries, Claude (`haiku`) or Codex (`gpt-6-luna`), through your own CLI
+  login, and it never switches to the other. Each run sends clipped transcript excerpts to that
+  provider's company. The CLI runs in an empty folder with its tools, MCP servers and session
+  persistence off, the prompt on stdin, and its answer is checked against a schema. Nothing runs and
+  no model is called while summaries are off. State is kept private in
+  `~/Library/Application Support/agentyard/summary`.
+- `agentyard install` asks once whether to turn summaries on, naming the company that would receive
+  excerpts; `--yes` keeps the previous choice or leaves them off. New flags: `--summary
+  off|auto|claude|codex`, `--summary-at HH:MM` and `--summary-model` on `install`, and `-summary`,
+  `-summary-at` and `-summary-model` on `serve`.
+- MCP tools `list_summaries` and `get_summary` (read saved runs, no model call) and `summarize` (starts
+  a last-24-hours run and sends excerpts to your provider).
+- `POST /api/summary` starts a run and answers this Mac only; a browser request needs the page token
+  and its own `Origin`. `GET /api/summary/status` and the Summary page follow the Sessions tab's
+  rule (this Mac, unless `--sessions-lan`).
+- `brew uninstall --zap` also removes the saved summaries.
+
 ## [0.10.0] - 2026-10-12
 
 ### Added
