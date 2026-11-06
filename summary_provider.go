@@ -17,7 +17,10 @@ import (
 
 var errSummaryOff = errors.New("summaries are off")
 
-const defaultSummaryCodexModel = "gpt-6-luna"
+const (
+	defaultSummaryClaudeModel = "haiku"
+	defaultSummaryCodexModel  = "gpt-6-luna"
+)
 
 type summaryProviderError struct {
 	Provider string
@@ -74,7 +77,7 @@ func newSummaryProvider(choice, model, stateDir string) (*summaryProvider, error
 		}
 		p.name, p.binary, p.model = name, binary, model
 		if p.model == "" {
-			p.model = "haiku"
+			p.model = defaultSummaryClaudeModel
 			if name == "codex" {
 				p.model = defaultSummaryCodexModel
 			}

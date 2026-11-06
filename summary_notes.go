@@ -125,7 +125,9 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 	return result, nil
 }
 
-func summarySessionKey(e *summarySession) string { return e.Session.Tool + ":" + e.Session.ID }
+func summaryKey(tool, id string) string { return tool + ":" + id }
+
+func summarySessionKey(e *summarySession) string { return summaryKey(e.Session.Tool, e.Session.ID) }
 
 func summaryDescendants(e *summarySession) []*summarySession {
 	var all []*summarySession

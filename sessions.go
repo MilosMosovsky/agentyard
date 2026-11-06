@@ -627,6 +627,9 @@ func latestMessages(s *Session, want int) []Message {
 
 func latestMessagesWithOptions(s *Session, want int, opts transcriptOptions) []Message {
 	window := int64(detailWindow)
+	if opts.textLimit { // summaries want a handful of messages
+		window = tailWindow
+	}
 	for {
 		msgs := parseMessages(s, readTail(s.Path, window), opts)
 		texts := 0

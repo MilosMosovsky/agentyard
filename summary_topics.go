@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	summaryTopicHideAfter = 7 * 24 * time.Hour
+	summaryTopicExpiry    = 14 * 24 * time.Hour
+)
+
 type summaryTopic struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
@@ -74,7 +79,7 @@ func summaryClassify(notes []*summaryNotedSession, stateDir string, at time.Time
 		carried[project] = map[string]bool{}
 		live := state.Topics[:0]
 		for _, topic := range state.Topics {
-			if at.Sub(topic.LastActive) > 14*24*time.Hour {
+			if at.Sub(topic.LastActive) > summaryTopicExpiry {
 				continue
 			}
 			live = append(live, topic)
@@ -91,6 +96,7 @@ func summaryClassify(notes []*summaryNotedSession, stateDir string, at time.Time
 		}
 	}
 	sort.Strings(order)
+	saved := false
 	for _, project := range order {
 		state := store[project]
 		var pending []*summaryNotedSession
@@ -123,10 +129,13 @@ func summaryClassify(notes []*summaryNotedSession, stateDir string, at time.Time
 		if err := saveSummaryState(stateDir, "topics.json", store); err != nil {
 			return nil, err
 		}
+		saved = true
 	}
 	// Expiry is persisted even when no project needed a model call.
-	if err := saveSummaryState(stateDir, "topics.json", store); err != nil {
-		return nil, err
+	if !saved {
+		if err := saveSummaryState(stateDir, "topics.json", store); err != nil {
+			return nil, err
+		}
 	}
 	var result []*summaryTopicProject
 	for _, project := range order {
@@ -212,7 +221,7 @@ func summaryTopicView(project string, state *summaryProjectTopicState, notes []*
 		group := &summaryTopicGroup{
 			summaryTopic: topic, CarriedOver: carried[topic.ID],
 			OpenDays: summaryDays(at.Sub(topic.FirstSeen)), IdleDays: summaryDays(at.Sub(topic.LastActive)),
-			Hidden: at.Sub(topic.LastActive) > 7*24*time.Hour,
+			Hidden: at.Sub(topic.LastActive) > summaryTopicHideAfter,
 		}
 		view.Topics = append(view.Topics, group)
 		byID[topic.ID] = group

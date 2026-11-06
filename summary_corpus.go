@@ -23,7 +23,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 	var all []*summarySession
 	byID := map[string]*summarySession{}
 	titles := codexTitles()
-	inWindow := func(t time.Time) bool { return !t.Before(start) && t.Before(end) }
+	inWindow := func(t time.Time) bool { return summaryInWindow(t, start, end) }
 	visit := func(path, tool, parent string, sidechain bool, fi os.FileInfo) {
 		opts := transcriptOptions{keepSidechain: sidechain, keepAutomated: true}
 		var s *Session
@@ -45,7 +45,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 			e.Automated = true
 		}
 		all = append(all, e)
-		byID[tool+":"+s.ID] = e
+		byID[summaryKey(tool, s.ID)] = e
 	}
 	stat := func(path string) os.FileInfo {
 		fi, err := os.Stat(path)
@@ -108,7 +108,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 
 	var roots []*summarySession
 	for _, e := range all {
-		if parent := byID[e.Session.Tool+":"+e.Session.ParentID]; e.Session.ParentID != "" && parent != nil {
+		if parent := byID[summaryKey(e.Session.Tool, e.Session.ParentID)]; e.Session.ParentID != "" && parent != nil {
 			parent.Subagents = append(parent.Subagents, e)
 		} else {
 			roots = append(roots, e)
@@ -124,8 +124,10 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 	return selected
 }
 
+func summaryInWindow(t, start, end time.Time) bool { return !t.Before(start) && t.Before(end) }
+
 func summaryActive(e *summarySession, start, end time.Time) bool {
-	if !e.Session.Modified.Before(start) && e.Session.Modified.Before(end) {
+	if summaryInWindow(e.Session.Modified, start, end) {
 		return true
 	}
 	for _, child := range e.Subagents {
@@ -146,11 +148,12 @@ func fillSummarySession(e *summarySession, parentProject string, folderProjects 
 	}
 	opts := transcriptOptions{keepSidechain: e.Automated, keepAutomated: true, textLimit: true}
 	var first *Message
-	head := parseMessages(s, readHead(s.Path, headWindow), opts)
-	for _, m := range head {
-		if m.Role == "user" {
-			first = &m
-			break
+	if e.Automated || s.Title == "" {
+		for _, m := range parseMessages(s, readHead(s.Path, headWindow), opts) {
+			if m.Role == "user" {
+				first = &m
+				break
+			}
 		}
 	}
 	e.Goal = s.Title
