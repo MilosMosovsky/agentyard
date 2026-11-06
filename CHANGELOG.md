@@ -6,6 +6,17 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-06
+
+### Added
+
+- Summary projects get a name. The first summary that sees a project asks the model for a short,
+  readable name ("AI Adoption Onboarding" instead of `~/Documents/Claude/Projects/AI Adoption
+  Onboarding task`), saves it and keeps it, so it never changes between runs; the project's path
+  still shows beside it and its topics stay where they are. A second checkout of the same repository
+  is told apart by its owner folder. If naming fails the path shows, and the next run tries again.
+  `get_summary` returns the name and filters by name or path.
+
 ## [0.12.1] - 2026-11-06
 
 ### Fixed
@@ -386,7 +397,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.0...v0.11.1

@@ -591,10 +591,10 @@ func (m *mcpServer) toolList() []mcpTool {
 		},
 		{
 			Name: "get_summary", Title: "Get a session summary",
-			Description: "The latest successful saved summary, or a run at a listed timestamp, grouped by project and topic. Each topic says what the work is about, where it stands, what waits on the user and what comes next; each session has its progress, next step, wait, resume command and sub-agents. Hidden topics are counted and omitted, and leftOut counts headless runs in scratch folders, which their launching sessions report on. Reads local history without model calls.",
+			Description: "The latest successful saved summary, or a run at a listed timestamp, grouped by project and topic. Each project has its key and, once named, a display name. Each topic says what the work is about, where it stands, what waits on the user and what comes next; each session has its progress, next step, wait, resume command and sub-agents. Hidden topics are counted and omitted, and leftOut counts headless runs in scratch folders, which their launching sessions report on. Reads local history without model calls.",
 			InputSchema: schema(map[string]any{
 				"at":      map[string]any{"type": "string", "description": "RFC3339 timestamp from list_summaries (optional)"},
-				"project": map[string]any{"type": "string", "description": "exact project name (optional)"},
+				"project": map[string]any{"type": "string", "description": "exact project key or display name (optional)"},
 			}),
 			Annotations: reader, run: m.getSummaryTool,
 		},
@@ -1384,7 +1384,7 @@ func mcpSummaryResult(snap *summarySnapshot, project string, note string) *mcpSu
 	view.Projects = []*summarySnapshotProject{}
 	hidden := 0
 	for _, p := range snap.Projects {
-		if project != "" && p.Project != project {
+		if project != "" && p.Project != project && p.Name != project {
 			continue
 		}
 		pv := *p

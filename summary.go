@@ -52,7 +52,8 @@ type summarySnapshot struct {
 }
 
 type summarySnapshotProject struct {
-	Project  string                    `json:"project"`
+	Project  string                    `json:"project"`        // key the topics are saved under
+	Name     string                    `json:"name,omitempty"` // display name; absent before 0.13
 	Topics   []*summarySnapshotTopic   `json:"topics"`
 	Unsorted []*summarySnapshotSession `json:"unsorted"`
 }
@@ -362,7 +363,11 @@ func (s *summarizer) pipeline(window summaryWindow, at time.Time) ([]*summaryTop
 		return nil, leftOut, err
 	}
 	projects, err := summaryClassify(notes, s.stateDir, at, s.call)
-	return projects, leftOut, err
+	if err != nil {
+		return nil, leftOut, err
+	}
+	summaryNameProjects(projects, s.stateDir, s.call)
+	return projects, leftOut, nil
 }
 
 // ---------------------------------------------------------------- rendering data
@@ -378,7 +383,7 @@ func (s *summarizer) snapshotProjects(projects []*summaryTopicProject) []*summar
 	}
 	result := []*summarySnapshotProject{}
 	for _, project := range projects {
-		view := &summarySnapshotProject{Project: project.Project, Topics: []*summarySnapshotTopic{}, Unsorted: []*summarySnapshotSession{}}
+		view := &summarySnapshotProject{Project: project.Project, Name: project.Name, Topics: []*summarySnapshotTopic{}, Unsorted: []*summarySnapshotSession{}}
 		for _, topic := range project.Topics {
 			group := &summarySnapshotTopic{summaryTopic: *topic.summaryTopic, CarriedOver: topic.CarriedOver, OpenDays: topic.OpenDays, IdleDays: topic.IdleDays, Hidden: topic.Hidden, Sessions: []*summarySnapshotSession{}}
 			for _, noted := range topic.Sessions {
