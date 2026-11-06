@@ -18,7 +18,7 @@ const (
 	pageOrigin = "http://localhost:4777"
 )
 
-var tokenMeta = regexp.MustCompile(`<meta name="agentyard-remove-token" content="([^"]+)">`)
+var tokenMeta = regexp.MustCompile(`<meta name="agentyard-page-token" content="([^"]+)">`)
 
 // pageToken is the removal token the dashboard embeds for a viewer at remote, or "".
 func pageToken(t *testing.T, h http.Handler, remote string) string {

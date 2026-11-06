@@ -88,7 +88,7 @@ func newDemo(now time.Time) (*scanner, *prTracker, *sessionIndex, *demoWorld) {
 		if len(demo.summaryRuns) > 0 {
 			topic := run.Projects[0].Topics[0]
 			note := topic.Sessions[0].Note
-			note.State, note.Progress, note.Next = "in_progress", "Reproduced the token refresh flake; reviewing lock ownership.", "Move the token write inside the critical section."
+			note.State, note.Progress, note.Next = summaryInProgress, "Reproduced the token refresh flake; reviewing lock ownership.", "Move the token write inside the critical section."
 			topic.Status = note.Progress
 		}
 		demo.summaryRuns = append(demo.summaryRuns, run)
@@ -557,7 +557,7 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 		}
 		fixture, known := demoSummaryNotes[session.Label()]
 		if !known {
-			fixture = demoSummaryNote{Topic: session.Label(), State: "in_progress", Next: "Pick up where the session stopped."}
+			fixture = demoSummaryNote{Topic: session.Label(), State: summaryInProgress, Next: "Pick up where the session stopped."}
 			for _, message := range messages[session.Tool+"/"+session.ID] {
 				if message.Role == "assistant" {
 					fixture.Progress = message.Text
@@ -609,18 +609,18 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 type demoSummaryNote struct{ Topic, State, Progress, Next, WaitsOn string }
 
 var demoSummaryNotes = map[string]demoSummaryNote{
-	"Fix token refresh race in auth middleware":     {"Auth reliability", "done", "Fixed the token refresh race; 50 race-test runs passed and PR #482 is in the merge queue.", "Check the merge queue result.", ""},
-	"Deflake webhook retry test":                    {"Auth reliability", "in_progress", "", "", ""},
-	"Migrate payments to the v2 ledger":             {"Payments ledger v2", "in_progress", "Dual writes are on behind ledger.dual_write; the backfill job turns them off at the high-water mark.", "Add the down migration for 0042 so migrations-lint passes.", ""},
-	"Investigate p99 latency on /search":            {"Search latency", "waiting_on_you", "Wrote a concurrent index on (tenant_id, created_at DESC) as migration 0043; nothing applied yet.", "Apply the migration with make migrate once it is scheduled.", "Choose when to apply the index migration."},
-	"Scheduled: nightly-dependency-audit":           {"Dependency hygiene", "done", "Two advisories: golang.org/x/net needs v0.33.0; github.com/jackc/pgx/v5 is fine.", "Bump golang.org/x/net to v0.33.0.", ""},
-	"Split the shipping step out of checkout":       {"Checkout redesign", "in_progress", "Shipping fields now live in their own step; main moved the payment fields meanwhile.", "Rebase on main and resolve the conflict in CheckoutForm.tsx.", ""},
-	"Saved carts: address review comments":          {"Checkout redesign", "in_progress", "Cart merge moved to POST /api/cart/merge, called once from the sign-in callback.", "Answer the last review thread on merge timing.", ""},
-	"Dark mode design tokens":                       {"Dark mode", "in_progress", "Two commits on claude/dark-mode-tokens, not pushed yet.", "Check focus-ring contrast on the sidebar links, then push.", ""},
-	"Upgrade Terraform to 1.9 and fix deprecations": {"Terraform 1.9", "done", "Plan is clean on staging after fixing three deprecated arguments.", "Review the production plan before applying.", ""},
-	"Rotate KMS keys runbook":                       {"Key rotation", "blocked", "Runbook drafted through step 4.", "Finish the runbook once staging grants exist.", "Staging grants need to be recreated before rotation."},
-	"HTTP/2 server push":                            {"HTTP/2", "in_progress", "Push promises are sent for linked assets; the h2spec push suite passes.", "Decide whether push stays behind an option.", ""},
-	"Write the streaming guide":                     {"Docs", "in_progress", "First draft covers chunked responses and backpressure.", "Add the cancellation example.", ""},
+	"Fix token refresh race in auth middleware":     {"Auth reliability", summaryDone, "Fixed the token refresh race; 50 race-test runs passed and PR #482 is in the merge queue.", "Check the merge queue result.", ""},
+	"Deflake webhook retry test":                    {"Auth reliability", summaryInProgress, "", "", ""},
+	"Migrate payments to the v2 ledger":             {"Payments ledger v2", summaryInProgress, "Dual writes are on behind ledger.dual_write; the backfill job turns them off at the high-water mark.", "Add the down migration for 0042 so migrations-lint passes.", ""},
+	"Investigate p99 latency on /search":            {"Search latency", summaryWaitingOnYou, "Wrote a concurrent index on (tenant_id, created_at DESC) as migration 0043; nothing applied yet.", "Apply the migration with make migrate once it is scheduled.", "Choose when to apply the index migration."},
+	"Scheduled: nightly-dependency-audit":           {"Dependency hygiene", summaryDone, "Two advisories: golang.org/x/net needs v0.33.0; github.com/jackc/pgx/v5 is fine.", "Bump golang.org/x/net to v0.33.0.", ""},
+	"Split the shipping step out of checkout":       {"Checkout redesign", summaryInProgress, "Shipping fields now live in their own step; main moved the payment fields meanwhile.", "Rebase on main and resolve the conflict in CheckoutForm.tsx.", ""},
+	"Saved carts: address review comments":          {"Checkout redesign", summaryInProgress, "Cart merge moved to POST /api/cart/merge, called once from the sign-in callback.", "Answer the last review thread on merge timing.", ""},
+	"Dark mode design tokens":                       {"Dark mode", summaryInProgress, "Two commits on claude/dark-mode-tokens, not pushed yet.", "Check focus-ring contrast on the sidebar links, then push.", ""},
+	"Upgrade Terraform to 1.9 and fix deprecations": {"Terraform 1.9", summaryDone, "Plan is clean on staging after fixing three deprecated arguments.", "Review the production plan before applying.", ""},
+	"Rotate KMS keys runbook":                       {"Key rotation", summaryBlocked, "Runbook drafted through step 4.", "Finish the runbook once staging grants exist.", "Staging grants need to be recreated before rotation."},
+	"HTTP/2 server push":                            {"HTTP/2", summaryInProgress, "Push promises are sent for linked assets; the h2spec push suite passes.", "Decide whether push stays behind an option.", ""},
+	"Write the streaming guide":                     {"Docs", summaryInProgress, "First draft covers chunked responses and backpressure.", "Add the cancellation example.", ""},
 }
 
 var demoSummaryTopics = map[string]string{

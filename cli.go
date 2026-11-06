@@ -243,7 +243,7 @@ func agentJSON(method, listen, path string, timeout time.Duration, limit int64, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s", resp.Status)
+		return &agentHTTPError{Code: resp.StatusCode, Status: resp.Status}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {

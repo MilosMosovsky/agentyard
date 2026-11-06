@@ -262,14 +262,18 @@ func summaryNullableText() *summarySchema {
 }
 
 var summaryNoteSchema = func() *summarySchema {
+	states := make([]string, 0, len(summarySessionStates))
+	for _, state := range summarySessionStates {
+		states = append(states, state.State)
+	}
 	note := summaryObject(map[string]*summarySchema{
 		"session_key": summaryText(),
-		"state":       {Type: "string", Enum: []string{"in_progress", "waiting_on_you", "blocked", "done"}},
+		"state":       {Type: "string", Enum: states},
 		"progress":    summaryText(), "next": summaryText(), "waits_on": summaryNullableText(),
 		"subagents": summaryArray(summaryObject(map[string]*summarySchema{"session_key": summaryText(), "progress": summaryText()})),
 	})
 	note.check = func(v map[string]any) error {
-		if (v["state"] == "waiting_on_you") != (v["waits_on"] != nil) {
+		if (v["state"] == summaryWaitingOnYou) != (v["waits_on"] != nil) {
 			return errors.New("waits_on must be text exactly when waiting_on_you")
 		}
 		return nil

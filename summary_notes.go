@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -118,6 +119,9 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 					continue
 				}
 				noted.Note, noted.Changed = matches[0], true
+				if noted.Note.WaitsOn != nil && strings.TrimSpace(*noted.Note.WaitsOn) == "" {
+					noted.Note.WaitsOn = nil
+				}
 				cache[key] = summaryCachedNote{Fingerprint: noted.Fingerprint, Note: noted.Note, Saved: at}
 			}
 			if err := saveSummaryState(stateDir, "notes.json", cache); err != nil {

@@ -448,3 +448,82 @@ func TestSortSummaryProjectsByRecency(t *testing.T) {
 		t.Fatalf("order:\n got %s\nwant %s", strings.Join(got, " "), want)
 	}
 }
+
+func TestSummaryNotesBlankWaitsOn(t *testing.T) {
+	for _, waits := range []string{"", " \t\n", "Review"} {
+		t.Run(waits, func(t *testing.T) {
+			entries := noteEntries(t, 1)
+			dir := t.TempDir()
+			call := func(_ string, schema *summarySchema) (json.RawMessage, error) {
+				return checkedSummaryAnswer(t, schema, map[string]any{"notes": []any{map[string]any{
+					"session_key": summarySessionKey(entries[0]), "state": "waiting_on_you",
+					"progress": "Ready", "next": "Merge", "waits_on": waits, "subagents": []any{},
+				}}})
+			}
+			got, err := summaryNotesAt(entries, dir, time.Now(), call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got[0].Note == nil {
+				t.Fatal("missing note")
+			}
+			if strings.TrimSpace(waits) == "" {
+				if got[0].Note.WaitsOn != nil {
+					t.Fatalf("blank wait retained: %q", *got[0].Note.WaitsOn)
+				}
+			} else if got[0].Note.WaitsOn == nil || *got[0].Note.WaitsOn != waits {
+				t.Fatalf("nonblank wait changed: %+v", got[0].Note)
+			}
+			var cache map[string]summaryCachedNote
+			if err := loadSummaryState(dir, "notes.json", &cache); err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(waits) == "" && cache[summarySessionKey(entries[0])].Note.WaitsOn != nil {
+				t.Fatal("blank wait saved in cache")
+			}
+		})
+	}
+}
+
+func TestSnapshotSummarySessionTouched(t *testing.T) {
+	at := time.Date(2026, 11, 6, 7, 0, 0, 0, time.UTC)
+	for _, parentNewest := range []bool{false, true} {
+		parent, child := at, at.Add(time.Hour)
+		if parentNewest {
+			parent, child = child, parent
+		}
+		entry := &summarySession{Session: &Session{Tool: "claude", ID: "parent", Modified: parent},
+			Subagents: []*summarySession{
+				{Session: &Session{Tool: "claude", ID: "older", Modified: at.Add(-time.Hour)}},
+				{Session: &Session{Tool: "claude", ID: "child", Modified: child}},
+			}}
+		got := snapshotSummarySession(entry, nil, nil, nil)
+		if !got.Touched.Equal(at.Add(time.Hour)) {
+			t.Fatalf("parentNewest=%v touched=%v", parentNewest, got.Touched)
+		}
+	}
+}
+
+func TestSummaryStateVocabulary(t *testing.T) {
+	want := []string{"in_progress", "waiting_on_you", "blocked", "done"}
+	got := summaryNoteSchema.Properties["notes"].Items.Properties["state"].Enum
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("state enum = %v", got)
+	}
+	for i, state := range want {
+		status := summarySessionStatus(&summarySnapshotSession{Note: &summarySnapshotNote{State: state}})
+		label := []string{"In progress", "Waiting on you", "Blocked", "Done"}[i]
+		tone := []string{"tone-info", "tone-warn", "tone-bad", "tone-ok"}[i]
+		if status.Label != label || status.Tone != tone {
+			t.Fatalf("%s = %+v", state, status)
+		}
+	}
+	for _, session := range []*summarySnapshotSession{
+		{}, {Note: &summarySnapshotNote{State: "unknown"}}, {Note: &summarySnapshotNote{State: "done"}, NotSummarized: true},
+	} {
+		got := summarySessionStatus(session)
+		if got.Label != "Not summarized" || got.Tone != "tone-muted" {
+			t.Fatalf("fallback = %+v", got)
+		}
+	}
+}
