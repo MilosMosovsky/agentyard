@@ -591,7 +591,7 @@ func (m *mcpServer) toolList() []mcpTool {
 		},
 		{
 			Name: "get_summary", Title: "Get a session summary",
-			Description: "The latest successful saved summary, or a run at a listed timestamp, grouped by project and topic. Each project has its key and, once named, a display name. Each topic says what the work is about, where it stands, what waits on the user and what comes next; each session has its progress, next step, wait, resume command and sub-agents. Hidden topics are counted and omitted, and leftOut counts headless runs in scratch folders, which their launching sessions report on. Reads local history without model calls.",
+			Description: "The latest successful saved summary, or a run at a listed timestamp, grouped by project and topic. Each project has its key and, once named, a display name. Each topic says what the work is about, where it stands, what waits on the user and what comes next; each session has its progress, next step, wait, resume command and sub-agents. Hidden topics, and topics the user snoozed on the Summary page, are counted and omitted, and leftOut counts headless runs in scratch folders, which their launching sessions report on. Reads local history without model calls.",
 			InputSchema: schema(map[string]any{
 				"at":      map[string]any{"type": "string", "description": "RFC3339 timestamp from list_summaries (optional)"},
 				"project": map[string]any{"type": "string", "description": "exact project key or display name (optional)"},
@@ -1361,8 +1361,18 @@ func (m *mcpServer) getSummaryTool(raw json.RawMessage) *toolResult {
 		}
 		return toolFail("no successful summary is saved; summaries may have never run or be off. Run agentyard install and answer yes to morning summaries to turn them on")
 	}
+	snoozed := 0
+	if at.IsZero() { // snoozes apply to the latest summary only
+		var topics []summarySnoozedTopic
+		snap, topics = summaryWithoutSnoozed(snap, s.snoozes())
+		for _, topic := range topics {
+			if a.Project == "" || topic.Project == a.Project || topic.ProjectName == a.Project {
+				snoozed++
+			}
+		}
+	}
 	result := mcpSummaryResult(snap, a.Project, note)
-	result.Running, result.LastError = running, lastError
+	result.Running, result.LastError, result.SnoozedTopics = running, lastError, snoozed
 	if newest != nil && newest.Error != "" && newest.At.After(snap.At) {
 		result.NewerFailure = newest
 	}
@@ -1372,11 +1382,13 @@ func (m *mcpServer) getSummaryTool(raw json.RawMessage) *toolResult {
 type mcpSummaryView struct {
 	Snapshot mcpMeta `json:"snapshot"`
 	*summarySnapshot
-	HiddenTopics int                `json:"hiddenTopics"`
-	Note         string             `json:"note,omitempty"`
-	Running      *bool              `json:"running,omitempty"`
-	LastError    string             `json:"lastError,omitempty"`
-	NewerFailure *summaryHistoryRun `json:"newerFailure,omitempty"`
+	HiddenTopics int `json:"hiddenTopics"`
+	// SnoozedTopics are left out until one of their sessions is active again.
+	SnoozedTopics int                `json:"snoozedTopics,omitempty"`
+	Note          string             `json:"note,omitempty"`
+	Running       *bool              `json:"running,omitempty"`
+	LastError     string             `json:"lastError,omitempty"`
+	NewerFailure  *summaryHistoryRun `json:"newerFailure,omitempty"`
 }
 
 func mcpSummaryResult(snap *summarySnapshot, project string, note string) *mcpSummaryView {

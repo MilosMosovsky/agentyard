@@ -1485,6 +1485,8 @@ type summaryPageView struct {
 	History       []*summaryHistoryRun
 	Past          bool
 	Error         string
+	Snoozed       []summarySnoozedTopic // the latest summary's snoozed topics, left out of Snapshot
+	ShowSnoozed   bool                  // ?view=snoozed
 }
 
 func summarySessionStatus(s *summarySnapshotSession) summarySessionState {
@@ -1646,6 +1648,9 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 			v.Summary.Error = v.Summary.Status.LastError
 			if v.Summary.Past {
 				v.Summary.Error = v.Summary.Run.Error
+			} else {
+				v.Summary.Snapshot, v.Summary.Snoozed = summaryWithoutSnoozed(v.Summary.Snapshot, summaries.snoozes())
+				v.Summary.ShowSnoozed = r.URL.Query().Get("view") == "snoozed"
 			}
 		}
 		render(w, "summary", v)
@@ -1669,6 +1674,36 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{"state": state})
+	})
+	mux.HandleFunc("POST /api/summary/snooze", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !localMutationAllowed(w, r, removeToken, "topics can only be snoozed from the Mac that runs agentyard", false) {
+			return
+		}
+		var body struct {
+			Topic  string `json:"topic"`
+			Snooze bool   `json:"snooze"`
+		}
+		if summaries == nil || !summaries.enabled {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{"error": "summaries are off"})
+			return
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil || body.Topic == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "send {\"topic\": id, \"snooze\": true|false}"})
+			return
+		}
+		if err := summaries.setSnooze(body.Topic, body.Snooze); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, errSummaryTopicUnknown) {
+				status = http.StatusNotFound
+			}
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"snoozed": body.Snooze})
 	})
 	mux.HandleFunc("GET /api/summary/status", func(w http.ResponseWriter, r *http.Request) {
 		if !canSeeSessions(r) {

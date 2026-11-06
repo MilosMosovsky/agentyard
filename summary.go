@@ -148,6 +148,9 @@ type summarizer struct {
 	folderProjects map[string]string
 	latest         atomic.Pointer[summarySnapshot]
 
+	snoozeMu  sync.Mutex
+	snoozeMem map[string]summarySnooze // demo only; see loadSnoozes
+
 	mu        sync.Mutex
 	runStatus summaryRunStatus
 	schedule  summarySchedule

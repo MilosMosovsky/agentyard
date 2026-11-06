@@ -6,6 +6,19 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-06
+
+### Added
+
+- Snooze a topic on the Summary page. It moves to a **Snoozed** tab and stays there until one of its
+  sessions is active again, when it comes back by itself; **Unsnooze** brings it back sooner.
+  Snoozes apply to the latest summary, never to saved runs, and `get_summary` omits snoozed topics
+  and counts them in `snoozedTopics`. Only this Mac can snooze, with the page's token.
+
+### Changed
+
+- The list of projects puts "active 10 minutes ago" on its own line.
+
 ## [0.14.0] - 2026-11-06
 
 ### Added
@@ -413,7 +426,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.0...v0.12.1
