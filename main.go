@@ -1627,6 +1627,10 @@ func writeJSONFile(path string, v any) error {
 		f.Close()
 		return err
 	}
+	if err := f.Sync(); err != nil { // a power loss must not leave an empty file
+		f.Close()
+		return err
+	}
 	if err := f.Close(); err != nil {
 		return err
 	}

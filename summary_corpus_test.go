@@ -326,3 +326,26 @@ func TestSummaryCorpusRemovedWorktreeInsideRepo(t *testing.T) {
 		t.Fatalf("removed worktree project: %+v", got)
 	}
 }
+
+func TestSummaryCorpusCodexIdleGrandparent(t *testing.T) {
+	_, codex, at := summaryTestDirs(t)
+	write := func(id string, modified time.Time, meta map[string]any) {
+		meta["id"] = id
+		summaryWrite(t, filepath.Join(codex, "rollout-"+id+".jsonl"), modified,
+			map[string]any{"type": "session_meta", "payload": meta},
+			summaryCodexTurn("user", "Goal "+id), summaryCodexTurn("assistant", "Finished "+id))
+	}
+	spawned := func(parent string) map[string]any {
+		return map[string]any{"source": map[string]any{"subagent": map[string]any{"thread_spawn": map[string]any{"parent_thread_id": parent}}}}
+	}
+	write("root", at.Add(-48*time.Hour), map[string]any{"source": "cli"})
+	write("middle", at.Add(-48*time.Hour), spawned("root"))
+	write("leaf", at, spawned("middle"))
+	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	if len(got) != 1 || got[0].Session.ID != "root" || len(got[0].Subagents) != 1 {
+		t.Fatalf("want root > middle > leaf, got %d roots: %+v", len(got), got)
+	}
+	if middle := got[0].Subagents[0]; middle.Session.ID != "middle" || len(middle.Subagents) != 1 || middle.Subagents[0].Session.ID != "leaf" {
+		t.Fatalf("nesting: %+v", middle)
+	}
+}

@@ -91,7 +91,9 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 		}
 		return nil
 	})
-	for _, e := range all {
+	// An index loop: a parent loaded here can have an idle parent of its own.
+	for i := 0; i < len(all); i++ {
+		e := all[i]
 		id := e.Session.ParentID
 		if e.Session.Tool != "codex" || id == "" || byID[summaryKey("codex", id)] != nil {
 			continue
