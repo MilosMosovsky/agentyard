@@ -83,7 +83,7 @@ func (c installConfig) sessionsLabel() string {
 }
 
 func (c installConfig) summaryLabel() string {
-	if c.Summary == "" || c.Summary == "off" {
+	if summaryOff(c.Summary) {
 		return "off"
 	}
 	return c.Summary + " at " + c.SummaryAt
@@ -576,9 +576,10 @@ func resolveSummary(choice string, flagSet bool, prev installConfig, hadPrev, in
 			return "off", nil
 		}
 	}
-	switch choice {
-	case "", "off":
+	if summaryOff(choice) {
 		return "off", nil
+	}
+	switch choice {
 	case "claude", "codex":
 		return choice, nil
 	default:

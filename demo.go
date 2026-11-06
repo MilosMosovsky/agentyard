@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -607,7 +608,6 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 
 type demoSummaryNote struct{ Topic, State, Progress, Next, WaitsOn string }
 
-// The demo's notes and topics, written as a model would write them.
 var demoSummaryNotes = map[string]demoSummaryNote{
 	"Fix token refresh race in auth middleware":     {"Auth reliability", "done", "Fixed the token refresh race; 50 race-test runs passed and PR #482 is in the merge queue.", "Check the merge queue result.", ""},
 	"Deflake webhook retry test":                    {"Auth reliability", "in_progress", "", "", ""},
@@ -658,15 +658,7 @@ func (d *demoWorld) startSummary() string {
 		s.latest.Store(&snap)
 		s.runStatus.Running = false
 		for _, project := range snap.Projects {
-			for _, topic := range project.Topics {
-				for _, session := range topic.Sessions {
-					s.runStatus.Sessions++
-					if !session.NotSummarized {
-						s.runStatus.Summarized++
-					}
-				}
-			}
-			for _, session := range project.Unsorted {
+			for _, session := range project.sessions() {
 				s.runStatus.Sessions++
 				if !session.NotSummarized {
 					s.runStatus.Summarized++
@@ -676,4 +668,22 @@ func (d *demoWorld) startSummary() string {
 		close(s.done)
 	}()
 	return "started"
+}
+
+func (d *demoWorld) summaryHistory() ([]*summaryHistoryRun, func(time.Time) (*summarySnapshot, error)) {
+	d.summaries.mu.Lock()
+	runs := append([]*summarySnapshot{}, d.summaryRuns...)
+	d.summaries.mu.Unlock()
+	history := make([]*summaryHistoryRun, 0, len(runs))
+	for _, run := range runs {
+		history = append(history, &summaryHistoryRun{At: run.At, Error: run.Error})
+	}
+	return history, func(at time.Time) (*summarySnapshot, error) {
+		for _, run := range runs {
+			if run.At.Equal(at) {
+				return run, nil
+			}
+		}
+		return nil, os.ErrNotExist
+	}
 }

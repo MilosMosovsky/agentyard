@@ -566,6 +566,26 @@ func (g *removedPaths) hide(snap *Snapshot) (*Snapshot, int) {
 
 // ---------------------------------------------------------------- POST /api/remove
 
+func localMutationAllowed(w http.ResponseWriter, r *http.Request, token, who string, originOptional bool) bool {
+	msg := ""
+	if !fromThisMac(r.RemoteAddr) {
+		msg = who
+	} else if _, present := r.Header["Origin"]; present || !originOptional {
+		if !sameOrigin(r, true) {
+			msg = "cross-origin or missing Origin"
+		} else if subtle.ConstantTimeCompare([]byte(r.Header.Get(removeTokenHeader)), []byte(token)) != 1 {
+			msg = "missing or wrong " + removeTokenHeader + "; reload the page"
+		}
+	}
+	if msg == "" {
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	return false
+}
+
 // removeHandler is the dashboard's removal endpoint. The outer handler has
 // already refused public addresses and unknown host names; this one also
 // requires a viewer on this Mac (never the LAN, whatever -sessions-lan says),
@@ -587,17 +607,10 @@ func removeHandler(s *scanner, y *syncer, token string, demo bool) http.HandlerF
 		}
 		fail := func(code int, msg string) { answer(code, map[string]string{"error": msg}) }
 		mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		switch {
-		case !fromThisMac(r.RemoteAddr):
-			fail(http.StatusForbidden, "worktrees can only be removed from the Mac that runs agentyard")
+		if !localMutationAllowed(w, r, token, "worktrees can only be removed from the Mac that runs agentyard", false) {
 			return
-		case !sameOrigin(r, true):
-			fail(http.StatusForbidden, "cross-origin or missing Origin")
-			return
-		case subtle.ConstantTimeCompare([]byte(r.Header.Get(removeTokenHeader)), []byte(token)) != 1:
-			fail(http.StatusForbidden, "missing or wrong "+removeTokenHeader+"; reload the page")
-			return
-		case mt != "application/json":
+		}
+		if mt != "application/json" {
 			fail(http.StatusUnsupportedMediaType, "Content-Type must be application/json")
 			return
 		}
