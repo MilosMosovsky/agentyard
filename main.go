@@ -1603,18 +1603,34 @@ func cachePath(name string) string {
 }
 
 func saveCache(name string, v any) {
-	p := cachePath(name)
-	os.MkdirAll(filepath.Dir(p), 0o700)
-	b, err := json.Marshal(v)
-	if err == nil {
-		err = os.WriteFile(p+".tmp", b, 0o600)
-	}
-	if err == nil {
-		err = os.Rename(p+".tmp", p)
-	}
-	if err != nil {
+	if err := writeJSONFile(cachePath(name), v); err != nil {
 		log.Printf("cache %s: %v", name, err)
 	}
+}
+
+// writeJSONFile replaces path atomically, readable only by this user, so a
+// crash mid-write never leaves half a file for the next start to load.
+func writeJSONFile(path string, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 func loadCache(name string, v any) bool {
