@@ -585,12 +585,13 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 			}
 		}
 		if topic == nil {
-			status := demoSummaryTopics[fixture.Topic]
-			if status == "" {
-				status = note.Progress
+			brief := demoSummaryTopics[fixture.Topic]
+			var waitsOn *string
+			if brief.WaitsOn != "" {
+				waitsOn = &brief.WaitsOn
 			}
 			topic = &summarySnapshotTopic{
-				summaryTopic: summaryTopic{ID: session.ID, Name: fixture.Topic, Status: status, FirstSeen: at.Add(-3 * 24 * time.Hour), LastActive: session.Modified},
+				summaryTopic: summaryTopic{ID: session.ID, Name: fixture.Topic, About: brief.About, Status: brief.Status, WaitsOn: waitsOn, Next: brief.Next, FirstSeen: at.Add(-3 * 24 * time.Hour), LastActive: session.Modified},
 				CarriedOver:  session.Started.Before(at.Add(-24 * time.Hour)), OpenDays: 3,
 				IdleDays: max(0, int(at.Sub(session.Modified).Hours()/24)),
 			}
@@ -623,17 +624,29 @@ var demoSummaryNotes = map[string]demoSummaryNote{
 	"Write the streaming guide":                     {"Docs", summaryInProgress, "First draft covers chunked responses and backpressure.", "Add the cancellation example.", ""},
 }
 
-var demoSummaryTopics = map[string]string{
-	"Auth reliability":   "Token race fixed and queued; the webhook retry test is still flaky.",
-	"Payments ledger v2": "Dual writes running; one down migration left before review.",
-	"Search latency":     "Index migration ready; waiting on you to schedule it.",
-	"Dependency hygiene": "One dependency bump to make.",
-	"Checkout redesign":  "Shipping step split out and saved carts in review; both need a rebase.",
-	"Dark mode":          "Tokens done locally; contrast check before pushing.",
-	"Terraform 1.9":      "Staging is clean; production plan to review.",
-	"Key rotation":       "Blocked on staging grants.",
-	"HTTP/2":             "Server push works; one API decision left.",
-	"Docs":               "Streaming guide drafted.",
+type demoSummaryTopic struct{ About, Status, WaitsOn, Next string }
+
+var demoSummaryTopics = map[string]demoSummaryTopic{
+	"Auth reliability": {"Stopping sign-ins from failing at random: two requests refreshing the same expired token could log a user out.",
+		"The refresh race is fixed and PR #482 is in the merge queue after 50 clean race-test runs. The webhook retry test is still flaky and has no fix yet.", "", "Watch the merge queue, then find why the webhook retry test fails about one run in ten."},
+	"Payments ledger v2": {"Moving payments onto the v2 ledger so refunds and payouts come from one double-entry record instead of two tables.",
+		"Every payment now writes to both ledgers behind the ledger.dual_write flag, and a backfill job copies history until it reaches the newest row. Review is blocked by the migrations lint, which needs a down migration for 0042.", "", "Write the down migration for 0042, then open the PR for review."},
+	"Search latency": {"Bringing slow /search requests (p99) back under the latency budget for large tenants.",
+		"The cause is a missing index on (tenant_id, created_at). Migration 0043 builds it without locking the table, but nothing has been applied yet.", "Choose when the index migration may run in production.", "Run make migrate in the window you pick."},
+	"Dependency hygiene": {"The nightly audit of third-party packages for published security advisories.",
+		"Last night's audit found one real advisory: golang.org/x/net must move to v0.33.0. pgx was flagged but is not affected.", "", "Bump golang.org/x/net to v0.33.0."},
+	"Checkout redesign": {"Splitting checkout into clear steps and keeping a shopper's cart when they sign in.",
+		"Shipping is now its own step, and saved carts merge once, on sign-in. Both branches are behind main, which moved the payment fields, and one review thread on merge timing is unanswered.", "", "Rebase both branches on main, then answer the merge-timing thread."},
+	"Dark mode": {"Adding a dark theme through shared colour tokens rather than per-page overrides.",
+		"The tokens are written and committed locally on claude/dark-mode-tokens; nothing is pushed.", "", "Check focus-ring contrast on the sidebar links, then push."},
+	"Terraform 1.9": {"Upgrading infrastructure code to Terraform 1.9 and removing deprecated arguments.",
+		"Staging plans cleanly after three deprecated arguments were replaced. Production has not been planned.", "", "Run and review the production plan before applying."},
+	"Key rotation": {"A runbook for rotating the KMS encryption keys without downtime.",
+		"The runbook is drafted through step 4 of 7. Testing it needs staging access grants that were removed.", "Recreate the staging grants so the rotation can be tested.", "Finish steps 5 to 7 once the grants exist."},
+	"HTTP/2": {"Adding HTTP/2 server push so pages can send their linked assets before the browser asks.",
+		"Push works and passes the h2spec push suite.", "Decide whether server push is on by default or behind an option.", "Expose the option you choose and document it."},
+	"Docs": {"A guide to streaming responses for API users.",
+		"The first draft covers chunked responses and backpressure.", "", "Add the cancellation example."},
 }
 
 // Demo runs publish in memory; they never enter the provider pipeline or read state.
