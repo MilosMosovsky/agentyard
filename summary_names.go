@@ -24,14 +24,7 @@ var summaryNameSchema = summaryObject(map[string]*summarySchema{"names": summary
 // projects that have none yet. Naming is cosmetic: a failure leaves the key
 // showing and never fails the run.
 func summaryNameProjects(projects []*summaryTopicProject, stateDir string, call summaryCaller) {
-	names := map[string]string{}
-	if err := loadSummaryState(stateDir, "names.json", &names); err != nil {
-		log.Printf("summary: project names: %v", err)
-		names = map[string]string{}
-	}
-	if names == nil {
-		names = map[string]string{}
-	}
+	names := summaryProjectNames(stateDir)
 	var unnamed []*summaryTopicProject
 	for _, project := range projects {
 		if names[project.Project] == "" {
@@ -91,6 +84,19 @@ func summaryNameProjects(projects []*summaryTopicProject, stateDir string, call 
 	for _, project := range projects {
 		project.Name = names[project.Project]
 	}
+}
+
+// summaryProjectNames is every saved project name by project key.
+func summaryProjectNames(stateDir string) map[string]string {
+	names := map[string]string{}
+	if err := loadSummaryState(stateDir, "names.json", &names); err != nil {
+		log.Printf("summary: project names: %v", err)
+		return map[string]string{}
+	}
+	if names == nil {
+		names = map[string]string{}
+	}
+	return names
 }
 
 func summaryNamesPrompt(batch []*summaryTopicProject, names map[string]string) string {

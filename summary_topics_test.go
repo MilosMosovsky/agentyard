@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -483,5 +484,69 @@ func TestSummaryTopicsDropLegacyOther(t *testing.T) {
 	})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("legacy Other project shown: %+v %v", got, err)
+	}
+}
+
+func TestSummaryTopicsSpanProjects(t *testing.T) {
+	entries := noteEntries(t, 3)
+	entries[0].Project = "acme/api"
+	entries[1].Project, entries[2].Project = "acme/infra", "acme/infra"
+	state := t.TempDir()
+	at := entries[2].Session.Modified
+	first, err := summaryClassify(topicNotes(t, entries[:1], state), state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		return answerTopics(t, prompt, schema, "", "Rotate API keys")
+	})
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first: %+v %v", first, err)
+	}
+	id := first[0].Topics[0].ID
+	// A session in another repository joins the topic it continues.
+	var briefed []any
+	got, err := summaryClassify(topicNotes(t, entries, state), state, at, func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		input := topicInput(t, prompt)
+		if schema == summaryTopicBriefSchema {
+			briefed = input["topics"].([]any)[0].(map[string]any)["sessions"].([]any)
+			return answerTopics(t, prompt, schema, "", "")
+		}
+		offered := input["topics"].([]any)
+		if input["project"] != "acme/infra" || len(offered) != 1 || offered[0].(map[string]any)["id"] != id || offered[0].(map[string]any)["project"] != "acme/api" {
+			t.Fatalf("other projects' topics not offered: %s", prompt)
+		}
+		return answerTopics(t, prompt, schema, id, "")
+	})
+	if err != nil || len(got) != 1 || got[0].Project != "acme/api" {
+		t.Fatalf("shared topic: %+v %v", got, err)
+	}
+	topic := got[0].Topics[0]
+	if topic.ID != id || len(topic.Sessions) != 3 || !slices.Equal(topic.AlsoIn, []string{"acme/infra"}) {
+		t.Fatalf("shared topic view: %+v", topic)
+	}
+	if len(briefed) != 3 || briefed[0].(map[string]any)["project"] == "" {
+		t.Fatalf("brief did not see every project's sessions: %v", briefed)
+	}
+	store := summaryTopicStore{}
+	if err := loadSummaryState(state, "topics.json", &store); err != nil {
+		t.Fatal(err)
+	}
+	key := summarySessionKey(entries[1])
+	if _, ok := store["acme/api"].Assignments[key]; !ok || len(store["acme/infra"].Assignments) != 0 {
+		t.Fatalf("assignment not kept with its topic: %+v", store)
+	}
+	// When the session moves to a topic of its own, the old assignment goes.
+	entries[1].Session.Modified = at.Add(time.Minute)
+	got, err = summaryClassify(topicNotes(t, entries, state), state, at.Add(time.Minute), func(prompt string, schema *summarySchema) (json.RawMessage, error) {
+		return answerTopics(t, prompt, schema, "", "Key cleanup")
+	})
+	if err != nil || len(got) != 2 {
+		t.Fatalf("moved session: %+v %v", got, err)
+	}
+	if len(got[0].Topics[0].Sessions) != 2 || len(got[1].Topics) != 1 || got[1].Topics[0].Name != "Key cleanup" || len(got[1].Topics[0].Sessions) != 1 {
+		t.Fatalf("moved session views: %+v %+v", got[0].Topics[0], got[1].Topics)
+	}
+	if err := loadSummaryState(state, "topics.json", &store); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store["acme/api"].Assignments[key]; ok {
+		t.Fatal("old assignment kept after the session moved")
 	}
 }

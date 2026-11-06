@@ -52,10 +52,12 @@ type summarySnapshot struct {
 }
 
 type summarySnapshotProject struct {
-	Project  string                    `json:"project"`        // key the topics are saved under
-	Name     string                    `json:"name,omitempty"` // display name; absent before 0.13
-	Topics   []*summarySnapshotTopic   `json:"topics"`
-	Unsorted []*summarySnapshotSession `json:"unsorted"`
+	Project string `json:"project"`        // key the topics are saved under
+	Name    string `json:"name,omitempty"` // display name; absent before 0.13
+	// LastActive is the newest activity of its sessions and visible topics.
+	LastActive time.Time                 `json:"lastActive,omitzero"`
+	Topics     []*summarySnapshotTopic   `json:"topics"`
+	Unsorted   []*summarySnapshotSession `json:"unsorted"`
 }
 
 func (p *summarySnapshotProject) sessions() []*summarySnapshotSession {
@@ -72,7 +74,13 @@ type summarySnapshotTopic struct {
 	OpenDays    int                       `json:"openDays"`
 	IdleDays    int                       `json:"idleDays"`
 	Hidden      bool                      `json:"hidden"`
+	AlsoIn      []summaryProjectRef       `json:"alsoIn,omitempty"` // other projects its sessions ran in
 	Sessions    []*summarySnapshotSession `json:"sessions"`
+}
+
+type summaryProjectRef struct {
+	Project string `json:"project"`
+	Name    string `json:"name,omitempty"`
 }
 
 type summarySnapshotNote struct {
@@ -381,11 +389,15 @@ func (s *summarizer) snapshotProjects(projects []*summaryTopicProject) []*summar
 	if s.prs != nil {
 		prs = s.prs()
 	}
+	names := summaryProjectNames(s.stateDir) // a project shown only in another's topic has no view of its own
 	result := []*summarySnapshotProject{}
 	for _, project := range projects {
 		view := &summarySnapshotProject{Project: project.Project, Name: project.Name, Topics: []*summarySnapshotTopic{}, Unsorted: []*summarySnapshotSession{}}
 		for _, topic := range project.Topics {
 			group := &summarySnapshotTopic{summaryTopic: *topic.summaryTopic, CarriedOver: topic.CarriedOver, OpenDays: topic.OpenDays, IdleDays: topic.IdleDays, Hidden: topic.Hidden, Sessions: []*summarySnapshotSession{}}
+			for _, other := range topic.AlsoIn {
+				group.AlsoIn = append(group.AlsoIn, summaryProjectRef{other, names[other]})
+			}
 			for _, noted := range topic.Sessions {
 				group.Sessions = append(group.Sessions, snapshotSummarySession(noted.Entry, noted.Note, wt, prs))
 			}
@@ -419,7 +431,6 @@ func sortSummaryProjects(projects []*summarySnapshotProject) {
 		}
 		sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].Touched.After(sessions[j].Touched) })
 	}
-	touched := map[*summarySnapshotProject]time.Time{}
 	for _, p := range projects {
 		sortSessions(p.Unsorted)
 		latest := newest(p.Unsorted)
@@ -430,9 +441,14 @@ func sortSummaryProjects(projects []*summarySnapshotProject) {
 			}
 		}
 		sort.SliceStable(p.Topics, func(i, j int) bool { return newest(p.Topics[i].Sessions).After(newest(p.Topics[j].Sessions)) })
-		touched[p] = latest
+		for _, t := range p.Topics {
+			if !t.Hidden && t.LastActive.After(latest) {
+				latest = t.LastActive
+			}
+		}
+		p.LastActive = latest
 	}
-	sort.SliceStable(projects, func(i, j int) bool { return touched[projects[i]].After(touched[projects[j]]) })
+	sort.SliceStable(projects, func(i, j int) bool { return projects[i].LastActive.After(projects[j].LastActive) })
 }
 
 func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapshot, prs *PRSnapshot) *summarySnapshotSession {

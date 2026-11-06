@@ -6,6 +6,22 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-06
+
+### Added
+
+- Topics can span repositories. Classifying a session now offers the topics of every project, so a
+  session in one repository joins work another started (an infrastructure change for a feature
+  tracked from an application repository) instead of opening a duplicate topic. The topic shows once,
+  under the project it started in, with "also in" naming the other projects, and its brief is
+  written from all of its sessions.
+- The list of projects says when each was last active, such as "10 minutes ago", and is ordered by
+  it.
+
+### Changed
+
+- Topics say "last active 10 minutes ago" instead of counting whole days ("0 days").
+
 ## [0.13.0] - 2026-11-06
 
 ### Added
@@ -397,7 +413,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/MilosMosovsky/agentyard/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.1...v0.12.0

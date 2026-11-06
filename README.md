@@ -294,10 +294,13 @@ repository is a project of its own), then by topic, then by session, with the ne
 how long ago each session was touched. The first summary that sees a project asks the model for a
 short name for it, such as "AI Adoption Onboarding" for a folder in `~/Documents`, and keeps that
 name; the project's path shows beside it. To change a name, edit `names.json` in the summary folder. A topic is one piece of work, such as a feature or a
-migration, and can span many sessions. Each topic opens with a brief written from all of its
+migration, and can span many sessions and repositories: a session in one repository can join a topic
+another started, such as a config change for a feature elsewhere, and the topic shows once, under the
+project it started in, saying which other projects it is also in. Each topic opens with a brief written from all of its
 sessions: what the work is about, where it stands, what is waiting on you, and what comes next.
 A list of projects beside the summary (a **Jump to project** menu on a phone) shows how many topics
-each has and how many sessions wait on you or are blocked, and takes you straight there. Open a
+each has, when it was last active ("10 minutes ago") and how many sessions wait on you or are
+blocked, and takes you straight there. Open a
 topic to see its sessions. For each session:
 
 - where it got to, what it is waiting on you for or blocked on, and what comes next;
