@@ -69,6 +69,7 @@ type summarySnapshotSession struct {
 	NotSummarized bool                      `json:"notSummarized"`
 	Subagents     []*summarySnapshotSession `json:"subagents"`
 	Progress      string                    `json:"progress,omitempty"` // sub-agent's line in its parent's note
+	Touched       time.Time                 `json:"touched"`            // last transcript write, its sub-agents' included
 }
 
 // ---------------------------------------------------------------- orchestration
@@ -350,7 +351,43 @@ func (s *summarizer) snapshotProjects(projects []*summaryTopicProject) []*summar
 		}
 		result = append(result, view)
 	}
+	sortSummaryProjects(result)
 	return result
+}
+
+// sortSummaryProjects puts the most recently touched work first: sessions
+// and sub-agents, then topics and projects by their newest session.
+func sortSummaryProjects(projects []*summarySnapshotProject) {
+	newest := func(sessions []*summarySnapshotSession) time.Time {
+		var t time.Time
+		for _, s := range sessions {
+			if s.Touched.After(t) {
+				t = s.Touched
+			}
+		}
+		return t
+	}
+	var sortSessions func([]*summarySnapshotSession)
+	sortSessions = func(sessions []*summarySnapshotSession) {
+		for _, s := range sessions {
+			sortSessions(s.Subagents)
+		}
+		sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].Touched.After(sessions[j].Touched) })
+	}
+	touched := map[*summarySnapshotProject]time.Time{}
+	for _, p := range projects {
+		sortSessions(p.Unsorted)
+		latest := newest(p.Unsorted)
+		for _, t := range p.Topics {
+			sortSessions(t.Sessions)
+			if n := newest(t.Sessions); n.After(latest) {
+				latest = n
+			}
+		}
+		sort.SliceStable(p.Topics, func(i, j int) bool { return newest(p.Topics[i].Sessions).After(newest(p.Topics[j].Sessions)) })
+		touched[p] = latest
+	}
+	sort.SliceStable(projects, func(i, j int) bool { return touched[projects[i]].After(touched[projects[j]]) })
 }
 
 func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapshot, prs *PRSnapshot) *summarySnapshotSession {
@@ -389,9 +426,13 @@ func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapsh
 	if note != nil {
 		view.Note = &summarySnapshotNote{State: note.State, Progress: note.Progress, Next: note.Next, WaitsOn: note.WaitsOn}
 	}
+	view.Touched = session.Modified
 	for _, child := range entry.Subagents {
 		agent := snapshotSummarySession(child, nil, wt, prs)
 		view.Subagents = append(view.Subagents, agent)
+		if agent.Touched.After(view.Touched) {
+			view.Touched = agent.Touched
+		}
 	}
 	if note != nil {
 		progress := map[string]string{}

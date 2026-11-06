@@ -410,3 +410,41 @@ func TestSummarizerStartsWithDamagedState(t *testing.T) {
 		t.Fatalf("damaged state: enabled=%v latest=%+v", s.enabled, s.latest.Load())
 	}
 }
+
+func TestSortSummaryProjectsByRecency(t *testing.T) {
+	at := time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
+	s := func(id string, ago time.Duration, agents ...*summarySnapshotSession) *summarySnapshotSession {
+		return &summarySnapshotSession{ID: id, Touched: at.Add(-ago), Subagents: agents}
+	}
+	topic := func(name string, sessions ...*summarySnapshotSession) *summarySnapshotTopic {
+		return &summarySnapshotTopic{summaryTopic: summaryTopic{Name: name}, Sessions: sessions}
+	}
+	projects := []*summarySnapshotProject{
+		{Project: "old", Topics: []*summarySnapshotTopic{topic("a", s("a1", 5*time.Hour))}},
+		{Project: "fresh", Topics: []*summarySnapshotTopic{
+			topic("stale", s("s1", 3*time.Hour)),
+			topic("busy", s("b1", 2*time.Hour), s("b2", time.Minute, s("agent-old", 2*time.Hour), s("agent-new", time.Minute))),
+		}, Unsorted: []*summarySnapshotSession{s("u1", 4*time.Hour), s("u2", time.Hour)}},
+	}
+	sortSummaryProjects(projects)
+	got := []string{}
+	for _, p := range projects {
+		got = append(got, p.Project)
+		for _, tp := range p.Topics {
+			got = append(got, tp.Name)
+			for _, ss := range tp.Sessions {
+				got = append(got, ss.ID)
+				for _, a := range ss.Subagents {
+					got = append(got, a.ID)
+				}
+			}
+		}
+		for _, u := range p.Unsorted {
+			got = append(got, u.ID)
+		}
+	}
+	want := "fresh busy b2 agent-new agent-old b1 stale s1 u2 u1 old a a1"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("order:\n got %s\nwant %s", strings.Join(got, " "), want)
+	}
+}
