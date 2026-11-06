@@ -337,6 +337,9 @@ func TestServeRejectsStrayArguments(t *testing.T) {
 }
 
 func TestInstallRejectsBadSummaryTime(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("LaunchAgent install is macOS only")
+	}
 	oldHome, oldUID := home, geteuid
 	home, geteuid = t.TempDir(), func() int { return 501 }
 	t.Cleanup(func() { home, geteuid = oldHome, oldUID })
