@@ -35,15 +35,18 @@ func launchDomain() string {
 
 // installConfig is everything the LaunchAgent is made of.
 type installConfig struct {
-	Exe         string // the binary launchd runs
-	Root        string
-	Listen      string
-	Name        string // mDNS name; "" = not published
-	ClaudeDir   string
-	CodexDir    string
-	SessionsLAN bool
-	Path        string // PATH for launchd, which otherwise starts with a bare one
-	Log         string
+	Exe          string // the binary launchd runs
+	Root         string
+	Listen       string
+	Name         string // mDNS name; "" = not published
+	ClaudeDir    string
+	CodexDir     string
+	SessionsLAN  bool
+	Summary      string
+	SummaryAt    string
+	SummaryModel string
+	Path         string // PATH for launchd, which otherwise starts with a bare one
+	Log          string
 
 	// Where gh keeps its login, when moved from the default; passed through
 	// because launchd does not read shell profiles. Never a token.
@@ -79,9 +82,16 @@ func (c installConfig) sessionsLabel() string {
 	return "this Mac only"
 }
 
+func (c installConfig) summaryLabel() string {
+	if c.Summary == "" || c.Summary == "off" {
+		return "off"
+	}
+	return c.Summary + " at " + c.SummaryAt
+}
+
 // args is the LaunchAgent's ProgramArguments.
 func (c installConfig) args() []string {
-	return []string{c.Exe, "serve",
+	args := []string{c.Exe, "serve",
 		"-root", c.Root,
 		"-listen", c.Listen,
 		"-mdns", c.Name,
@@ -89,6 +99,10 @@ func (c installConfig) args() []string {
 		"-codex-dir", c.CodexDir,
 		"-sessions-lan=" + strconv.FormatBool(c.SessionsLAN),
 	}
+	if c.Summary != "" {
+		args = append(args, "-summary", c.Summary, "-summary-at", c.SummaryAt, "-summary-model", c.SummaryModel)
+	}
+	return args
 }
 
 // configFromArgs reads back what args wrote; ok is false for anything else.
@@ -116,6 +130,12 @@ func configFromArgs(args []string) (c installConfig, ok bool) {
 			c.CodexDir = val
 		case "sessions-lan":
 			c.SessionsLAN = !hasVal || val == "true"
+		case "summary":
+			c.Summary = val
+		case "summary-at":
+			c.SummaryAt = val
+		case "summary-model":
+			c.SummaryModel = val
 		}
 	}
 	return c, c.Listen != ""
@@ -359,7 +379,7 @@ func expandHome(p string) string {
 	return p
 }
 
-// launchPath is PATH for launchd: wherever gh and git live, then the system dirs.
+// launchPath is PATH for launchd: wherever its tools live, then the system dirs.
 func launchPath(tools ...string) string {
 	var dirs []string
 	for _, t := range tools {
@@ -529,13 +549,57 @@ func resolveSessionsLAN(flag, flagSet bool, prev installConfig, hadPrev, lan boo
 	return v && lan
 }
 
+// resolveSummary keeps the previous choice or asks once, naming the provider
+// before the user agrees to send transcript excerpts to it.
+func resolveSummary(choice string, flagSet bool, prev installConfig, hadPrev, interactive bool) (string, error) {
+	if !flagSet {
+		switch {
+		case hadPrev && prev.Summary != "": // an install from before summaries has no choice yet
+			choice = prev.Summary
+		case interactive:
+			p, err := newSummaryProvider("auto", "", "")
+			if err != nil {
+				return "off", nil
+			}
+			name, company := "Claude", "Anthropic"
+			if p.name == "codex" {
+				name, company = "Codex", "OpenAI"
+			}
+			ok, err := ask("Summarize your sessions each morning with " + name + "? Each summary sends excerpts of your Claude Code and Codex transcripts to " + company + " through your " + p.name + " CLI.")
+			if err != nil {
+				return "", err
+			}
+			fmt.Println()
+			if ok {
+				return p.name, nil
+			}
+			return "off", nil
+		}
+	}
+	switch choice {
+	case "", "off":
+		return "off", nil
+	case "claude", "codex":
+		return choice, nil
+	default:
+		p, err := newSummaryProvider(choice, "", "")
+		if err != nil {
+			return "", err
+		}
+		return p.name, nil
+	}
+}
+
 func runInstall(args []string) error {
-	fs := newFlags("install", "install [--root DIR] [--lan] [--name agentyard] [--port N] [--sessions-lan] [--yes] [--dry-run]")
+	fs := newFlags("install", "install [--root DIR] [--lan] [--name agentyard] [--port N] [--sessions-lan] [--summary off|auto|claude|codex] [--summary-at HH:MM] [--summary-model MODEL] [--yes] [--dry-run]")
 	root := fs.String("root", "", "folder holding your repositories (default: the previous install's, else the first of ~/Projects, ~/code, ~/src, … that exists)")
 	lan := fs.Bool("lan", false, "serve on your local network as http://<name>.local on port 80 (--lan=false turns it off again)")
 	name := fs.String("name", "agentyard", "with --lan: the http://<name>.local name to publish")
 	port := fs.Int("port", 0, "port to listen on (default 4777, or 80 with --lan)")
 	sessionsLAN := fs.Bool("sessions-lan", false, "with --lan: show the Sessions tab to other devices too (transcripts can hold secrets)")
+	summary := fs.String("summary", "off", "summary provider: off, auto, claude or codex (default: the previous install's, else ask once)")
+	summaryAt := fs.String("summary-at", "07:00", "daily summary time (local HH:MM; keeps the previous install's if set)")
+	summaryModel := fs.String("summary-model", "", "summary model (default: the previous install's, else the provider's cheapest)")
 	yes := fs.Bool("yes", false, "don't ask; install with these settings")
 	dry := fs.Bool("dry-run", false, "show the checks, the plan and the plist; change nothing")
 	if err := parse(fs, args); err != nil {
@@ -576,10 +640,12 @@ func runInstall(args []string) error {
 		Root:          detectRoot(),
 		ClaudeDir:     envOr("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude")),
 		CodexDir:      envOr("CODEX_HOME", filepath.Join(home, ".codex")),
-		Path:          launchPath("gh", "git"),
+		Path:          launchPath("gh", "git", "claude", "codex"),
 		GHConfigDir:   os.Getenv("GH_CONFIG_DIR"),
 		XDGConfigHome: os.Getenv("XDG_CONFIG_HOME"),
 		Log:           logPath(),
+		SummaryAt:     *summaryAt,
+		SummaryModel:  *summaryModel,
 	}
 	if hadPrev {
 		c.Root = prev.Root
@@ -592,6 +658,20 @@ func runInstall(args []string) error {
 		if !set["name"] && prev.Name != "" {
 			*name = prev.Name
 		}
+		if !set["summary-at"] && prev.SummaryAt != "" {
+			c.SummaryAt = prev.SummaryAt
+		}
+		if !set["summary-model"] {
+			c.SummaryModel = prev.SummaryModel
+		}
+	}
+	// serve would exit on a bad time, and launchd would restart it forever.
+	if _, _, err := parseSummaryAt(c.SummaryAt); err != nil {
+		return err
+	}
+	c.Summary, err = resolveSummary(*summary, set["summary"], prev, hadPrev, interactive)
+	if err != nil {
+		return err
 	}
 	if set["root"] {
 		c.Root = expandHome(*root)
@@ -624,6 +704,7 @@ func runInstall(args []string) error {
 		{"root", tilde(c.Root)},
 		{"network", c.networkLabel()},
 		{"sessions", c.sessionsLabel()},
+		{"summary", c.summaryLabel()},
 		{"url", c.URL()},
 	})
 	fmt.Println()

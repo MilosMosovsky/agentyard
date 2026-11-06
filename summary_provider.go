@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -56,6 +57,7 @@ type summaryProvider struct {
 	name, binary, model, stateDir string
 	timeout                       time.Duration
 	slots                         chan struct{}
+	codexOnce                     sync.Once
 	codexFeatures                 []string // --disable arguments for every Codex tool family
 }
 
@@ -118,9 +120,6 @@ func newSummaryProvider(choice, model, stateDir string) (*summaryProvider, error
 				p.model = defaultSummaryCodexModel
 			}
 		}
-		if name == "codex" {
-			p.codexFeatures = summaryCodexFeatureArgs(binary)
-		}
 		return p, nil
 	}
 	err := fmt.Errorf("%s CLI not found on PATH", strings.Join(names, " or "))
@@ -157,6 +156,8 @@ func (p *summaryProvider) call(prompt string, schema *summarySchema) (json.RawMe
 		if err := os.WriteFile(schemaPath, encoded, 0600); err != nil {
 			return fail(err)
 		}
+		// Read on the first call, so resolving a provider (install does) runs nothing.
+		p.codexOnce.Do(func() { p.codexFeatures = summaryCodexFeatureArgs(p.binary) })
 		args = []string{"exec", "--output-schema", schemaPath, "-o", output, "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-c", "model_reasoning_effort=low"}
 		args = append(append(args, p.codexFeatures...), "-m", p.model, "-")
 	}
