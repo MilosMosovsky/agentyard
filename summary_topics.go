@@ -13,10 +13,14 @@ const (
 	summaryTopicExpiry    = 14 * 24 * time.Hour
 )
 
+// The topic pass is the only writer of About, Status, WaitsOn and Next.
 type summaryTopic struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
+	About      string    `json:"about,omitempty"`
 	Status     string    `json:"status"`
+	WaitsOn    *string   `json:"waitsOn,omitempty"`
+	Next       string    `json:"next,omitempty"`
 	FirstSeen  time.Time `json:"firstSeen"`
 	LastActive time.Time `json:"lastActive"`
 }
