@@ -56,10 +56,46 @@ type summaryProvider struct {
 	name, binary, model, stateDir string
 	timeout                       time.Duration
 	slots                         chan struct{}
+	codexFeatures                 []string // --disable arguments for every Codex tool family
 }
 
+// Codex turns tool families on by default (connectors, browser and computer
+// use, sub-agents, image generation). A summary call reads attacker-influenced
+// transcript text, so it gets none of them. The list is the fallback for a
+// codex whose feature list cannot be read.
+var summaryCodexTools = []string{"apps", "browser_use", "browser_use_external", "computer_use", "goals", "hooks", "image_generation", "in_app_browser", "multi_agent", "plugins", "remote_plugin", "shell_tool", "skill_mcp_dependency_install", "skill_search", "sleep_tool", "tool_suggest", "unified_exec", "view_image", "workspace_dependencies"}
+
+// summaryCodexKept are the default-on features that add no tool.
+var summaryCodexKept = map[string]bool{"compaction_image_budget": true, "content_item_kinds": true, "enable_request_compression": true, "fast_mode": true, "system_proxy_fallback": true, "unbounded_connection_retries": true}
+
+// summaryCodexFeatureArgs disables every feature this codex turns on, except
+// the kept ones, so a tool family added in a later version is off too.
+func summaryCodexFeatureArgs(binary string) []string {
+	disable := summaryCodexTools
+	if out, err := run(10*time.Second, "", binary, "features", "list"); err == nil {
+		var listed []string
+		for _, line := range strings.Split(out, "\n") {
+			f := strings.Fields(line)
+			if len(f) >= 3 && f[len(f)-1] == "true" && f[len(f)-2] != "removed" && !summaryCodexKept[f[0]] {
+				listed = append(listed, f[0])
+			}
+		}
+		if len(listed) > 0 {
+			disable = listed
+		}
+	}
+	args := []string{"-c", "web_search=disabled"}
+	for _, name := range disable {
+		args = append(args, "--disable", name)
+	}
+	return args
+}
+
+// summaryOff is the one reading of a -summary value that means no summaries.
+func summaryOff(choice string) bool { return choice == "" || choice == "off" }
+
 func newSummaryProvider(choice, model, stateDir string) (*summaryProvider, error) {
-	if choice == "" || choice == "off" {
+	if summaryOff(choice) {
 		return nil, errSummaryOff
 	}
 	if choice != "auto" && choice != "claude" && choice != "codex" {
@@ -81,6 +117,9 @@ func newSummaryProvider(choice, model, stateDir string) (*summaryProvider, error
 			if name == "codex" {
 				p.model = defaultSummaryCodexModel
 			}
+		}
+		if name == "codex" {
+			p.codexFeatures = summaryCodexFeatureArgs(binary)
 		}
 		return p, nil
 	}
@@ -118,7 +157,8 @@ func (p *summaryProvider) call(prompt string, schema *summarySchema) (json.RawMe
 		if err := os.WriteFile(schemaPath, encoded, 0600); err != nil {
 			return fail(err)
 		}
-		args = []string{"exec", "--output-schema", schemaPath, "-o", output, "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-c", "model_reasoning_effort=low", "-c", "features.shell_tool=false", "-m", p.model, "-"}
+		args = []string{"exec", "--output-schema", schemaPath, "-o", output, "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-c", "model_reasoning_effort=low"}
+		args = append(append(args, p.codexFeatures...), "-m", p.model, "-")
 	}
 	// The prompt goes on stdin: transcript text stays out of the process list.
 	out, err := runInput(p.timeout, cwd, nil, prompt, p.binary, args...)

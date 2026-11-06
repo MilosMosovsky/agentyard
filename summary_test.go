@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -356,5 +357,50 @@ func TestSummarizerStartupProviderAndState(t *testing.T) {
 	}
 	if _, err := os.Stat(record); !os.IsNotExist(err) {
 		t.Fatal("switched to Codex")
+	}
+}
+
+func TestSummarizerEveryCallFailedKeepsLatest(t *testing.T) {
+	at := time.Date(2026, 11, 2, 7, 0, 0, 0, time.UTC)
+	s := newTestSummarizer(t, &at, t.TempDir())
+	s.tick()
+	waitSummary(t, s)
+	monday, schedule := s.latest.Load(), s.schedule
+	entries := noteEntries(t, 3)
+	s.corpus = func(time.Time, time.Time, map[string]string) []*summarySession { return entries }
+	s.call = func(string, *summarySchema) (json.RawMessage, error) {
+		return nil, &summaryBatchError{Provider: "claude", Err: context.DeadlineExceeded}
+	}
+	at = at.AddDate(0, 0, 1)
+	s.tick()
+	waitSummary(t, s)
+	if s.latest.Load() != monday || !strings.Contains(s.status().LastError, "every summary call failed") {
+		t.Fatalf("all-failed run replaced latest: %+v", s.status())
+	}
+	if !s.schedule.LastSuccess.Equal(schedule.LastSuccess) {
+		t.Fatalf("all-failed run moved the window: %v -> %v", schedule.LastSuccess, s.schedule.LastSuccess)
+	}
+}
+
+func TestSummarizerStartsWithDamagedState(t *testing.T) {
+	at := time.Date(2026, 11, 2, 7, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	s := newTestSummarizer(t, &at, dir)
+	s.tick()
+	waitSummary(t, s)
+	good := s.latest.Load()
+	at = at.Add(time.Hour)
+	if got := s.start(summaryWindow{}); got != "started" {
+		t.Fatal(got)
+	}
+	waitSummary(t, s)
+	for _, name := range []string{"schedule.json", "folders.json", s.historyName(at)} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s = newTestSummarizer(t, &at, dir)
+	if !s.enabled || s.latest.Load() == nil || !s.latest.Load().At.Equal(good.At) {
+		t.Fatalf("damaged state: enabled=%v latest=%+v", s.enabled, s.latest.Load())
 	}
 }

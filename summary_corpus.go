@@ -93,7 +93,7 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 	})
 	for _, e := range all {
 		id := e.Session.ParentID
-		if e.Session.Tool != "codex" || id == "" || byID["codex:"+id] != nil {
+		if e.Session.Tool != "codex" || id == "" || byID[summaryKey("codex", id)] != nil {
 			continue
 		}
 		for _, path := range rollouts {

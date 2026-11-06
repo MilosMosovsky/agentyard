@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 )
@@ -85,6 +86,7 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 		}
 		projects[entry.Project] = append(projects[entry.Project], noted)
 	}
+	var lastFailure error
 	for _, project := range order {
 		pending := projects[project]
 		for len(pending) > 0 {
@@ -94,6 +96,7 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 			if err != nil {
 				var failure *summaryBatchError
 				if errors.As(err, &failure) {
+					lastFailure = err
 					continue
 				}
 				return result, err
@@ -121,6 +124,11 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 				return result, err
 			}
 		}
+	}
+	// A run with no note at all is a failed run, not an empty summary: it
+	// keeps the previous summary and the scheduled window.
+	if lastFailure != nil && !slices.ContainsFunc(result, func(n *summaryNotedSession) bool { return n.Note != nil }) {
+		return result, fmt.Errorf("every summary call failed: %w", lastFailure)
 	}
 	return result, nil
 }
