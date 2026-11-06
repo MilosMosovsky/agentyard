@@ -338,20 +338,18 @@ func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapsh
 	}
 	slug := ""
 	if wt != nil {
-		for _, repo := range wt.Repos {
-			if repo.Path == session.Cwd {
-				slug = repo.Slug
+		if repo, worktree := find(wt, session.Cwd); worktree != nil {
+			slug = repo.Slug
+			if view.Branch == "" {
+				view.Branch = worktree.Branch
 			}
-			for _, worktree := range repo.Worktrees {
-				if worktree.Path != session.Cwd {
-					continue
-				}
-				slug = repo.Slug
-				if view.Branch == "" {
-					view.Branch = worktree.Branch
-				}
-				if worktree.PR != nil && worktree.Branch == view.Branch && view.PRURL == "" {
-					view.PRURL, view.PRNumber = worktree.PR.URL, worktree.PR.Number
+			if worktree.PR != nil && worktree.Branch == view.Branch && view.PRURL == "" {
+				view.PRURL, view.PRNumber = worktree.PR.URL, worktree.PR.Number
+			}
+		} else {
+			for _, repo := range wt.Repos {
+				if repo.Path == session.Cwd {
+					slug = repo.Slug
 				}
 			}
 		}
@@ -372,22 +370,22 @@ func snapshotSummarySession(entry *summarySession, note *summaryNote, wt *Snapsh
 		view.Subagents = append(view.Subagents, agent)
 	}
 	if note != nil {
-		var fill func(*summarySnapshotSession)
-		fill = func(agent *summarySnapshotSession) {
-			for _, line := range note.Subagents {
-				if line.SessionKey == agent.Tool+":"+agent.ID {
-					agent.Progress, agent.NotSummarized = line.Progress, false
-				}
-			}
-			for _, child := range agent.Subagents {
-				fill(child)
-			}
+		progress := map[string]string{}
+		for _, line := range note.Subagents {
+			progress[line.SessionKey] = line.Progress
 		}
-		for _, agent := range view.Subagents {
-			fill(agent)
-		}
+		fillSummarySubagents(view.Subagents, progress)
 	}
 	return view
+}
+
+func fillSummarySubagents(agents []*summarySnapshotSession, progress map[string]string) {
+	for _, agent := range agents {
+		if line, ok := progress[summaryKey(agent.Tool, agent.ID)]; ok {
+			agent.Progress, agent.NotSummarized = line, false
+		}
+		fillSummarySubagents(agent.Subagents, progress)
+	}
 }
 
 // ---------------------------------------------------------------- history
