@@ -6,6 +6,8 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-06
+
 ### Added
 
 - **Session summaries, off by default.** A Summary page says where each Claude Code and Codex session
@@ -346,7 +348,8 @@ First public release.
 - Single zero-dependency Go binary (around 20 MB RAM); Homebrew cask, release archives for macOS and
   Linux, and `scripts/install.sh`.
 
-[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/MilosMosovsky/agentyard/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MilosMosovsky/agentyard/compare/v0.7.0...v0.8.0
