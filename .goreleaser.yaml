@@ -94,6 +94,7 @@ homebrew_casks:
       trash:
         - ~/Library/LaunchAgents/com.github.milosmosovsky.agentyard.plist
         - ~/Library/Caches/agentyard
+        - ~/Library/Application Support/agentyard/summary
         - ~/Library/Logs/agentyard.log
     caveats: |
       Start agentyard in the background (asks before changing anything):
