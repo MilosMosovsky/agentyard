@@ -674,6 +674,9 @@ func runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
+	if !set["summary-model"] && c.Summary != prev.Summary {
+		c.SummaryModel = ""
+	}
 	if set["root"] {
 		c.Root = expandHome(*root)
 	}
