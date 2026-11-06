@@ -540,7 +540,7 @@ func demoSummary(at time.Time, sessions []*Session, messages map[string][]Messag
 	snap := &summarySnapshot{At: at, Window: summaryWindow{Start: at.Add(-24 * time.Hour), End: at}, Provider: "demo"}
 	projects := map[string]*summarySnapshotProject{}
 	for _, session := range sessions {
-		project := "Other"
+		project := filepath.Base(session.Cwd) // a folder outside any repository, as summaryProject names it
 		for _, repo := range wt.Repos {
 			if repo.Path == session.Cwd {
 				project = repo.Slug

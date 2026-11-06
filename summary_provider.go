@@ -283,7 +283,7 @@ var summaryNoteSchema = func() *summarySchema {
 
 var summaryTopicSchema = func() *summarySchema {
 	assignment := summaryObject(map[string]*summarySchema{
-		"session_key": summaryText(), "topic_id": summaryNullableText(), "new_topic_name": summaryNullableText(), "status": summaryText(),
+		"session_key": summaryText(), "topic_id": summaryNullableText(), "new_topic_name": summaryNullableText(),
 	})
 	assignment.check = func(v map[string]any) error {
 		if (v["topic_id"] == nil) == (v["new_topic_name"] == nil) {
@@ -293,6 +293,10 @@ var summaryTopicSchema = func() *summarySchema {
 	}
 	return summaryObject(map[string]*summarySchema{"assignments": summaryArray(assignment)})
 }()
+
+var summaryTopicBriefSchema = summaryObject(map[string]*summarySchema{"briefs": summaryArray(summaryObject(map[string]*summarySchema{
+	"topic_id": summaryText(), "about": summaryText(), "status": summaryText(), "waits_on": summaryNullableText(), "next": summaryText(),
+}))})
 
 func (s *summarySchema) validateJSON(data []byte) error {
 	var value any

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -42,8 +43,11 @@ func summaryWrite(t *testing.T, path string, at time.Time, lines ...any) {
 	}
 }
 
+// summaryTestCwd is a folder outside any repository, so its project is "project".
+const summaryTestCwd = "/work/project"
+
 func summaryClaudeTurn(role, text string, sidechain bool) any {
-	return map[string]any{"type": role, "isSidechain": sidechain, "message": map[string]any{"content": text}}
+	return map[string]any{"type": role, "cwd": summaryTestCwd, "isSidechain": sidechain, "message": map[string]any{"content": text}}
 }
 
 func summaryCodexTurn(role, text string) any {
@@ -74,7 +78,7 @@ func TestSummaryCorpusWindowAndSubagents(t *testing.T) {
 		summaryWrite(t, filepath.Join(dir, fmt.Sprintf("agent-%d.jsonl", i)), at, lines...)
 	}
 	// The start is inclusive and the end is exclusive.
-	got := summaryCorpus(at, future, map[string]string{})
+	got, _ := summaryCorpus(at, future, map[string]string{})
 	if len(got) != 2 {
 		t.Fatalf("got %d entries, want active and busy-children: %+v", len(got), got)
 	}
@@ -111,7 +115,7 @@ func TestSummaryCorpusWindowAndSubagents(t *testing.T) {
 func TestSummaryCorpusCodexAutomationAndParents(t *testing.T) {
 	_, codex, at := summaryTestDirs(t)
 	write := func(id string, modified time.Time, meta map[string]any) {
-		meta["id"] = id
+		meta["id"], meta["cwd"] = id, summaryTestCwd
 		summaryWrite(t, filepath.Join(codex, "rollout-"+id+".jsonl"), modified,
 			map[string]any{"type": "session_meta", "payload": meta},
 			summaryCodexTurn("user", "Goal "+id), summaryCodexTurn("assistant", "Finished "+id))
@@ -122,14 +126,14 @@ func TestSummaryCorpusCodexAutomationAndParents(t *testing.T) {
 	write("named-orphan", at, map[string]any{"thread_source": "subagent", "parent_thread_id": "absent"})
 	write("headless", at, map[string]any{"source": "exec"})
 	summaryWrite(t, filepath.Join(*flagCodexDir, "session_index.jsonl"), at, map[string]any{"id": "parent", "thread_name": "Stored title"})
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	if len(got) != 4 {
 		t.Fatalf("got %d entries, want parent, two orphans and headless", len(got))
 	}
 	seen := map[string]bool{}
 	for _, e := range got {
 		id := e.Session.ID
-		if seen[id] || e.Project != "Other" {
+		if seen[id] || e.Project != "project" {
 			t.Fatalf("duplicate or missing project: %+v", e)
 		}
 		seen[id] = true
@@ -165,7 +169,7 @@ func TestSummaryCorpusExcerpt(t *testing.T) {
 			map[string]any{"type": "user", "message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "content": "secret output"}}}})
 	}
 	summaryWrite(t, filepath.Join(claude, "excerpt.jsonl"), at, lines...)
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	if len(got) != 1 || got[0].Goal != clip(goal, 1500) {
 		t.Fatalf("goal did not use the first prompt: %+v", got)
 	}
@@ -197,7 +201,7 @@ func TestSummaryCorpusCodexInternalAutomation(t *testing.T) {
 	for id, source := range map[string]any{"maintenance": map[string]any{"internal": "memory_consolidation"}, "mcp": "mcp"} {
 		path := filepath.Join(codex, "rollout-"+id+".jsonl")
 		summaryWrite(t, path, at,
-			map[string]any{"type": "session_meta", "payload": map[string]any{"id": id, "source": source}},
+			map[string]any{"type": "session_meta", "payload": map[string]any{"id": id, "cwd": summaryTestCwd, "source": source}},
 			summaryCodexTurn("user", "Run maintenance"),
 			summaryCodexTurn("assistant", "Intermediate progress"),
 			summaryCodexTurn("assistant", "Maintenance finished"))
@@ -211,7 +215,7 @@ func TestSummaryCorpusCodexInternalAutomation(t *testing.T) {
 			}
 		}
 	}
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	if len(got) != 2 {
 		t.Fatalf("got %d entries, want 2", len(got))
 	}
@@ -261,7 +265,7 @@ func TestSummaryCorpusProjects(t *testing.T) {
 	}
 	stored := map[string]string{}
 	for pass := range 2 {
-		got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), stored)
+		got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), stored)
 		if len(got) != 3 {
 			t.Fatalf("got %d entries, want 3", len(got))
 		}
@@ -277,9 +281,9 @@ func TestSummaryCorpusProjects(t *testing.T) {
 			}
 		}
 	}
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	for _, e := range got {
-		if e.Project != "Other" {
+		if e.Project != filepath.Base(e.Session.Cwd) {
 			t.Errorf("deleted folder without stored answer: %q", e.Project)
 		}
 	}
@@ -295,7 +299,7 @@ func TestSummaryCorpusClaudeAutomationAndSessionsVisibility(t *testing.T) {
 		summaryClaudeTurn("assistant", "Build passed", false))
 	summaryWrite(t, filepath.Join(claude, "agent-legacy.jsonl"), at,
 		summaryClaudeTurn("user", "Legacy sub-agent", true), summaryClaudeTurn("assistant", "Finished", true))
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	if len(got) != 3 {
 		t.Fatalf("got %d automated sessions, want 3", len(got))
 	}
@@ -321,7 +325,7 @@ func TestSummaryCorpusRemovedWorktreeInsideRepo(t *testing.T) {
 	gone := filepath.Join(repo, ".claude", "worktrees", "removed")
 	summaryWrite(t, filepath.Join(claude, "removed.jsonl"), at,
 		map[string]any{"type": "user", "cwd": gone, "message": map[string]any{"content": "Work here"}})
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	if len(got) != 1 || got[0].Project != repoName(&Repo{Path: repo}) {
 		t.Fatalf("removed worktree project: %+v", got)
 	}
@@ -330,7 +334,7 @@ func TestSummaryCorpusRemovedWorktreeInsideRepo(t *testing.T) {
 func TestSummaryCorpusCodexIdleGrandparent(t *testing.T) {
 	_, codex, at := summaryTestDirs(t)
 	write := func(id string, modified time.Time, meta map[string]any) {
-		meta["id"] = id
+		meta["id"], meta["cwd"] = id, summaryTestCwd
 		summaryWrite(t, filepath.Join(codex, "rollout-"+id+".jsonl"), modified,
 			map[string]any{"type": "session_meta", "payload": meta},
 			summaryCodexTurn("user", "Goal "+id), summaryCodexTurn("assistant", "Finished "+id))
@@ -341,11 +345,43 @@ func TestSummaryCorpusCodexIdleGrandparent(t *testing.T) {
 	write("root", at.Add(-48*time.Hour), map[string]any{"source": "cli"})
 	write("middle", at.Add(-48*time.Hour), spawned("root"))
 	write("leaf", at, spawned("middle"))
-	got := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	got, _ := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
 	if len(got) != 1 || got[0].Session.ID != "root" || len(got[0].Subagents) != 1 {
 		t.Fatalf("want root > middle > leaf, got %d roots: %+v", len(got), got)
 	}
 	if middle := got[0].Subagents[0]; middle.Session.ID != "middle" || len(middle.Subagents) != 1 || middle.Subagents[0].Session.ID != "leaf" {
 		t.Fatalf("nesting: %+v", middle)
+	}
+}
+
+func TestSummaryCorpusLeavesOutScratchRuns(t *testing.T) {
+	claude, codex, at := summaryTestDirs(t)
+	scratch := t.TempDir()
+	old := summaryScratchRoots
+	summaryScratchRoots = []string{scratch}
+	t.Cleanup(func() { summaryScratchRoots = old })
+	home, _ := os.UserHomeDir()
+	turn := func(cwd string) any {
+		return map[string]any{"type": "user", "cwd": cwd, "message": map[string]any{"content": "Work here"}}
+	}
+	summaryWrite(t, filepath.Join(claude, "peer.jsonl"), at, turn(filepath.Join(scratch, "xmodel-doc-peer-1")))
+	summaryWrite(t, filepath.Join(claude, "orca.jsonl"), at, turn(filepath.Join(home, "orca", "workspaces", "gto-brain", "portal-recovery")))
+	summaryWrite(t, filepath.Join(claude, "workspace.jsonl"), at, turn("/nowhere/gto-wizard-com"))
+	// A sub-agent working in a scratch folder still belongs to its parent's project.
+	summaryWrite(t, filepath.Join(claude, "workspace", "subagents", "agent-scratch.jsonl"), at,
+		map[string]any{"type": "user", "cwd": filepath.Join(scratch, "probe"), "isSidechain": true, "message": map[string]any{"content": "Probe"}})
+	summaryWrite(t, filepath.Join(codex, "rollout-nofolder.jsonl"), at,
+		map[string]any{"type": "session_meta", "payload": map[string]any{"id": "nofolder", "source": "cli"}}, summaryCodexTurn("user", "Hello"))
+	got, left := summaryCorpus(at.Add(-time.Hour), at.Add(time.Hour), map[string]string{})
+	projects := map[string]string{}
+	for _, e := range got {
+		projects[e.Session.ID] = e.Project
+		for _, child := range e.Subagents {
+			projects[child.Session.ID] = child.Project
+		}
+	}
+	want := map[string]string{"orca": "gto-brain", "workspace": "gto-wizard-com", "agent-scratch": "gto-wizard-com"}
+	if left != 2 || !reflect.DeepEqual(projects, want) {
+		t.Fatalf("left out %d, projects %v, want 2 and %v", left, projects, want)
 	}
 }

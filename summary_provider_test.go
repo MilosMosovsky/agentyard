@@ -13,7 +13,9 @@ import (
 )
 
 const noteAnswer = `{"notes":[{"session_key":"one","state":"in_progress","progress":"Implemented parser","next":"Run tests","waits_on":null,"subagents":[]}]}`
-const topicAnswer = `{"assignments":[{"session_key":"one","topic_id":"existing","new_topic_name":null,"status":"Parser ready"}]}`
+const topicAnswer = `{"assignments":[{"session_key":"one","topic_id":"existing","new_topic_name":null}]}`
+
+const briefAnswer = `{"briefs":[{"topic_id":"existing","about":"A parser.","status":"Ready.","waits_on":null,"next":"Merge."}]}`
 
 func fakeSummaryCLI(t *testing.T, bin, name, body string) {
 	t.Helper()
@@ -306,6 +308,10 @@ func TestSummarySchemas(t *testing.T) {
 		{"new topic", strings.Replace(strings.Replace(topicAnswer, `"existing"`, `null`, 1), `"new_topic_name":null`, `"new_topic_name":"New"`, 1), summaryTopicSchema, true},
 		{"both topic choices", strings.Replace(topicAnswer, `"new_topic_name":null`, `"new_topic_name":"New"`, 1), summaryTopicSchema, false},
 		{"neither topic choice", strings.Replace(topicAnswer, `"existing"`, `null`, 1), summaryTopicSchema, false},
+		{"topic status", strings.Replace(topicAnswer, `"new_topic_name":null`, `"new_topic_name":null,"status":"Ready"`, 1), summaryTopicSchema, false},
+		{"brief", briefAnswer, summaryTopicBriefSchema, true},
+		{"brief waiting", strings.Replace(briefAnswer, `"waits_on":null`, `"waits_on":"Review"`, 1), summaryTopicBriefSchema, true},
+		{"brief without wait", strings.Replace(briefAnswer, `"waits_on":null,`, "", 1), summaryTopicBriefSchema, false},
 		{"extra property", strings.Replace(noteAnswer, `"next":`, `"extra":true,"next":`, 1), summaryNoteSchema, false},
 		{"missing property", strings.Replace(noteAnswer, `"waits_on":null,`, "", 1), summaryNoteSchema, false},
 		{"null state", strings.Replace(noteAnswer, `"in_progress"`, `null`, 1), summaryNoteSchema, false},

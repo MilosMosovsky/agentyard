@@ -16,10 +16,26 @@ type summarySession struct {
 	Subagents []*summarySession
 }
 
+// summaryScratchRoots hold the throwaway folders that tools launch headless
+// runs in: cross-model review peers, an app's `claude -p` jobs, probes. Those
+// runs report back to the session that launched them, so they are not shown.
+var summaryScratchRoots = []string{os.TempDir(), "/tmp", "/private/tmp", "/var/folders", "/private/var/folders"}
+
+func summaryScratchFolder(folder string) bool {
+	for _, root := range summaryScratchRoots {
+		if rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(folder)); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+			return true
+		}
+	}
+	return false
+}
+
 // summaryCorpus includes activity in [start, end), including activity in a
 // descendant while its parent was idle. It does not publish to the Sessions tab.
 // The caller persists folderProjects so removed worktrees keep their project.
-func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*summarySession {
+// It also counts the active runs it leaves out: those started in a scratch
+// folder, and those with no folder and nothing said.
+func summaryCorpus(start, end time.Time, folderProjects map[string]string) ([]*summarySession, int) {
 	var all []*summarySession
 	byID := map[string]*summarySession{}
 	titles := codexTitles()
@@ -117,13 +133,19 @@ func summaryCorpus(start, end time.Time, folderProjects map[string]string) []*su
 		}
 	}
 	var selected []*summarySession
+	left := 0
 	for _, e := range roots {
-		if summaryActive(e, start, end) {
-			fillSummarySession(e, "Other", folderProjects)
-			selected = append(selected, e)
+		if !summaryActive(e, start, end) {
+			continue
 		}
+		if e.Session.Cwd == "" || summaryScratchFolder(e.Session.Cwd) {
+			left++
+			continue
+		}
+		fillSummarySession(e, "", folderProjects)
+		selected = append(selected, e)
 	}
-	return selected
+	return selected, left
 }
 
 func summaryInWindow(t, start, end time.Time) bool { return !t.Before(start) && t.Before(end) }
@@ -145,7 +167,7 @@ func summaryActive(e *summarySession, start, end time.Time) bool {
 func fillSummarySession(e *summarySession, parentProject string, folderProjects map[string]string) {
 	s := e.Session
 	e.Project = parentProject
-	if s.Cwd != "" {
+	if s.Cwd != "" && (parentProject == "" || !summaryScratchFolder(s.Cwd)) {
 		e.Project = summaryProject(s.Cwd, folderProjects)
 	}
 	opts := transcriptOptions{keepSidechain: e.Automated, keepAutomated: true, textLimit: true}
@@ -188,38 +210,54 @@ func fillSummarySession(e *summarySession, parentProject string, folderProjects 
 
 // ---------------------------------------------------------------- projects
 
+// summaryProject names the repository holding folder. A folder outside any
+// repository is its own project: a workspace folder holding several
+// repositories, or a removed Orca workspace (~/orca/workspaces/<repo>/<name>).
 func summaryProject(folder string, folderProjects map[string]string) string {
+	folder = filepath.Clean(folder)
 	if project := folderProjects[folder]; project != "" {
 		return project
 	}
 	// A removed worktree still names its repository through the nearest
 	// folder that exists, as with Claude's <repo>/.claude/worktrees/<name>.
-	for dir := filepath.Clean(folder); ; dir = filepath.Dir(dir) {
-		gitPath := filepath.Join(dir, ".git")
-		if fi, err := os.Stat(gitPath); err == nil {
-			repo := dir
-			if !fi.IsDir() {
-				b, err := os.ReadFile(gitPath)
-				if err != nil || !strings.HasPrefix(string(b), "gitdir:") {
-					return "Other"
-				}
-				gitDir := resolveGitPath(dir, strings.TrimSpace(strings.TrimPrefix(string(b), "gitdir:")))
-				common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
-				if err != nil {
-					return "Other"
-				}
-				repo = filepath.Dir(resolveGitPath(gitDir, strings.TrimSpace(string(common))))
-			}
+	for dir := folder; filepath.Dir(dir) != dir; dir = filepath.Dir(dir) {
+		fi, err := os.Stat(filepath.Join(dir, ".git"))
+		if err != nil {
+			continue
+		}
+		if repo := summaryRepoRoot(dir, fi); repo != "" {
 			project := repoName(&Repo{Path: repo})
 			if folderProjects != nil {
 				folderProjects[folder] = project
 			}
 			return project
 		}
-		if filepath.Dir(dir) == dir {
-			return "Other"
+		break
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, err := filepath.Rel(filepath.Join(home, "orca", "workspaces"), folder); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			return strings.Split(rel, string(filepath.Separator))[0]
 		}
 	}
+	return filepath.Base(folder)
+}
+
+// summaryRepoRoot resolves the repository of dir, whose .git is fi; a
+// worktree's .git file names the main repository through its commondir.
+func summaryRepoRoot(dir string, fi os.FileInfo) string {
+	if fi.IsDir() {
+		return dir
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".git"))
+	if err != nil || !strings.HasPrefix(string(b), "gitdir:") {
+		return ""
+	}
+	gitDir := resolveGitPath(dir, strings.TrimSpace(strings.TrimPrefix(string(b), "gitdir:")))
+	common, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(resolveGitPath(gitDir, strings.TrimSpace(string(common))))
 }
 
 func resolveGitPath(base, path string) string {
