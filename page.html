@@ -1498,7 +1498,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{$topics := ""}}{{$waiting := ""}}{{$blocked := ""}}
 {{range .Topics}}{{if not .Hidden}}{{$topics = printf "%s." $topics}}{{range .Sessions}}{{with summarySessionStatus .}}{{if eq .State "waiting_on_you"}}{{$waiting = printf "%s." $waiting}}{{else if eq .State "blocked"}}{{$blocked = printf "%s." $blocked}}{{end}}{{end}}{{end}}{{end}}{{end}}
 {{range .Unsorted}}{{with summarySessionStatus .}}{{if eq .State "waiting_on_you"}}{{$waiting = printf "%s." $waiting}}{{else if eq .State "blocked"}}{{$blocked = printf "%s." $blocked}}{{end}}{{end}}{{end}}
-<li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}</span>{{if not .LastActive.IsZero}}<span class="summary-toc-counts">active <time data-ago="words" datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time></span>{{end}}{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
+<li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}</span>{{if not .LastActive.IsZero}}<span class="summary-toc-counts">active <time data-ago="words" data-summary-project="{{.Project}}" datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time></span>{{end}}{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
 {{end}}{{end}}</ul>{{end}}
 {{define "summary-topic"}}{{with .Topic}}<details class="summary-topic" data-summary-topic-key="{{$.Key}}"><summary><div class="summary-topic-heading">
 <div class="summary-topic-title"><h3 class="summary-topic-name">{{.Name}}</h3>{{if $.Snooze}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="true">{{template "icon" "clock"}}<span>Snooze</span></button>{{else if $.Wake}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="false">{{template "icon" "clock"}}<span>Unsnooze</span></button>{{end}}</div>
@@ -1506,7 +1506,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{with .Status}}<p class="summary-topic-status"><span class="summary-topic-label">Status</span>{{.}}</p>{{end}}
 {{with .WaitsOn}}<p class="summary-topic-waits tone-warn"><strong>{{template "icon" "clock"}}Waiting on you</strong><span>{{.}}</span></p>{{end}}
 {{with .Next}}<p class="summary-topic-next"><span class="summary-topic-label">Next</span>{{.}}</p>{{end}}
-<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time data-ago="words" datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span></div>
+<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time data-ago="words" data-summary-topic="{{.ID}}" datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span></div>
 </div></summary>{{range .Sessions}}{{template "summary-session" .}}{{end}}</details>{{end}}{{end}}
 {{define "summary-topic-sessions"}}<span class="summary-topic-sessions">{{if .}}<span class="summary-topic-show">Show</span><span class="summary-topic-hide">Hide</span> {{counted (len .) "session" "sessions"}}{{else}}No sessions in this run{{end}}</span>{{end}}
 {{define "summary"}}{{template "head" .}}
@@ -2903,14 +2903,25 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     }
     freshness(); setInterval(freshness, 60000);
   }
-  // The summary tab never reloads (a summary only changes when it runs again), so it
-  // asks for the latest scan time instead. Every tab keeps its relative times current.
+  // The Summary tab never reloads (a summary only changes when it runs again), so it
+  // asks for the latest scan time and session activity instead. Every tab keeps its
+  // relative times current.
   const synced = $("#synced");
   async function tick() {
     if (tab === "summary" && synced) {
       try {
         const at = new Date((await json("/api/status")).worktreesAt), time = $("time", synced);
         if (time && at.getFullYear() > 1) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
+        // A saved run keeps its own times; the latest one follows its sessions.
+        if (!new URLSearchParams(location.search).has("at")) {
+          const activity = await json("/api/summary/activity");
+          for (const [attribute, times] of [["summaryTopic", activity.topics], ["summaryProject", activity.projects]]) {
+            $$("time[data-ago]").forEach(time => {
+              const value = time.dataset[attribute], at = value !== undefined && times?.[value] ? new Date(times[value]) : null;
+              if (at && at > new Date(time.dateTime)) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
+            });
+          }
+        }
       } catch {}
     }
     relativeDates();

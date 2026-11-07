@@ -1650,6 +1650,9 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 				v.Summary.Error = v.Summary.Run.Error
 			} else {
 				v.Summary.Snapshot, v.Summary.Snoozed = summaryWithoutSnoozed(v.Summary.Snapshot, summaries.snoozes())
+				if l := x.list.Load(); l != nil {
+					v.Summary.Snapshot, v.Summary.Snoozed = summaries.activity(summaries.latest.Load(), *l).apply(v.Summary.Snapshot, v.Summary.Snoozed)
+				}
 				v.Summary.ShowSnoozed = r.URL.Query().Get("view") == "snoozed"
 			}
 		}
@@ -1704,6 +1707,22 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]bool{"snoozed": body.Snooze})
+	})
+	// The Summary tab asks for this every minute, so its "active … ago" times keep up.
+	mux.HandleFunc("GET /api/summary/activity", func(w http.ResponseWriter, r *http.Request) {
+		if !canSeeSessions(r) {
+			http.Error(w, "sessions are only viewable on the Mac that runs this", http.StatusForbidden)
+			return
+		}
+		act := summaryActivity{Topics: map[string]time.Time{}, Projects: map[string]time.Time{}}
+		if summaries != nil && summaries.enabled {
+			x.refresh(20 * time.Second) // cheap: only changed files are re-read
+			if l := x.list.Load(); l != nil {
+				act = summaries.activity(summaries.latest.Load(), *l)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(act)
 	})
 	mux.HandleFunc("GET /api/summary/status", func(w http.ResponseWriter, r *http.Request) {
 		if !canSeeSessions(r) {
