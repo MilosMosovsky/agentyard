@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"log"
 	"slices"
 	"sort"
 	"strings"
@@ -164,7 +165,8 @@ func summaryClassify(notes []*summaryNotedSession, stateDir string, at time.Time
 			answer, err := call(summaryCompoundPrompt(store, batch), summaryCompoundSchema)
 			var failure *summaryBatchError
 			if errors.As(err, &failure) {
-				complete = false // the sessions stay where they were filed
+				log.Printf("summary: topic call failed, %d sessions stay where they were filed: %v", len(batch), err)
+				complete = false
 				continue
 			}
 			if err != nil {

@@ -378,3 +378,17 @@ printf '%s\n' 'apps          stable  true' 'fast_mode     stable  true' 'new_too
 		t.Fatalf("codex feature arguments: %s", got)
 	}
 }
+
+func TestSummaryCompoundCallGetsLonger(t *testing.T) {
+	p, bin := summaryFixture(t, "claude")
+	p.timeout = 300 * time.Millisecond
+	// The answer takes longer than a note call may run, but within the compound call's time.
+	fakeSummaryCLI(t, bin, "claude", `/bin/sleep 0.6; printf '{"type":"result","structured_output":%s}' '`+compoundAnswer+`'`)
+	if got, err := p.call("topics", summaryCompoundSchema); err != nil || string(got) != compoundAnswer {
+		t.Fatalf("compound call cut short: %s %v", got, err)
+	}
+	var batch *summaryBatchError
+	if _, err := p.call("notes", summaryNoteSchema); !errors.As(err, &batch) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("note call not limited: %v", err)
+	}
+}

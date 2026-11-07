@@ -6,6 +6,14 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-07
+
+### Fixed
+
+- The compound topic call could take longer than the two minutes a summary call may run, and was cut
+  off, leaving the window's new and changed sessions under Unsorted. It now gets five times as long.
+- A summary call that fails is now logged with its reason, for the note and topic passes alike.
+
 ## [0.16.0] - 2026-11-07
 
 ### Changed

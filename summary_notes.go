@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -97,6 +98,7 @@ func summaryNotesAt(entries []*summarySession, stateDir string, at time.Time, ca
 			if err != nil {
 				var failure *summaryBatchError
 				if errors.As(err, &failure) {
+					log.Printf("summary: note call for %d sessions of %s failed: %v", len(batch), project, err)
 					lastFailure = err
 					continue
 				}
