@@ -2907,6 +2907,32 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
   // asks for the latest scan time and session activity instead. Every tab keeps its
   // relative times current.
   const synced = $("#synced");
+  // Newest work first, as the server orders it, by the times the tick just moved.
+  // Whatever is at the top of the window stays where it is on screen.
+  function summaryReorder() {
+    const newest = (time) => time ? new Date(time.dateTime).getTime() || 0 : 0;
+    const order = (items, time) => {
+      const sorted = [...items].sort((a, b) => newest(time(b)) - newest(time(a)));
+      return sorted.some((item, i) => item !== items[i]) ? sorted : null;
+    };
+    const anchor = $$(".summary-project, .summary-topic").find(el => el.getBoundingClientRect().bottom > 0);
+    const top = anchor?.getBoundingClientRect().top;
+    let moved = false;
+    $$(".summary-toc-list").forEach(list => {
+      const sorted = order([...list.children], li => $("time[data-summary-project]", li));
+      if (sorted) { list.append(...sorted); moved = true; }
+    });
+    const links = $$(".summary-toc-list a[href^='#summary-project-']").slice(0, $$(".summary-project[id]").length);
+    const sections = links.map(link => document.getElementById(link.getAttribute("href").slice(1))).filter(Boolean);
+    const content = sections[0]?.parentElement;
+    if (content && sections.some((section, i) => section !== $$(".summary-project[id]")[i])) { content.prepend(...sections); moved = true; }
+    $$(".summary-project[id]").forEach(section => {
+      const topics = $$(":scope > .summary-topic:has(time[data-summary-topic])", section);
+      const sorted = order(topics, topic => $("time[data-summary-topic]", topic));
+      if (sorted) { (topics[0].previousElementSibling ? topics[0].previousElementSibling.after(...sorted) : section.prepend(...sorted)); moved = true; }
+    });
+    if (moved && anchor && anchor.isConnected) window.scrollBy(0, anchor.getBoundingClientRect().top - top);
+  }
   async function tick() {
     if (tab === "summary" && synced) {
       try {
@@ -2921,6 +2947,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
               if (at && at > new Date(time.dateTime)) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
             });
           }
+          summaryReorder();
         }
       } catch {}
     }

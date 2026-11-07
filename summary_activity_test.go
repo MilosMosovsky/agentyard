@@ -56,6 +56,15 @@ func TestSummaryActivityFollowsLiveSessions(t *testing.T) {
 	if !view.Projects[0].LastActive.Equal(at.Add(30*time.Minute)) || !view.Projects[0].Topics[0].LastActive.Equal(at.Add(30*time.Minute)) || !views[0].Topic.LastActive.Equal(at.Add(10*time.Minute)) {
 		t.Fatal("apply did not show the newer times")
 	}
+	// The newest work comes first, by the live times: acme/infra (20 min) is
+	// still after acme/api (30 min), and the carried-over topic passes "idle".
+	if view.Projects[0].Project != "acme/api" || view.Projects[1].Project != "acme/infra" || view.Projects[0].Topics[1].ID != "carried" || view.Projects[0].Topics[2].ID != "idle" {
+		t.Fatalf("order: %s, %s / %s, %s", view.Projects[0].Project, view.Projects[1].Project, view.Projects[0].Topics[1].ID, view.Projects[0].Topics[2].ID)
+	}
+	later := summaryActivity{Projects: map[string]time.Time{"acme/infra": at.Add(2 * time.Hour)}}
+	if view, _ := later.apply(snap, nil); view.Projects[0].Project != "acme/infra" || snap.Projects[0].Project != "acme/api" {
+		t.Fatal("a project active more recently did not move first, or the saved order changed")
+	}
 	if !snap.Projects[0].LastActive.Equal(before) || !snap.Projects[0].Topics[0].LastActive.Equal(before) || !snoozed[0].Topic.LastActive.Equal(before.Add(-48*time.Hour)) {
 		t.Fatal("apply changed the saved summary")
 	}

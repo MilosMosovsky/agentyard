@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"slices"
 	"time"
 )
 
@@ -107,7 +108,8 @@ func (snap *summarySnapshot) hasProject(project string) bool {
 }
 
 // apply returns copies of snap and the snoozed topics showing the newer times in
-// act. The saved summary is shared, so nothing it points to is changed.
+// act, with projects and topics reordered by them. The saved summary is shared,
+// so nothing it points to is changed.
 func (act summaryActivity) apply(snap *summarySnapshot, snoozed []summarySnoozedTopic) (*summarySnapshot, []summarySnoozedTopic) {
 	topic := func(t *summarySnapshotTopic) *summarySnapshotTopic {
 		at, ok := act.Topics[t.ID]
@@ -130,8 +132,11 @@ func (act summaryActivity) apply(snap *summarySnapshot, snoozed []summarySnoozed
 			for _, t := range project.Topics {
 				copied.Topics = append(copied.Topics, topic(t))
 			}
+			// The newest work comes first, as in the summary, but by the live times.
+			slices.SortStableFunc(copied.Topics, func(a, b *summarySnapshotTopic) int { return b.LastActive.Compare(a.LastActive) })
 			view.Projects = append(view.Projects, &copied)
 		}
+		slices.SortStableFunc(view.Projects, func(a, b *summarySnapshotProject) int { return b.LastActive.Compare(a.LastActive) })
 		snap = &view
 	}
 	out := make([]summarySnoozedTopic, len(snoozed))
