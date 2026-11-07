@@ -6,6 +6,14 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-11-07
+
+### Fixed
+
+- The Summary page kept its first "Synced" time and "… ago" labels until you reloaded it. It now
+  updates them every minute, and when you come back to the tab, without summarizing again. The other
+  tabs also keep their "… ago" labels current between reloads.
+
 ## [0.16.2] - 2026-11-07
 
 ### Changed
