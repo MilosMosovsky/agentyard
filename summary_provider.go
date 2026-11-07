@@ -229,7 +229,7 @@ func summaryClaudeResult(output string) (summaryClaudeEvent, error) {
 
 // ---------------------------------------------------------------- output schemas
 
-// Only the schema vocabulary used by the two passes is needed. The same tree
+// Only the schema vocabulary the passes use is needed. The same tree
 // supplies the CLI schema and local validation, including required nulls.
 type summarySchema struct {
 	Type                 string                    `json:"type,omitempty"`
@@ -281,21 +281,9 @@ var summaryNoteSchema = func() *summarySchema {
 	return summaryObject(map[string]*summarySchema{"notes": summaryArray(note)})
 }()
 
-var summaryTopicSchema = func() *summarySchema {
-	assignment := summaryObject(map[string]*summarySchema{
-		"session_key": summaryText(), "topic_id": summaryNullableText(), "new_topic_name": summaryNullableText(),
-	})
-	assignment.check = func(v map[string]any) error {
-		if (v["topic_id"] == nil) == (v["new_topic_name"] == nil) {
-			return errors.New("exactly one of topic_id and new_topic_name must be text")
-		}
-		return nil
-	}
-	return summaryObject(map[string]*summarySchema{"assignments": summaryArray(assignment)})
-}()
-
-var summaryTopicBriefSchema = summaryObject(map[string]*summarySchema{"briefs": summaryArray(summaryObject(map[string]*summarySchema{
-	"topic_id": summaryText(), "about": summaryText(), "status": summaryText(), "waits_on": summaryNullableText(), "next": summaryText(),
+var summaryCompoundSchema = summaryObject(map[string]*summarySchema{"topics": summaryArray(summaryObject(map[string]*summarySchema{
+	"topic_id": summaryNullableText(), "name": summaryText(), "merged_ids": summaryArray(summaryText()), "sessions": summaryArray(summaryText()),
+	"about": summaryText(), "status": summaryText(), "waits_on": summaryNullableText(), "next": summaryText(),
 }))})
 
 func (s *summarySchema) validateJSON(data []byte) error {

@@ -26,7 +26,7 @@ func newTestSummarizer(t *testing.T, now *time.Time, dir string) *summarizer {
 		if schema == summaryNoteSchema {
 			return answerNotes(t, prompt, schema)
 		}
-		return topicAssignments(t, prompt, schema, "", "Parser")
+		return answerTopics(t, prompt, schema, "", "Parser")
 	}
 	return s
 }
@@ -210,13 +210,11 @@ func testSummarizerFixtureHistory(t *testing.T, choice string) {
 	t.Setenv("PATH", bin)
 	// These fake CLIs honor the same persistence contract as the real runner.
 	notes := `{"notes":[{"session_key":"claude:parent","state":"waiting_on_you","progress":"Parser ready","next":"Merge","waits_on":"Review","subagents":[{"session_key":"claude:agent-review","progress":"Looks good"}]},{"session_key":"codex:auto","state":"done","progress":"Cleaned","next":"None","waits_on":null,"subagents":[]}]}`
-	topics := `{"assignments":[{"session_key":"claude:parent","topic_id":null,"new_topic_name":"Parser"},{"session_key":"codex:auto","topic_id":null,"new_topic_name":"Cleanup"}]}`
-	// The brief answers carry no topic ids, so every topic stays unbriefed.
-	briefs := `{"briefs":[]}`
+	// The topic answer leaves the briefs blank, so every topic stays unbriefed.
+	topics := `{"topics":[{"topic_id":null,"name":"Parser","merged_ids":[],"sessions":["claude:parent"],"about":"","status":"","waits_on":null,"next":""},{"topic_id":null,"name":"Cleanup","merged_ids":[],"sessions":["codex:auto"],"about":"","status":"","waits_on":null,"next":""}]}`
 	fakeSummaryCLI(t, bin, "claude", `input=$(/bin/cat)
 case "$input" in
 Write*) answer='`+notes+`' ;;
-Brief*) answer='`+briefs+`' ;;
 *) answer='`+topics+`' ;;
 esac
 printf '{"type":"result","structured_output":%s}' "$answer"`)
@@ -227,7 +225,6 @@ shift
 done
 case "$input" in
 Write*) answer='`+notes+`' ;;
-Brief*) answer='`+briefs+`' ;;
 *) answer='`+topics+`' ;;
 esac
 printf '%s' "$answer" > "$output"`)

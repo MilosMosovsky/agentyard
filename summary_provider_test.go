@@ -13,9 +13,7 @@ import (
 )
 
 const noteAnswer = `{"notes":[{"session_key":"one","state":"in_progress","progress":"Implemented parser","next":"Run tests","waits_on":null,"subagents":[]}]}`
-const topicAnswer = `{"assignments":[{"session_key":"one","topic_id":"existing","new_topic_name":null}]}`
-
-const briefAnswer = `{"briefs":[{"topic_id":"existing","about":"A parser.","status":"Ready.","waits_on":null,"next":"Merge."}]}`
+const compoundAnswer = `{"topics":[{"topic_id":"existing","name":"Parser","merged_ids":[],"sessions":["one"],"about":"A parser.","status":"Ready.","waits_on":null,"next":"Merge."}]}`
 
 func fakeSummaryCLI(t *testing.T, bin, name, body string) {
 	t.Helper()
@@ -214,9 +212,9 @@ func TestSummaryCodexOutput(t *testing.T) {
 		name, answer string
 		valid        bool
 	}{
-		{"topic", topicAnswer, true},
+		{"topics", compoundAnswer, true},
 		{"malformed", "not json", false},
-		{"schema", `{"assignments":[{}]}`, false},
+		{"schema", `{"topics":[{}]}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, bin := summaryFixture(t, "codex")
@@ -226,9 +224,9 @@ shift
 done
 printf '%s' '`+tc.answer+`' > "$output"
 printf 'diagnostic output is not the answer'`)
-			got, err := p.call("classify", summaryTopicSchema)
+			got, err := p.call("topics", summaryCompoundSchema)
 			if tc.valid {
-				if err != nil || string(got) != topicAnswer {
+				if err != nil || string(got) != compoundAnswer {
 					t.Fatalf("answer: %s %v", got, err)
 				}
 				return
@@ -268,7 +266,7 @@ func TestSummaryClaudeResultEvents(t *testing.T) {
 }
 
 func TestSummarySchemas(t *testing.T) {
-	for _, schema := range []*summarySchema{summaryNoteSchema, summaryTopicSchema} {
+	for _, schema := range []*summarySchema{summaryNoteSchema, summaryCompoundSchema} {
 		var walk func(*summarySchema)
 		walk = func(s *summarySchema) {
 			if s.Type == "object" {
@@ -304,14 +302,12 @@ func TestSummarySchemas(t *testing.T) {
 		valid        bool
 	}{
 		{"note", noteAnswer, summaryNoteSchema, true},
-		{"topic", topicAnswer, summaryTopicSchema, true},
-		{"new topic", strings.Replace(strings.Replace(topicAnswer, `"existing"`, `null`, 1), `"new_topic_name":null`, `"new_topic_name":"New"`, 1), summaryTopicSchema, true},
-		{"both topic choices", strings.Replace(topicAnswer, `"new_topic_name":null`, `"new_topic_name":"New"`, 1), summaryTopicSchema, false},
-		{"neither topic choice", strings.Replace(topicAnswer, `"existing"`, `null`, 1), summaryTopicSchema, false},
-		{"topic status", strings.Replace(topicAnswer, `"new_topic_name":null`, `"new_topic_name":null,"status":"Ready"`, 1), summaryTopicSchema, false},
-		{"brief", briefAnswer, summaryTopicBriefSchema, true},
-		{"brief waiting", strings.Replace(briefAnswer, `"waits_on":null`, `"waits_on":"Review"`, 1), summaryTopicBriefSchema, true},
-		{"brief without wait", strings.Replace(briefAnswer, `"waits_on":null,`, "", 1), summaryTopicBriefSchema, false},
+		{"topics", compoundAnswer, summaryCompoundSchema, true},
+		{"new topic", strings.Replace(compoundAnswer, `"existing"`, `null`, 1), summaryCompoundSchema, true},
+		{"topic waiting", strings.Replace(compoundAnswer, `"waits_on":null`, `"waits_on":"Review"`, 1), summaryCompoundSchema, true},
+		{"topic without merges", strings.Replace(compoundAnswer, `"merged_ids":[],`, "", 1), summaryCompoundSchema, false},
+		{"topic without wait", strings.Replace(compoundAnswer, `"waits_on":null,`, "", 1), summaryCompoundSchema, false},
+		{"session not text", strings.Replace(compoundAnswer, `["one"]`, `[1]`, 1), summaryCompoundSchema, false},
 		{"extra property", strings.Replace(noteAnswer, `"next":`, `"extra":true,"next":`, 1), summaryNoteSchema, false},
 		{"missing property", strings.Replace(noteAnswer, `"waits_on":null,`, "", 1), summaryNoteSchema, false},
 		{"null state", strings.Replace(noteAnswer, `"in_progress"`, `null`, 1), summaryNoteSchema, false},
