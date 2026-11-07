@@ -797,7 +797,7 @@ func TestSummaryPageAndHistory(t *testing.T) {
 	}
 	s.runStatus = summaryRunStatus{Started: failed.At, LastError: failed.Error}
 	body := get(t, h, "GET", "/summary", local).Body.String()
-	for _, want := range []string{"Private migration title", "<template data-summary-detail>", "Ready for review", "Waiting on you", "Approve the migration", "Ship after approval", "Where it got to", "open since", "last active <time", ">2 days ago</time>", "saved exact resume command", "feature/migrate", "PR #9", "Checked the migration", "Unsorted sessions", "Not summarized", "Unreadable note title", "Not logged in", " · Failed", "&lt;script&gt;unsafe()&lt;/script&gt;"} {
+	for _, want := range []string{"Private migration title", "<template data-summary-detail>", "Ready for review", "Waiting on you", "Approve the migration", "Ship after approval", "Where it got to", "open since", `last active <time data-ago="words"`, `id="synced"`, ">2 days ago</time>", "saved exact resume command", "feature/migrate", "PR #9", "Checked the migration", "Unsorted sessions", "Not summarized", "Unreadable note title", "Not logged in", " · Failed", "&lt;script&gt;unsafe()&lt;/script&gt;"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("summary missing %q", want)
 		}

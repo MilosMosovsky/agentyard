@@ -1275,7 +1275,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 </aside>
 <div class="frame">
 <header class="brand-header"><h1>{{if eq .Tab "prs"}}Pull requests{{else if eq .Tab "sessions"}}Sessions{{else if eq .Tab "summary"}}Summary{{else}}Worktrees{{end}}</h1>
-  <div class="sync-cluster"><span class="meta numeric">{{if eq .Tab "prs"}}{{with .PR}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{else}}{{with .WT}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{end}}</span><button type="button" id="sync" class="button sync-button" data-sync>Sync now</button></div>
+  <div class="sync-cluster"><span class="meta numeric" id="synced">{{if eq .Tab "prs"}}{{with .PR}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{else}}{{with .WT}}{{if not .At.IsZero}}Synced {{template "time" .At}}{{else}}Waiting for first sync{{end}}{{else}}Waiting for first sync{{end}}{{end}}</span><button type="button" id="sync" class="button sync-button" data-sync>Sync now</button></div>
   <div class="settings-wrap"><button type="button" class="icon-button" id="settings-toggle" aria-label="Settings" aria-expanded="false" aria-controls="settings">{{template "icon" "gear"}}</button>
     <div id="settings" class="settings" hidden><fieldset><legend>Theme</legend><div class="theme-options"><label><input type="radio" name="theme" value="system" checked> System</label><label><input type="radio" name="theme" value="light"> Light</label><label><input type="radio" name="theme" value="dark"> Dark</label></div></fieldset><label class="shortcut-toggle"><input type="checkbox" id="shortcuts" checked> Keyboard shortcuts</label><p class="meta shortcut-hint"><kbd>/</kbd> Search · <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> Navigate<br><kbd>g</kbd> then <kbd>s</kbd> Sync now</p></div>
   </div>
@@ -1333,7 +1333,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <span class="badge {{$class}}{{if .Compact}} status-evidence{{end}}">{{template "icon" $icon}}<span>{{$text}}</span></span>
 {{end}}
 {{define "missing"}}<span class="meta"><span aria-hidden="true">—</span><span class="sr-only">Not available</span></span>{{end}}
-{{define "time"}}{{if .IsZero}}{{template "missing"}}{{else}}<time class="numeric" datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.Format "2006-01-02 15:04:05 MST"}}">{{ago .}}</time>{{end}}{{end}}
+{{define "time"}}{{if .IsZero}}{{template "missing"}}{{else}}<time class="numeric" data-ago datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.Format "2006-01-02 15:04:05 MST"}}">{{ago .}}</time>{{end}}{{end}}
 {{define "exact-time"}}{{if .IsZero}}{{template "missing"}}{{else}}<time class="numeric" data-exact datetime="{{.Format "2006-01-02T15:04:05Z07:00"}}">{{.Format "2006-01-02 15:04:05 MST"}}</time>{{end}}{{end}}
 {{define "value"}}<div class="field {{.Class}}">{{if .Text}}<div class="value-line">{{if .OpenSession}}<button type="button" class="session-title two-lines" data-open-session data-clip>{{.Text}}</button>{{else if .Href}}<a class="{{if .Lines}}two-lines{{else}}clipped{{end}}" data-clip href="{{.Href}}">{{if .Display}}{{.Display}}{{else}}{{.Text}}{{end}}</a>{{else}}<span class="{{if .Lines}}two-lines{{else}}clipped{{end}}" data-clip>{{if .Display}}{{.Display}}{{else}}{{.Text}}{{end}}</span>{{end}}</div><details class="full-value"><summary class="value-toggle" role="button" aria-label="Show full value">{{template "icon" "chevron-down"}}</summary><span class="full-text">{{.Text}}</span></details>{{else}}{{template "missing"}}{{end}}</div>{{end}}
 {{define "copy"}}<button type="button" class="button copy{{if .Resume}} copy-resume{{end}}" data-copy="{{.Command}}" data-copy-kind="{{if .Resume}}resume{{else}}command{{end}}">{{template "icon" "copy"}}<span>{{if .Resume}}Copy resume{{else}}Copy{{end}}</span></button>{{end}}
@@ -1498,7 +1498,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{$topics := ""}}{{$waiting := ""}}{{$blocked := ""}}
 {{range .Topics}}{{if not .Hidden}}{{$topics = printf "%s." $topics}}{{range .Sessions}}{{with summarySessionStatus .}}{{if eq .State "waiting_on_you"}}{{$waiting = printf "%s." $waiting}}{{else if eq .State "blocked"}}{{$blocked = printf "%s." $blocked}}{{end}}{{end}}{{end}}{{end}}{{end}}
 {{range .Unsorted}}{{with summarySessionStatus .}}{{if eq .State "waiting_on_you"}}{{$waiting = printf "%s." $waiting}}{{else if eq .State "blocked"}}{{$blocked = printf "%s." $blocked}}{{end}}{{end}}{{end}}
-<li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}</span>{{if not .LastActive.IsZero}}<span class="summary-toc-counts"><time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">active {{agoWords .LastActive}}</time></span>{{end}}{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
+<li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}</span>{{if not .LastActive.IsZero}}<span class="summary-toc-counts">active <time data-ago="words" datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time></span>{{end}}{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
 {{end}}{{end}}</ul>{{end}}
 {{define "summary-topic"}}{{with .Topic}}<details class="summary-topic" data-summary-topic-key="{{$.Key}}"><summary><div class="summary-topic-heading">
 <div class="summary-topic-title"><h3 class="summary-topic-name">{{.Name}}</h3>{{if $.Snooze}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="true">{{template "icon" "clock"}}<span>Snooze</span></button>{{else if $.Wake}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="false">{{template "icon" "clock"}}<span>Unsnooze</span></button>{{end}}</div>
@@ -1506,7 +1506,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{with .Status}}<p class="summary-topic-status"><span class="summary-topic-label">Status</span>{{.}}</p>{{end}}
 {{with .WaitsOn}}<p class="summary-topic-waits tone-warn"><strong>{{template "icon" "clock"}}Waiting on you</strong><span>{{.}}</span></p>{{end}}
 {{with .Next}}<p class="summary-topic-next"><span class="summary-topic-label">Next</span>{{.}}</p>{{end}}
-<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span></div>
+<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time data-ago="words" datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span></div>
 </div></summary>{{range .Sessions}}{{template "summary-session" .}}{{end}}</details>{{end}}{{end}}
 {{define "summary-topic-sessions"}}<span class="summary-topic-sessions">{{if .}}<span class="summary-topic-show">Show</span><span class="summary-topic-hide">Hide</span> {{counted (len .) "session" "sessions"}}{{else}}No sessions in this run{{end}}</span>{{end}}
 {{define "summary"}}{{template "head" .}}
@@ -1522,7 +1522,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 {{if .Past}}<div class="update-banner summary-notice">{{template "icon" "clock"}}<span>Viewing a saved summary run.</span><a href="/summary">Back to latest</a></div>{{end}}
 {{if not .Run}}<div class="state-panel summary-empty">{{template "icon" "ledger"}}<div><h2>Start your first summary.</h2><p>Summarize the last 24 hours to see where each session got to, what it needs from you, and what comes next.</p></div></div>{{end}}
 {{if not .Past}}{{if or .Snoozed .ShowSnoozed}}<nav class="summary-views" aria-label="Summary views"><a href="/summary"{{if not .ShowSnoozed}} aria-current="page"{{end}}>Topics</a><a href="/summary?view=snoozed"{{if .ShowSnoozed}} aria-current="page"{{end}}>Snoozed <span class="numeric">{{len .Snoozed}}</span></a></nav>{{end}}{{end}}
-{{if .ShowSnoozed}}<div class="summary-snoozed">{{range .Snoozed}}<p class="summary-snoozed-label"><span class="summary-snoozed-project">{{or .ProjectName .Project}}</span> · snoozed <time datetime="{{.Snooze.At.Format "2006-01-02T15:04:05Z07:00"}}">{{agoWords .Snooze.At}}</time></p>{{template "summary-topic" (dict "Topic" .Topic "Key" (printf "snoozed-%x" .Topic.ID) "Wake" $.CanRemove)}}{{else}}<div class="state-panel summary-empty">{{template "icon" "clock"}}<div><h2>Nothing is snoozed.</h2><p>Snooze a topic to move it here. It comes back to Topics when one of its sessions is active again.</p></div></div>{{end}}
+{{if .ShowSnoozed}}<div class="summary-snoozed">{{range .Snoozed}}<p class="summary-snoozed-label"><span class="summary-snoozed-project">{{or .ProjectName .Project}}</span> · snoozed <time data-ago="words" datetime="{{.Snooze.At.Format "2006-01-02T15:04:05Z07:00"}}">{{agoWords .Snooze.At}}</time></p>{{template "summary-topic" (dict "Topic" .Topic "Key" (printf "snoozed-%x" .Topic.ID) "Wake" $.CanRemove)}}{{else}}<div class="state-panel summary-empty">{{template "icon" "clock"}}<div><h2>Nothing is snoozed.</h2><p>Snooze a topic to move it here. It comes back to Topics when one of its sessions is active again.</p></div></div>{{end}}
 <p class="summary-bottom"><span>A snoozed topic comes back when one of its sessions is active again.</span></p></div>
 {{else}}{{with .Snapshot}}{{$projects := ""}}{{range .Projects}}{{if summaryProjectVisible .}}{{$projects = printf "%s." $projects}}{{end}}{{end}}
 {{if $projects}}<div class="summary-layout"><aside class="summary-toc">
@@ -1634,6 +1634,22 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     });
   }
   localDates();
+  // The server writes "5m ago" once; this keeps it current between reloads. Mirrors relativeTime in main.go.
+  function relativeTime(date, words) {
+    const minutes = Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000)), hours = Math.floor(minutes / 60), days = Math.floor(hours / 24);
+    const unit = (n, short, one, many) => !words ? `${n}${short} ago` : n === 1 ? `1 ${one} ago` : `${n} ${many} ago`;
+    if (words && minutes < 1) return "just now";
+    if (minutes < 60) return unit(minutes, "m", "minute", "minutes");
+    if (hours < 48) return unit(hours, "h", "hour", "hours");
+    if (days < 90) return unit(days, "d", "day", "days");
+    return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  }
+  function relativeDates(root = document) {
+    $$("time[data-ago]", root).forEach(time => {
+      const date = new Date(time.dateTime);
+      if (!Number.isNaN(date.getTime())) time.textContent = relativeTime(date, time.dataset.ago === "words");
+    });
+  }
   // History derives both layouts from one set of PR records and one filtered event list.
   function createPRHistory() {
     const region = $("#pr-history");
@@ -2887,6 +2903,20 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
     }
     freshness(); setInterval(freshness, 60000);
   }
+  // The summary tab never reloads (a summary only changes when it runs again), so it
+  // asks for the latest scan time instead. Every tab keeps its relative times current.
+  const synced = $("#synced");
+  async function tick() {
+    if (tab === "summary" && synced) {
+      try {
+        const at = new Date((await json("/api/status")).worktreesAt), time = $("time", synced);
+        if (time && at.getFullYear() > 1) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
+      } catch {}
+    }
+    relativeDates();
+  }
+  setInterval(tick, 60000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
 
   // Shared clipboard handling, including plain HTTP and a visible manual fallback.
   const copyPanel = $("#copy-panel"), copyText = $("#copy-text");
