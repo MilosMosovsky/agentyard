@@ -52,7 +52,18 @@ func TestSummaryActivityFollowsLiveSessions(t *testing.T) {
 	}
 
 	snoozed := []summarySnoozedTopic{{Project: "acme/api", Topic: snap.Projects[0].Topics[1]}}
-	view, views := act.apply(snap, snoozed)
+	row := func(session *Session) *summarySnapshotSession {
+		return &summarySnapshotSession{Tool: session.Tool, ID: session.ID, ResumeCmd: session.ResumeCmd()}
+	}
+	view, views := act.apply(snap, snoozed, row)
+	// The carried-over topic, which has no session in the summary, shows the one
+	// it was filed under before; a topic with sessions in the summary shows none.
+	if e := views[0].Topic.Earlier; len(e) != 1 || e[0].ID != "older" || len(view.Projects[0].Topics[0].Earlier)+len(view.Projects[0].Topics[2].Earlier) != 0 {
+		t.Fatalf("earlier sessions: %+v", e)
+	}
+	if snoozed[0].Topic.Earlier != nil {
+		t.Fatal("earlier sessions were saved into the summary")
+	}
 	if !view.Projects[0].LastActive.Equal(at.Add(30*time.Minute)) || !view.Projects[0].Topics[0].LastActive.Equal(at.Add(30*time.Minute)) || !views[0].Topic.LastActive.Equal(at.Add(10*time.Minute)) {
 		t.Fatal("apply did not show the newer times")
 	}
@@ -62,7 +73,7 @@ func TestSummaryActivityFollowsLiveSessions(t *testing.T) {
 		t.Fatalf("order: %s, %s / %s, %s", view.Projects[0].Project, view.Projects[1].Project, view.Projects[0].Topics[1].ID, view.Projects[0].Topics[2].ID)
 	}
 	later := summaryActivity{Projects: map[string]time.Time{"acme/infra": at.Add(2 * time.Hour)}}
-	if view, _ := later.apply(snap, nil); view.Projects[0].Project != "acme/infra" || snap.Projects[0].Project != "acme/api" {
+	if view, _ := later.apply(snap, nil, row); view.Projects[0].Project != "acme/infra" || snap.Projects[0].Project != "acme/api" {
 		t.Fatal("a project active more recently did not move first, or the saved order changed")
 	}
 	if !snap.Projects[0].LastActive.Equal(before) || !snap.Projects[0].Topics[0].LastActive.Equal(before) || !snoozed[0].Topic.LastActive.Equal(before.Add(-48*time.Hour)) {
@@ -77,8 +88,8 @@ func TestSummaryActivityRoute(t *testing.T) {
 	logs := captureLog(t)
 	s, _, snap := summaryRouteFixture(t)
 	snap.Projects[0].Topics[0].ID = "migration"
-	x := &sessionIndex{at: time.Now()} // fresh, so the route does not rescan
-	x.show([]*Session{{Tool: "codex", ID: "saved-session-id", Title: "Migration", Cwd: "/saved/worktree", Active: time.Now().Add(-3 * time.Minute)}})
+	live := &Session{Tool: "codex", ID: "saved-session-id", Title: "Migration", Cwd: "/saved/worktree", Active: time.Now().Add(-3 * time.Minute)}
+	x := &sessionIndex{at: time.Now(), byPath: map[string]*Session{"/saved/rollout.jsonl": live}} // fresh, so the route does not rescan
 	h := serve(&scanner{}, &prTracker{}, x, nil, s)
 	body := get(t, h, "GET", "/summary", local).Body.String()
 	if !strings.Contains(body, `data-summary-topic="migration"`) || !strings.Contains(body, ">3 minutes ago</time>") || !strings.Contains(body, `data-summary-project="private/repository"`) {

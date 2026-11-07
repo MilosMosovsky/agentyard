@@ -76,6 +76,9 @@ type summarySnapshotTopic struct {
 	Hidden      bool                      `json:"hidden"`
 	AlsoIn      []summaryProjectRef       `json:"alsoIn,omitempty"` // other projects its sessions ran in
 	Sessions    []*summarySnapshotSession `json:"sessions"`
+	// Earlier is shown on the page, never saved: when no session of the topic
+	// ran in this summary, the ones it was filed under before.
+	Earlier []*summarySnapshotSession `json:"-"`
 }
 
 type summaryProjectRef struct {

@@ -121,6 +121,19 @@ func newSessionIndex() *sessionIndex {
 	return x
 }
 
+// all returns every transcript the index has read, including those the
+// Sessions tab leaves out: sub-agent rollouts, and runs with no prompt it
+// could read, such as a review a tool started.
+func (x *sessionIndex) all() []*Session {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	list := make([]*Session, 0, len(x.byPath))
+	for _, s := range x.byPath {
+		list = append(list, s)
+	}
+	return list
+}
+
 func (x *sessionIndex) lookup(tool, id string) *Session {
 	if l := x.list.Load(); l != nil {
 		for _, s := range *l {

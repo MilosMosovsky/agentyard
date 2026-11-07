@@ -6,6 +6,16 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.6] - 2026-11-07
+
+### Fixed
+
+- A topic carried over from an earlier summary said "No sessions in this run" and offered no way to
+  continue it. It now shows its last sessions, up to three, newest first, with the note each was given,
+  its branch and PR, and the resume command. A session another tool started, such as a review, is
+  named by its folder, since it has no prompt of its own. A topic whose sessions all moved to other
+  topics says "No session left to resume".
+
 ## [0.16.5] - 2026-11-07
 
 ### Fixed
