@@ -21,6 +21,8 @@ var errSummaryOff = errors.New("summaries are off")
 const (
 	defaultSummaryClaudeModel = "haiku"
 	defaultSummaryCodexModel  = "gpt-6-luna"
+	// A compound call may run this many times the per-call timeout.
+	summaryCompoundTimeoutFactor = 5
 )
 
 type summaryProviderError struct {
@@ -161,8 +163,14 @@ func (p *summaryProvider) call(prompt string, schema *summarySchema) (json.RawMe
 		args = []string{"exec", "--output-schema", schemaPath, "-o", output, "--ephemeral", "-s", "read-only", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-c", "model_reasoning_effort=low"}
 		args = append(append(args, p.codexFeatures...), "-m", p.model, "-")
 	}
+	// The compound call rewrites every topic of the window in one answer, so
+	// it gets longer than a batch of notes.
+	timeout := p.timeout
+	if schema == summaryCompoundSchema {
+		timeout *= summaryCompoundTimeoutFactor
+	}
 	// The prompt goes on stdin: transcript text stays out of the process list.
-	out, err := runInput(p.timeout, cwd, nil, prompt, p.binary, args...)
+	out, err := runInput(timeout, cwd, nil, prompt, p.binary, args...)
 	if err != nil {
 		var command *commandError
 		last := ""
