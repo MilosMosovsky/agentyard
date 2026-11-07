@@ -6,6 +6,19 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-07
+
+### Changed
+
+- Topics compound. A summary used to file each project's sessions in a call of its own and then brief
+  topics in batches; now one call gets every open topic with its brief and every session since the
+  last summary, and returns the whole updated topic list: which topics continue, which merge, which
+  split, which sessions belong to each, and every brief, written on top of the previous one. A topic
+  keeps its id when it continues or absorbs another, so snoozes hold. A very large window takes a
+  few calls, each seeing the topics the last one left. The first summary after upgrading regroups the
+  existing topics once, which merges duplicates earlier runs made. Anything the answer leaves out
+  stays as it was.
+
 ## [0.15.0] - 2026-11-06
 
 ### Added

@@ -298,6 +298,10 @@ migration, and can span many sessions and repositories: a session in one reposit
 another started, such as a config change for a feature elsewhere, and the topic shows once, under the
 project it started in, saying which other projects it is also in. Each topic opens with a brief written from all of its
 sessions: what the work is about, where it stands, what is waiting on you, and what comes next.
+Topics compound from one summary to the next. Each run hands the model every open topic with its
+brief and every session since the last summary, and gets the whole topic list back in one answer, so
+a brief builds on the previous one, sessions keep their topic, two topics that turn out to be the same
+work merge into one, and unrelated work in one topic splits out.
 A list of projects beside the summary (a **Jump to project** menu on a phone) shows how many topics
 each has, when it was last active ("10 minutes ago") and how many sessions wait on you or are
 blocked, and takes you straight there. Open a
