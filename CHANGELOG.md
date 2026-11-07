@@ -6,6 +6,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-11-07
+
+### Changed
+
+- **Snooze** and **Unsnooze** are now bordered buttons beside the topic's name, instead of faint text
+  at the bottom of the card.
+
 ## [0.16.1] - 2026-11-07
 
 ### Fixed
