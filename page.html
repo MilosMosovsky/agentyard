@@ -1155,10 +1155,11 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 .summary-topic-waits .icon { width:13px; height:13px; }
 .summary-topic-about,.summary-topic-status,.summary-topic-next,.summary-topic-waits > span { overflow-wrap:anywhere; white-space:pre-wrap; }
 .summary-topic-meta { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; margin-top:10px; }
-.summary-snooze { display:inline-flex; align-items:center; gap:4px; margin-left:auto; padding:2px 8px; min-height:28px; background:none; border:1px solid transparent; border-radius:var(--radius-control); color:var(--text-3); font-size:12px; }
-.summary-snooze:hover:not(:disabled) { background:var(--bg-hover); color:var(--text-2); }
-.summary-snooze:focus-visible { border-color:var(--accent); }
-.summary-snooze .icon { width:13px; height:13px; }
+.summary-topic-title { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.summary-snooze { display:inline-flex; flex:none; align-items:center; gap:6px; height:30px; margin-top:-4px; padding:0 10px; background:var(--bg-surface); border:1px solid var(--line-control); border-radius:var(--radius-control); color:var(--text-2); font-size:13px; font-weight:550; }
+.summary-snooze:hover:not(:disabled) { background:var(--bg-hover); color:var(--text-1); }
+.summary-snooze:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.summary-snooze .icon { width:14px; height:14px; }
 .summary-views { display:flex; gap:4px; margin-top:20px; }
 .summary-views a { display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:0 12px; border-radius:var(--radius-control); color:var(--text-2); font-size:13px; font-weight:550; }
 .summary-views a:hover { background:var(--bg-hover); text-decoration:none; }
@@ -1239,7 +1240,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
  .summary-project { margin-top:24px; scroll-margin-top:16px; }
  .summary-project-header { margin-bottom:6px; }
  .summary-topic { margin-top:8px; }
- .summary-topic > summary { gap:10px; padding:14px; }
+ .summary-topic > summary { gap:10px; padding:14px; } .summary-snooze { height:36px; margin-top:-6px; }
  .summary-topic-name { font-size:14px; }
  .summary-session { padding:6px 14px 16px; grid-template-columns:24px minmax(0,1fr); gap:0 10px; }
  .summary-session-body { display:contents; }
@@ -1500,12 +1501,12 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
 <li><a href="#summary-project-{{printf "%x" .Project}}" data-summary-project-link><span class="summary-toc-name">{{or .Name .Project}}</span><span class="summary-toc-counts">{{counted (len $topics) "topic" "topics"}}{{if .Unsorted}}<span>· {{len .Unsorted}} unsorted</span>{{end}}</span>{{if not .LastActive.IsZero}}<span class="summary-toc-counts"><time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="Last active {{.LastActive.Format "Jan 2, 15:04"}}">active {{agoWords .LastActive}}</time></span>{{end}}{{if or $waiting $blocked}}<span class="summary-toc-counts"><span class="sr-only">Sessions:</span>{{if $waiting}}<span class="summary-toc-attention tone-warn">{{len $waiting}} waiting<span class="sr-only"> on you</span></span>{{end}}{{if $blocked}}<span class="summary-toc-attention tone-bad">{{len $blocked}} blocked</span>{{end}}</span>{{end}}</a></li>
 {{end}}{{end}}</ul>{{end}}
 {{define "summary-topic"}}{{with .Topic}}<details class="summary-topic" data-summary-topic-key="{{$.Key}}"><summary><div class="summary-topic-heading">
-<h3 class="summary-topic-name">{{.Name}}</h3>
+<div class="summary-topic-title"><h3 class="summary-topic-name">{{.Name}}</h3>{{if $.Snooze}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="true">{{template "icon" "clock"}}<span>Snooze</span></button>{{else if $.Wake}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="false">{{template "icon" "clock"}}<span>Unsnooze</span></button>{{end}}</div>
 {{with .About}}<p class="summary-topic-about">{{.}}</p>{{end}}
 {{with .Status}}<p class="summary-topic-status"><span class="summary-topic-label">Status</span>{{.}}</p>{{end}}
 {{with .WaitsOn}}<p class="summary-topic-waits tone-warn"><strong>{{template "icon" "clock"}}Waiting on you</strong><span>{{.}}</span></p>{{end}}
 {{with .Next}}<p class="summary-topic-next"><span class="summary-topic-label">Next</span>{{.}}</p>{{end}}
-<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span>{{if $.Snooze}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="true">{{template "icon" "clock"}}<span>Snooze</span></button>{{else if $.Wake}}<button type="button" class="summary-snooze" data-summary-snooze="{{.ID}}" data-snooze="false">{{template "icon" "clock"}}<span>Unsnooze</span></button>{{end}}</div>
+<div class="summary-topic-meta">{{template "summary-topic-sessions" .Sessions}}<span class="summary-topic-note">{{if .CarriedOver}}open since {{.FirstSeen.Format "Mon, Jan 2"}} · {{end}}last active <time datetime="{{.LastActive.Format "2006-01-02T15:04:05Z07:00"}}" title="{{.LastActive.Format "Jan 2, 15:04"}}">{{agoWords .LastActive}}</time>{{with .AlsoIn}} · also in {{range $i, $p := .}}{{if $i}}, {{end}}{{or $p.Name $p.Project}}{{end}}{{end}}</span></div>
 </div></summary>{{range .Sessions}}{{template "summary-session" .}}{{end}}</details>{{end}}{{end}}
 {{define "summary-topic-sessions"}}<span class="summary-topic-sessions">{{if .}}<span class="summary-topic-show">Show</span><span class="summary-topic-hide">Hide</span> {{counted (len .) "session" "sessions"}}{{else}}No sessions in this run{{end}}</span>{{end}}
 {{define "summary"}}{{template "head" .}}
