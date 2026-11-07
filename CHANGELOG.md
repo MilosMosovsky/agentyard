@@ -6,6 +6,15 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.4] - 2026-11-07
+
+### Fixed
+
+- A project's and a topic's "active … ago" on the Summary page now follow their sessions as they
+  run, instead of keeping the time of the last summary. The page updates them every minute, without
+  summarizing again. A new session counts for its folder's project before any summary has seen it.
+  What a summary says, and when a snoozed topic comes back, still go by the summary.
+
 ## [0.16.3] - 2026-11-07
 
 ### Fixed
