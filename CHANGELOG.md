@@ -6,6 +6,14 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.5] - 2026-11-07
+
+### Fixed
+
+- The Summary page's project list, its project sections and the topics in each project are ordered
+  by the live "active … ago" times, newest first, and reorder as those times move. The part of the
+  page you are reading stays in place.
+
 ## [0.16.4] - 2026-11-07
 
 ### Fixed
