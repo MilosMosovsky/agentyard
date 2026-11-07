@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"path/filepath"
 	"slices"
 	"time"
 )
@@ -13,20 +14,28 @@ import (
 type summaryActivity struct {
 	Topics   map[string]time.Time `json:"topics"`
 	Projects map[string]time.Time `json:"projects"`
+	// Earlier holds, for a topic with no session in the summary, the sessions
+	// filed under it in earlier runs, newest first, so it can still be resumed.
+	Earlier map[string][]*Session `json:"-"`
 }
+
+// summaryEarlierSessions is how many of a carried-over topic's sessions it shows.
+const summaryEarlierSessions = 3
 
 // activity reads the topics' sessions from the summary itself and from every
 // filing the topic pass kept, so a carried-over topic follows its older
 // sessions. A session the summary has not seen counts for the project of its
 // folder once it is active after the summary.
 func (s *summarizer) activity(snap *summarySnapshot, sessions []*Session) summaryActivity {
-	act := summaryActivity{Topics: map[string]time.Time{}, Projects: map[string]time.Time{}}
+	act := summaryActivity{Topics: map[string]time.Time{}, Projects: map[string]time.Time{}, Earlier: map[string][]*Session{}}
 	if snap == nil {
 		return act
 	}
 	live := make(map[string]time.Time, len(sessions))
+	byKey := make(map[string]*Session, len(sessions))
 	for _, session := range sessions {
-		live[summaryKey(session.Tool, session.ID)] = session.LastActive()
+		key := summaryKey(session.Tool, session.ID)
+		live[key], byKey[key] = session.LastActive(), session
 	}
 	store := summaryTopicStore{}
 	folders := map[string]string{}
@@ -63,8 +72,16 @@ func (s *summarizer) activity(snap *summarySnapshot, sessions []*Session) summar
 			for _, session := range topic.Sessions {
 				sessionTime(&at, session)
 			}
+			var earlier []*Session
 			for _, key := range filed[topic.ID] {
 				later(&at, live[key])
+				if session := byKey[key]; session != nil && !session.Hidden && len(topic.Sessions) == 0 {
+					earlier = append(earlier, session)
+				}
+			}
+			if len(earlier) > 0 {
+				slices.SortFunc(earlier, func(a, b *Session) int { return b.LastActive().Compare(a.LastActive()) })
+				act.Earlier[topic.ID] = earlier[:min(len(earlier), summaryEarlierSessions)]
 			}
 			if topic.ID != "" && at.After(topic.LastActive) {
 				act.Topics[topic.ID] = at
@@ -110,14 +127,22 @@ func (snap *summarySnapshot) hasProject(project string) bool {
 // apply returns copies of snap and the snoozed topics showing the newer times in
 // act, with projects and topics reordered by them. The saved summary is shared,
 // so nothing it points to is changed.
-func (act summaryActivity) apply(snap *summarySnapshot, snoozed []summarySnoozedTopic) (*summarySnapshot, []summarySnoozedTopic) {
+// row turns an earlier session into the row a summary shows for it.
+func (act summaryActivity) apply(snap *summarySnapshot, snoozed []summarySnoozedTopic, row func(*Session) *summarySnapshotSession) (*summarySnapshot, []summarySnoozedTopic) {
 	topic := func(t *summarySnapshotTopic) *summarySnapshotTopic {
 		at, ok := act.Topics[t.ID]
-		if !ok || !at.After(t.LastActive) {
+		earlier := act.Earlier[t.ID]
+		if (!ok || !at.After(t.LastActive)) && len(earlier) == 0 {
 			return t
 		}
 		copied := *t
-		copied.LastActive = at
+		if ok && at.After(copied.LastActive) {
+			copied.LastActive = at
+		}
+		copied.Earlier = nil
+		for _, session := range earlier {
+			copied.Earlier = append(copied.Earlier, row(session))
+		}
 		return &copied
 	}
 	if snap != nil {
@@ -145,4 +170,33 @@ func (act summaryActivity) apply(snap *summarySnapshot, snoozed []summarySnoozed
 		out[i] = entry
 	}
 	return snap, out
+}
+
+// earlierRow shows an earlier session as a summary does, with the last note it
+// was given while that note is still kept.
+func (s *summarizer) earlierRow(wt *Snapshot, prs *PRSnapshot) func(*Session) *summarySnapshotSession {
+	var notes map[string]summaryCachedNote
+	loaded := false
+	return func(session *Session) *summarySnapshotSession {
+		if !loaded {
+			loaded = true
+			if err := loadSummaryState(s.stateDir, "notes.json", &notes); err != nil {
+				log.Printf("summary activity: %v", err)
+			}
+		}
+		row := snapshotSummarySession(&summarySession{Session: session, Goal: session.Label()}, notes[summaryKey(session.Tool, session.ID)].Note, wt, prs)
+		row.NotSummarized = false // no note is not a failed one
+		if session.Title == "" && session.LastPrompt == "" && session.FirstPrompt == "" {
+			// A run another tool started, such as a review, has no prompt to name it by.
+			tool := "Claude Code"
+			if session.Tool == "codex" {
+				tool = "Codex"
+			}
+			row.Title = tool + " session"
+			if session.Cwd != "" {
+				row.Title += " in " + filepath.Base(session.Cwd)
+			}
+		}
+		return row
+	}
 }
