@@ -1514,6 +1514,10 @@ func summaryProjectVisible(p *summarySnapshotProject) bool {
 
 // serve builds every route of the dashboard. demo is nil in production.
 func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources ...*summarizer) http.Handler {
+	return serveAutoclean(s, t, x, demo, nil, sources...)
+}
+
+func serveAutoclean(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, cleaner *autocleaner, sources ...*summarizer) http.Handler {
 	var summaries *summarizer
 	if len(sources) > 0 {
 		summaries = sources[0]
@@ -1788,7 +1792,10 @@ func serve(s *scanner, t *prTracker, x *sessionIndex, demo *demoWorld, sources .
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"state": y.start()})
 	})
-	mux.HandleFunc("POST /api/remove", removeHandler(s, y, removeToken, demo != nil))
+	remove := removeHandler(s, y, removeToken, demo != nil, cleaner)
+	mux.HandleFunc("POST /api/remove", remove)
+	mux.HandleFunc("POST /api/autoclean/remove", remove)
+	mux.HandleFunc("POST /api/autoclean/run", cleaner.runHandler(removeToken))
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		st := map[string]any{"syncing": y.running.Load(), "version": appVersion(), "demo": demo != nil}
 		if wt := s.snap.Load(); wt != nil {
@@ -1914,7 +1921,22 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: serve(s, t, x, nil, summaries), ReadHeaderTimeout: 10 * time.Second}
+	cfg, configErr := autocleanConfigFromEnv(os.Getenv)
+	var cleaner *autocleaner
+	if configErr == nil && cfg.provider != "" {
+		var dir string
+		dir, configErr = autocleanStateDir()
+		if configErr == nil {
+			cleaner, configErr = newAutocleaner(cfg, dir)
+		}
+	}
+	if configErr != nil {
+		log.Printf("autoclean off: %v", configErr)
+	}
+	if cleaner != nil {
+		cleaner.listen, cleaner.ctx = ln.Addr().String(), ctx
+	}
+	srv := &http.Server{Handler: serveAutoclean(s, t, x, nil, cleaner, summaries), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
@@ -1954,6 +1976,8 @@ func runServe(args []string) error {
 	if summaries.enabled {
 		go every(time.Minute, summaries.tick, time.Time{})
 	}
+
+	cleaner.schedule(every)
 
 	<-ctx.Done()
 	shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)

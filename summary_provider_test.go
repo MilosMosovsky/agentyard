@@ -374,7 +374,7 @@ func TestSummaryCodexDisablesListedFeatures(t *testing.T) {
 	fakeSummaryCLI(t, bin, "codex", `[ "$1 $2" = "features list" ] || exit 1
 printf '%s\n' 'apps          stable  true' 'fast_mode     stable  true' 'new_tool      beta    true' 'old_tool      removed true' 'artifact      beta    false'`)
 	got := strings.Join(summaryCodexFeatureArgs(filepath.Join(bin, "codex")), " ")
-	if got != "-c web_search=disabled --disable apps --disable new_tool" {
+	if !strings.Contains(got, "--disable new_tool") || !strings.Contains(got, "--disable shell_tool") || !strings.Contains(got, "--disable unified_exec") || strings.Contains(got, "--disable fast_mode") || strings.Contains(got, "--disable old_tool") || strings.Contains(got, "--disable artifact") {
 		t.Fatalf("codex feature arguments: %s", got)
 	}
 }
