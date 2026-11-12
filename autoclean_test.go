@@ -44,6 +44,32 @@ func TestAutocleanConfig(t *testing.T) {
 	}
 }
 
+func TestAutocleanFirstTickWaitsForStartDelay(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	a := &autocleaner{cfg: autocleanConfig{provider: "claude", every: time.Hour}, ctx: ctx, startDelay: 50 * time.Millisecond}
+	calls := make(chan bool, 1)
+	a.schedule(func(time.Duration, func(), time.Time) { calls <- true })
+	select {
+	case <-calls:
+		t.Fatal("scheduled before the start delay")
+	case <-time.After(20 * time.Millisecond):
+	}
+	select {
+	case <-calls:
+	case <-time.After(time.Second):
+		t.Fatal("never scheduled after the start delay")
+	}
+
+	a.startDelay = time.Hour
+	a.schedule(func(time.Duration, func(), time.Time) { calls <- true })
+	cancel()
+	select {
+	case <-calls:
+		t.Fatal("scheduled after shutdown")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestAutocleanOffAndDefaults(t *testing.T) {
 	a, err := newAutocleaner(autocleanConfig{}, t.TempDir())
 	if err != nil {
@@ -112,7 +138,7 @@ func TestAutocleanArgs(t *testing.T) {
 		t.Fatalf("%+v", config)
 	}
 	codex := autocleanCodexArgs("gpt-6.1-sol", exe, "run-1", "127.0.0.1:4777", "answer", []string{"--disable", "shell_tool", "--disable", "unified_exec", "--disable", "code_mode_host"})
-	for _, want := range []string{"--ignore-user-config", "--ignore-rules", "shell_tool", "unified_exec", `approval_policy="never"`, `mcp_servers.agentyard.args=["mcp"]`, `mcp_servers.agentyard.env.AGENTYARD_AUTOCLEAN_RUN="run-1"`} {
+	for _, want := range []string{"--ignore-user-config", "--ignore-rules", "shell_tool", "unified_exec", `approval_policy="never"`, `mcp_servers.agentyard.args=["mcp"]`, `mcp_servers.agentyard.env.AGENTYARD_AUTOCLEAN_RUN="run-1"`, `mcp_servers.agentyard.default_tools_approval_mode="approve"`} {
 		if !slices.Contains(codex, want) {
 			t.Fatalf("missing %s", want)
 		}

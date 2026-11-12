@@ -86,7 +86,10 @@ func autocleanClaudeArgs(model, executable, run, listen string) []string {
 func autocleanCodexArgs(model, executable, run, listen, output string, features []string) []string {
 	quote := strconv.Quote
 	tools, _ := json.Marshal(autocleanTools)
-	args := []string{"exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-s", "read-only", "-c", `approval_policy="never"`, "-c", "mcp_servers.agentyard.command=" + quote(executable), "-c", `mcp_servers.agentyard.args=["mcp"]`, "-c", "mcp_servers.agentyard.env.AGENTYARD_AUTOCLEAN_RUN=" + quote(run), "-c", "mcp_servers.agentyard.env.AGENTYARD_AUTOCLEAN_LISTEN=" + quote(listen), "-c", "mcp_servers.agentyard.enabled_tools=" + string(tools), "-c", "mcp_servers.agentyard.tool_timeout_sec=1200"}
+	args := []string{"exec", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "-s", "read-only", "-c", `approval_policy="never"`, "-c", "mcp_servers.agentyard.command=" + quote(executable), "-c", `mcp_servers.agentyard.args=["mcp"]`, "-c", "mcp_servers.agentyard.env.AGENTYARD_AUTOCLEAN_RUN=" + quote(run), "-c", "mcp_servers.agentyard.env.AGENTYARD_AUTOCLEAN_LISTEN=" + quote(listen), "-c", "mcp_servers.agentyard.enabled_tools=" + string(tools), "-c", "mcp_servers.agentyard.tool_timeout_sec=1200",
+		// Under approval_policy=never Codex denies a tool that needs approval, and it
+		// marks remove_worktrees as one. The background agent enforces the run itself.
+		"-c", `mcp_servers.agentyard.default_tools_approval_mode="approve"`}
 	// Codex dispatches MCP through its code-mode host. Disabling that host
 	// fails closed before the permitted MCP tools can be called.
 	for i := 0; i < len(features); i++ {
@@ -184,7 +187,7 @@ type autocleaner struct {
 	ctx                             context.Context
 	lastRunAt                       time.Time
 	call                            func(time.Duration, string, []string, string, string, ...string) (string, error)
-	timeout                         time.Duration
+	timeout, startDelay             time.Duration
 }
 
 func autocleanStateDir() (string, error) {
@@ -193,7 +196,7 @@ func autocleanStateDir() (string, error) {
 }
 
 func newAutocleaner(cfg autocleanConfig, dir string) (*autocleaner, error) {
-	a := &autocleaner{cfg: cfg, dir: dir, timeout: 20 * time.Minute}
+	a := &autocleaner{cfg: cfg, dir: dir, timeout: 20 * time.Minute, startDelay: 5 * time.Minute}
 	a.call = func(timeout time.Duration, cwd string, env []string, prompt, binary string, args ...string) (string, error) {
 		parent := a.ctx
 		if parent == nil {
@@ -231,10 +234,24 @@ func newAutocleaner(cfg autocleanConfig, dir string) (*autocleaner, error) {
 }
 
 // Schedule is called only after the HTTP server can accept the child's MCP calls.
+// The first tick waits startDelay: right after a start the snapshot is still the
+// on-disk cache, possibly hours old, until the first scan replaces it.
 func (a *autocleaner) schedule(every func(time.Duration, func(), time.Time)) {
-	if a != nil && a.cfg.provider != "" {
-		go every(a.cfg.every, a.run, a.lastRunAt)
+	if a == nil || a.cfg.provider == "" {
+		return
 	}
+	go func() {
+		done := context.Background().Done()
+		if a.ctx != nil {
+			done = a.ctx.Done()
+		}
+		select {
+		case <-time.After(a.startDelay):
+		case <-done:
+			return
+		}
+		every(a.cfg.every, a.run, a.lastRunAt)
+	}()
 }
 func (a *autocleaner) run() {
 	if _, err := a.runNow(); err != nil {

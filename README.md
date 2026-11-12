@@ -650,7 +650,7 @@ Set these variables before `agentyard install` to carry them into the LaunchAgen
 | `AGENTYARD_AUTOCLEAN_MIN_IDLE` | `3h` | Minimum time since worktree activity |
 | `AGENTYARD_AUTOCLEAN_MODEL` | `sonnet` / `gpt-6.1-sol` | Provider model ID |
 
-Configuration is read once at startup; an invalid value keeps cleanup off and writes a startup diagnostic. Last-run time survives restarts. Runs never overlap and the CLI process group is killed after 20 minutes.
+Configuration is read once at startup; an invalid value keeps cleanup off and writes a startup diagnostic. Last-run time survives restarts, and after a start the first run waits 5 minutes so it works from a fresh scan rather than the cached one. Runs never overlap and the CLI process group is killed after 20 minutes.
 
 `agentyard autoclean run` asks the running background agent to run now and waits for its result. `agentyard autoclean log -n 20` shows recent audit records. The append-only log lives at `~/Library/Application Support/agentyard/autoclean/autoclean.jsonl` on macOS, is readable only by your user, and rotates above 5 MB with one previous generation.
 
