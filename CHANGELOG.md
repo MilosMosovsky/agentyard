@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in scheduled worktree cleanup through Claude Code or Codex with only agentyard MCP tools, enforced idle time and dry-run plans, background-agent audit logging, and `agentyard autoclean run|log`.
+
 ## [0.16.6] - 2026-11-07
 
 ### Fixed

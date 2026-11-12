@@ -637,6 +637,25 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
 
 After a removal it asks the background agent to rescan, so the dashboard catches up.
 
+## Scheduled cleanup
+
+Scheduled cleanup is off by default. When enabled, the background agent runs your local Claude Code or Codex CLI with only four agentyard MCP tools to inspect and remove reclaimable worktrees. It never deletes branches.
+
+Set these variables before `agentyard install` to carry them into the LaunchAgent, or before `agentyard serve` when running in the foreground:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AGENTYARD_AUTOCLEAN` | `off` | `off`, `auto` (Claude if installed, otherwise Codex), `claude`, or `codex` |
+| `AGENTYARD_AUTOCLEAN_EVERY` | `6h` | Run interval, at least `1h` |
+| `AGENTYARD_AUTOCLEAN_MIN_IDLE` | `3h` | Minimum time since worktree activity |
+| `AGENTYARD_AUTOCLEAN_MODEL` | `sonnet` / `gpt-6.1-sol` | Provider model ID |
+
+Configuration is read once at startup; an invalid value keeps cleanup off and writes a startup diagnostic. Last-run time survives restarts. Runs never overlap and the CLI process group is killed after 20 minutes.
+
+`agentyard autoclean run` asks the running background agent to run now and waits for its result. `agentyard autoclean log -n 20` shows recent audit records. The append-only log lives at `~/Library/Application Support/agentyard/autoclean/autoclean.jsonl` on macOS, is readable only by your user, and rotates above 5 MB with one previous generation.
+
+The cleanup agent is told to skip uncertain worktrees, uncommitted files, recent activity, and ignored files containing secrets or other non-artifact data. Agentyard independently requires an active run ID, a reason for each removal, a matching dry-run plan, the minimum idle time, and the existing fresh-scan removal safety checks. Manual MCP and dashboard removals keep their existing behavior and do not enter this audit log. Autoclean has no shell, file-edit, web, or subagent tool, and uses no permission bypass flags.
+
 ## Configuration
 
 ```console
