@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -39,7 +40,9 @@ type removeRequest struct {
 	// Plans holds, per path, the plan a dry run gave it. A path whose fresh
 	// plan differs (new ignored files, other changes, another verdict) is
 	// refused, so what goes is what the dry run showed.
-	Plans map[string]string `json:"plans,omitempty"`
+	Plans   map[string]string `json:"plans,omitempty"`
+	Reasons map[string]string `json:"reasons,omitempty"`
+	Run     string            `json:"run,omitempty"`
 }
 
 // check is the request as a whole; each path is judged by removeWorktrees.
@@ -61,15 +64,20 @@ type removal struct {
 	Label   string `json:"label,omitempty"`
 	Reason  string `json:"reason"`
 	// Uncommitted files removal discards, and the ref that already has them.
-	Modified   int      `json:"modified,omitempty"`
-	Untracked  int      `json:"untracked,omitempty"`
-	ContentRef string   `json:"contentRef,omitempty"`
-	Ignored    []string `json:"ignored,omitempty"`    // ignored files removal deletes with the worktree
-	Submodules int      `json:"submodules,omitempty"` // initialized submodules removal deletes with the worktree
-	FreedKB    int64    `json:"freedKB,omitempty"`
-	Plan       string   `json:"plan,omitempty"`   // a dry run's plan, to pass back in plans
-	Backup     string   `json:"backup,omitempty"` // the ref holding a copy of what a checked removal deleted
-	expect     string   // the plan the request passed for this path
+	Modified     int      `json:"modified,omitempty"`
+	Untracked    int      `json:"untracked,omitempty"`
+	ContentRef   string   `json:"contentRef,omitempty"`
+	Ignored      []string `json:"ignored,omitempty"`    // ignored files removal deletes with the worktree
+	Submodules   int      `json:"submodules,omitempty"` // initialized submodules removal deletes with the worktree
+	FreedKB      int64    `json:"freedKB,omitempty"`
+	Plan         string   `json:"plan,omitempty"`   // a dry run's plan, to pass back in plans
+	Backup       string   `json:"backup,omitempty"` // the ref holding a copy of what a checked removal deleted
+	minIdle      time.Duration
+	autoclean    bool
+	deadline     time.Time
+	repo, branch string
+	pr           *PR
+	expect       string // the plan the request passed for this path
 }
 
 func (it *removal) refuse(reason string) { it.Outcome, it.Reason = "refused", reason }
@@ -109,7 +117,13 @@ func removeWorktrees(snap *Snapshot, q removeRequest, act repoRemover, poke func
 	for _, p := range q.Paths {
 		it := &removal{Path: p}
 		results = append(results, it)
-		r, _ := find(snap, p)
+		r, w := find(snap, p)
+		if r != nil {
+			it.repo = r.Path
+		}
+		if w != nil && q.Run != "" {
+			it.describe(w)
+		}
 		switch clean := filepath.Clean(p); {
 		case !filepath.IsAbs(p):
 			it.refuse("not an absolute path")
@@ -254,6 +268,10 @@ func (it *removal) admit(w *Worktree, dryRun bool, stale string) bool {
 	it.describe(w)
 	plan := planOf(w)
 	switch {
+	case it.autoclean && !time.Now().Before(it.deadline):
+		it.refuse("autoclean: run deadline exceeded")
+	case it.autoclean && (w.LastActive.IsZero() || time.Since(w.LastActive) < it.minIdle):
+		it.refuse("autoclean: active within " + it.minIdle.String() + " or activity unknown")
 	case !reclaimable(w.Verdict):
 		it.refuse("a fresh scan says " + it.Label + ": " + w.Reason)
 	case stale != "" && checkedRemoval(w):
@@ -270,6 +288,7 @@ func (it *removal) admit(w *Worktree, dryRun bool, stale string) bool {
 
 // describe copies what removing w deletes into the result.
 func (it *removal) describe(w *Worktree) {
+	it.branch, it.pr = w.Branch, w.PR
 	it.Verdict, it.Label = w.Verdict, verdictLabel(w.Verdict)
 	it.Modified, it.Untracked, it.Ignored, it.FreedKB = w.Modified, w.Untracked, w.Ignored, w.SizeKB
 	it.Submodules = w.Submodules
@@ -344,8 +363,17 @@ func (it *removal) remove(repo string, w *Worktree) {
 		it.refuse("its folder is there again; list it again")
 		return
 	}
+	timeout := 10 * time.Minute
+	if it.autoclean {
+		timeout = min(timeout, time.Until(it.deadline))
+		if timeout <= 0 {
+			it.discardBackup(repo)
+			it.refuse("autoclean: run deadline exceeded")
+			return
+		}
+	}
 	args := removeArgs(repo, w, force)
-	if _, err := run(10*time.Minute, "", args[0], args[1:]...); err != nil {
+	if _, err := run(timeout, "", args[0], args[1:]...); err != nil {
 		reason := "git refused: " + err.Error()
 		if it.Backup != "" {
 			reason += "; a copy of its files is kept at " + it.Backup
@@ -591,7 +619,11 @@ func localMutationAllowed(w http.ResponseWriter, r *http.Request, token, who str
 // requires a viewer on this Mac (never the LAN, whatever -sessions-lan says),
 // the dashboard's own origin, the page's per-process token and a JSON body.
 // In demo mode it simulates from the demo snapshot and touches nothing on disk.
-func removeHandler(s *scanner, y *syncer, token string, demo bool) http.HandlerFunc {
+func removeHandler(s *scanner, y *syncer, token string, demo bool, cleaners ...*autocleaner) http.HandlerFunc {
+	var cleaner *autocleaner
+	if len(cleaners) > 0 {
+		cleaner = cleaners[0]
+	}
 	act := removeIn
 	if demo {
 		act = demoRemoveIn
@@ -607,7 +639,8 @@ func removeHandler(s *scanner, y *syncer, token string, demo bool) http.HandlerF
 		}
 		fail := func(code int, msg string) { answer(code, map[string]string{"error": msg}) }
 		mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if !localMutationAllowed(w, r, token, "worktrees can only be removed from the Mac that runs agentyard", false) {
+		taggedEndpoint := r.URL.Path == "/api/autoclean/remove"
+		if !localMutationAllowed(w, r, token, "worktrees can only be removed from the Mac that runs agentyard", taggedEndpoint) {
 			return
 		}
 		if mt != "application/json" {
@@ -632,6 +665,28 @@ func removeHandler(s *scanner, y *syncer, token string, demo bool) http.HandlerF
 			fail(http.StatusBadRequest, err.Error())
 			return
 		}
+		if taggedEndpoint && q.Run == "" {
+			fail(http.StatusForbidden, "autoclean run id required")
+			return
+		}
+		if q.Run != "" {
+			if cleaner == nil {
+				fail(http.StatusForbidden, "no active autoclean run")
+				return
+			}
+			cleaner.mu.Lock()
+			defer cleaner.mu.Unlock()
+			if cleaner.active == "" || q.Run != cleaner.active || cleaner.runErr != nil {
+				fail(http.StatusForbidden, "unknown or inactive autoclean run")
+				return
+			}
+			if !q.DryRun {
+				if err := cleaner.audit.append(nil); err != nil {
+					fail(http.StatusServiceUnavailable, "cannot open autoclean audit: "+err.Error())
+					return
+				}
+			}
+		}
 		one.Lock()
 		defer one.Unlock()
 		snap := s.snap.Load() // under the lock: sees the last request's removals hidden
@@ -639,7 +694,44 @@ func removeHandler(s *scanner, y *syncer, token string, demo bool) http.HandlerF
 			fail(http.StatusServiceUnavailable, "no worktree scan yet; try again after the first one")
 			return
 		}
-		rep := removeWorktrees(snap, q, act, func() string { return syncNote(y.start()) })
+		perform := act
+		if q.Run != "" {
+			perform = func(repo string, snap *Snapshot, items []*removal, dry bool) []string {
+				var admitted []*removal
+				for _, it := range items {
+					it.autoclean, it.minIdle, it.deadline = true, cleaner.cfg.minIdle, cleaner.record.Started.Add(cleaner.timeout)
+					if !dry && strings.TrimSpace(q.Reasons[it.Path]) == "" {
+						it.refuse("autoclean: a non-empty reason is required")
+					} else if !dry && q.Plans[it.Path] == "" {
+						it.refuse("autoclean: a dry-run plan is required")
+					} else {
+						admitted = append(admitted, it)
+					}
+				}
+				if len(admitted) == 0 {
+					return nil
+				}
+				return act(repo, snap, admitted, dry)
+			}
+		}
+		rep := removeWorktrees(snap, q, perform, func() string { return syncNote(y.start()) })
+		if q.Run != "" && !q.DryRun {
+			cleaner.record.Removed += rep.Removed + rep.Pruned
+			cleaner.record.Refused += rep.Refused
+			cleaner.record.FreedKB += rep.FreedKB
+			for _, it := range rep.Results {
+				freed := int64(0)
+				if it.Outcome == "removed" || it.Outcome == "pruned" {
+					freed = it.FreedKB
+				}
+				entry := autocleanWorktreeRecord{Type: "worktree", At: time.Now(), Run: q.Run, Path: it.Path, Repo: it.repo, Branch: it.branch, PR: it.pr, Verdict: it.Verdict, Outcome: it.Outcome, ModelReason: q.Reasons[it.Path], AgentyardReason: it.Reason, FreedKB: freed, Ignored: it.Ignored, Backup: it.Backup}
+				if err := cleaner.audit.append(entry); err != nil {
+					cleaner.runErr = errors.Join(cleaner.runErr, fmt.Errorf("autoclean audit: %w", err))
+					log.Printf("autoclean audit: %v", err)
+					rep.Warnings = append(rep.Warnings, "autoclean audit: "+err.Error())
+				}
+			}
+		}
 		rep.Simulated = demo
 		if len(rep.gone) > 0 {
 			// Every snapshot begun before now hides them, whether it is the one

@@ -112,7 +112,8 @@ type mcpSource struct {
 	sync          func() (string, error) // rescan now and wait for it
 	poke          func() string          // after a removal: start a rescan, don't wait
 	agent         func() string          // the running agent's version, "" when unknown
-	demo          bool                   // synthetic data: nothing may be removed
+	remove        func(removeRequest) (*removeReport, error)
+	demo          bool // synthetic data: nothing may be removed
 }
 
 type mcpServer struct {
@@ -130,6 +131,15 @@ func newMCPServer(src mcpSource) *mcpServer {
 		m.binary = recordExecutable(os.Executable, filepath.EvalSymlinks, os.Stat, exec.LookPath)
 	}
 	m.tools = m.toolList()
+	if os.Getenv("AGENTYARD_AUTOCLEAN_RUN") != "" {
+		var tools []mcpTool
+		for _, tool := range m.tools {
+			if slices.Contains(autocleanTools, tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+		m.tools = tools
+	}
 	return m
 }
 
@@ -214,7 +224,7 @@ func runMCP(args []string) error {
 	} else {
 		if *listen == "" {
 			cfg, _ := agentConfig()
-			*listen = cfg.Listen
+			*listen = envOr("AGENTYARD_AUTOCLEAN_LISTEN", cfg.Listen)
 		}
 		src = agentSource(*listen)
 	}
@@ -225,6 +235,15 @@ func runMCP(args []string) error {
 
 func agentSource(listen string) mcpSource {
 	return mcpSource{
+		remove: func(q removeRequest) (*removeReport, error) {
+			body, err := json.Marshal(q)
+			if err != nil {
+				return nil, err
+			}
+			var rep removeReport
+			err = agentJSONBody(http.MethodPost, listen, "/api/autoclean/remove", 20*time.Minute, 8<<20, body, &rep)
+			return &rep, err
+		},
 		snapshot: func() (*Snapshot, string, error) { return agentSnapshot(listen) },
 		prs:      func() (*PRSnapshot, string, error) { return agentPRSnapshot(listen) },
 		prDetail: func(pr *TrackedPR) (PRDetail, error) {
@@ -670,6 +689,7 @@ func (m *mcpServer) toolList() []mcpTool {
 			InputSchema: schema(map[string]any{
 				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": removeMax, "description": "absolute worktree paths, exactly as list_worktrees shows them"},
 				"dry_run": map[string]any{"type": "boolean", "default": false, "description": "re-check and report what would go; change nothing"},
+				"reasons": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "path → why removal is certainly safe; required for autoclean"},
 				"plans": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
 					"description": "path → the plan its dry-run result gave; a path whose worktree changed since (new ignored files, other changes) is refused"},
 			}, "paths"),
@@ -1151,11 +1171,17 @@ func (m *mcpServer) prTool(raw json.RawMessage) *toolResult {
 // ---------------------------------------------------------------- mcp session summaries
 
 type agentHTTPError struct {
-	Code   int
-	Status string
+	Code    int
+	Status  string
+	Message string
 }
 
-func (e *agentHTTPError) Error() string { return e.Status }
+func (e *agentHTTPError) Error() string {
+	if e.Message != "" {
+		return e.Status + ": " + e.Message
+	}
+	return e.Status
+}
 
 const mcpSummaryOff = "summaries are off; run agentyard install and answer yes to morning summaries to turn them on"
 
@@ -1467,7 +1493,24 @@ func (m *mcpServer) removeTool(raw json.RawMessage) *toolResult {
 	if warning := m.versionWarning(snap.Version); warning != "" {
 		return toolFail("%s", warning)
 	}
-	rep := removeWorktrees(snap, q, removeIn, m.src.poke)
+	var rep *removeReport
+	if run := os.Getenv("AGENTYARD_AUTOCLEAN_RUN"); run != "" {
+		q.Run = run
+		if m.src.remove == nil {
+			return toolFail("autoclean requires the background agent")
+		}
+		var err error
+		rep, err = m.src.remove(q)
+		if err != nil {
+			return toolFail("%v", err)
+		}
+	} else {
+		// Run ids belong to the MCP process environment, never model input.
+		if q.Run != "" {
+			return toolFail("autoclean run id must come from the MCP environment")
+		}
+		rep = removeWorktrees(snap, q, removeIn, m.src.poke)
+	}
 	m.gone.add(rep.gone, time.Now())
 	res := toolOK(struct {
 		Snapshot mcpMeta `json:"snapshot"`

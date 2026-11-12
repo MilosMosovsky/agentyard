@@ -51,6 +51,8 @@ type installConfig struct {
 	// Where gh keeps its login, when moved from the default; passed through
 	// because launchd does not read shell profiles. Never a token.
 	GHConfigDir, XDGConfigHome string
+	Autoclean                  [4]string
+	AutocleanSet               [4]bool
 }
 
 // LAN reports whether other devices can reach it.
@@ -195,8 +197,8 @@ func renderPlist(c installConfig) string {
         <key>GOMEMLIMIT</key>
         <string>32MiB</string>
 `)
-	for _, kv := range [][2]string{{"GH_CONFIG_DIR", c.GHConfigDir}, {"XDG_CONFIG_HOME", c.XDGConfigHome}} {
-		if kv[1] != "" {
+	for _, kv := range c.environment() {
+		if kv[1] != "" || slices.Contains(autocleanEnv, kv[0]) {
 			b.WriteString("        <key>" + kv[0] + "</key>\n        <string>" + xmlText(kv[1]) + "</string>\n")
 		}
 	}
@@ -220,6 +222,16 @@ func renderPlist(c installConfig) string {
 </plist>
 `)
 	return b.String()
+}
+
+func (c installConfig) environment() [][2]string {
+	env := [][2]string{{"GH_CONFIG_DIR", c.GHConfigDir}, {"XDG_CONFIG_HOME", c.XDGConfigHome}}
+	for i, name := range autocleanEnv {
+		if c.AutocleanSet[i] || c.Autoclean[i] != "" {
+			env = append(env, [2]string{name, c.Autoclean[i]})
+		}
+	}
+	return env
 }
 
 // plistArgs pulls ProgramArguments out of a LaunchAgent plist.
@@ -698,6 +710,12 @@ func runInstall(args []string) error {
 	}
 	c.SessionsLAN = resolveSessionsLAN(*sessionsLAN, set["sessions-lan"], prev, hadPrev, *lan)
 
+	c.Autoclean = [4]string{}
+	for i, name := range autocleanEnv {
+		if value, ok := os.LookupEnv(name); ok {
+			c.Autoclean[i], c.AutocleanSet[i] = value, true
+		}
+	}
 	checks := preflight(c)
 	failed := printChecks(os.Stdout, checks)
 	fmt.Println()
@@ -711,6 +729,11 @@ func runInstall(args []string) error {
 		{"summary", c.summaryLabel()},
 		{"url", c.URL()},
 	})
+	for _, kv := range c.environment() {
+		if strings.HasPrefix(kv[0], "AGENTYARD_AUTOCLEAN") {
+			printRows(os.Stdout, [][2]string{kv})
+		}
+	}
 	fmt.Println()
 
 	if *dry {

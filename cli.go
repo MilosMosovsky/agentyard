@@ -5,6 +5,7 @@ package main
 // older LaunchAgents and scripts keep working.
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -56,6 +57,7 @@ Commands:
   serve       run the dashboard in the foreground
   mcp         let your AI query and clean up worktrees (MCP over stdio)
   remove      remove worktrees that are safe to delete, re-checked first
+  autoclean   run scheduled cleanup now, or read its log (run | log [-n N])
   version     print the version
   help        show this help
 
@@ -86,6 +88,8 @@ func main() {
 		err = runMCP(args)
 	case "remove":
 		err = runRemove(args)
+	case "autoclean":
+		err = runAutoclean(args)
 	default:
 		fmt.Fprintf(os.Stderr, "agentyard: unknown command %q\n\n%s", cmd, cliUsage)
 		os.Exit(2)
@@ -233,9 +237,16 @@ func fetchStatus(listen string) (*liveStatus, error) {
 // request to the address it listens on (loopback for an unspecified host),
 // the JSON answer decoded into v.
 func agentJSON(method, listen, path string, timeout time.Duration, limit int64, v any) error {
-	req, err := http.NewRequest(method, "http://"+probeAddr(listen)+path, nil)
+	return agentJSONBody(method, listen, path, timeout, limit, nil, v)
+}
+
+func agentJSONBody(method, listen, path string, timeout time.Duration, limit int64, body []byte, v any) error {
+	req, err := http.NewRequest(method, "http://"+probeAddr(listen)+path, bytes.NewReader(body))
 	if err != nil {
 		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
@@ -243,7 +254,12 @@ func agentJSON(method, listen, path string, timeout time.Duration, limit int64, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return &agentHTTPError{Code: resp.StatusCode, Status: resp.Status}
+		var reply struct {
+			Error string `json:"error"`
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		json.Unmarshal(b, &reply)
+		return &agentHTTPError{Code: resp.StatusCode, Status: resp.Status, Message: reply.Error}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {

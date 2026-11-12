@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -75,7 +76,7 @@ var summaryCodexKept = map[string]bool{"compaction_image_budget": true, "content
 // summaryCodexFeatureArgs disables every feature this codex turns on, except
 // the kept ones, so a tool family added in a later version is off too.
 func summaryCodexFeatureArgs(binary string) []string {
-	disable := summaryCodexTools
+	disable := append([]string{}, summaryCodexTools...)
 	if out, err := run(10*time.Second, "", binary, "features", "list"); err == nil {
 		var listed []string
 		for _, line := range strings.Split(out, "\n") {
@@ -85,7 +86,11 @@ func summaryCodexFeatureArgs(binary string) []string {
 			}
 		}
 		if len(listed) > 0 {
-			disable = listed
+			for _, name := range listed {
+				if !slices.Contains(disable, name) {
+					disable = append(disable, name)
+				}
+			}
 		}
 	}
 	args := []string{"-c", "web_search=disabled"}
