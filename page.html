@@ -3137,7 +3137,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       if (result.modified) changed.push(files(result.modified) + " modified");
       if (result.untracked) changed.push(files(result.untracked) + " untracked");
       if (changed.length) boxes.push(noteBox(`${done ? "Discarded" : "Discards"} uncommitted changes, already in ${result.contentRef || "the default branch"}`, changed));
-      if (result.ignored?.length) boxes.push(noteBox(`${done ? "Also deleted" : "Also deletes"} ${result.ignored.length === 1 ? "this ignored file" : "these ignored files"}`, result.ignored));
+      if (result.ignored?.length) boxes.push(noteBox(`Ignored files; non-artifacts ${done ? "backed up" : "will be backed up"}`, result.ignored));
       if (result.backup) boxes.push(noteBox("A copy of its files and HEAD is kept at", [result.backup], "check-circle"));
       return boxes;
     }
@@ -3186,7 +3186,7 @@ body[data-tab="prs"] .collection-views > .button { margin-left:auto; font-size:1
       if (dirty) text += ` ${dirty === 1 ? "1 worktree has" : dirty + " worktrees have"} uncommitted files already in the default branch; they are discarded, after a copy is kept under refs/agentyard/removed/.`;
       const subs = plan.filter(result => result.submodules).length;
       if (subs) text += ` ${subs === 1 ? "1 worktree has" : subs + " worktrees have"} submodules, re-checked to hold nothing their remote lacks; their checkouts are deleted with it.`;
-      if (ignored) text += ` ${ignored === 1 ? "1 worktree holds" : ignored + " worktrees hold"} ignored files that will be deleted too.`;
+      if (ignored) text += ` ${ignored === 1 ? "1 worktree holds" : ignored + " worktrees hold"} ignored files; non-artifact files will be backed up before removal.`;
       if (dry.simulated) text += " Demo data: nothing on disk is touched.";
       show(plan.length ? `Remove ${plan.length} ${noun(plan.length)}?` : "Nothing to remove", text, nodes,
         plan.length ? { text: `Remove ${plan.length}`, name: `Remove ${plan.length} ${noun(plan.length)}` } : null, plan.length ? "Cancel" : "Close");

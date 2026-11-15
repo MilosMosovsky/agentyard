@@ -6,6 +6,19 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Back up non-artifact ignored worktree files, including `.env` and initialized submodules' files,
+  under agentyard's data directory before removal, with a manifest, private permissions, size and
+  disk-space guards, atomic copies and 30-day retention. Removal results, CLI output and autoclean
+  audit logs report the backup path; dry runs report the count and size without copying.
+
+### Changed
+
+- Scheduled cleanup relies on Go's artifact classification and ignored-file backups instead of
+  skipping worktrees containing `.env`, `.local/` or local databases. Nested build/cache output is
+  excluded from backups, including `.local/bun-cache/`.
+
 ### Fixed
 
 - Submodule commits reachable only from an origin tag no longer keep an otherwise merged worktree.

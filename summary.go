@@ -237,11 +237,11 @@ func newSummarizer(choice, model, dailyAt, stateDir string, now func() time.Time
 // summaryStateDir is where summaries keep their private state and history:
 // ~/Library/Application Support/agentyard/summary on macOS.
 func summaryStateDir() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := agentyardDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "agentyard", "summary"), nil
+	return filepath.Join(dir, "summary"), nil
 }
 
 // parseSummaryAt reads a -summary-at value: local time as HH:MM.

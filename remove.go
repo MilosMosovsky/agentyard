@@ -64,20 +64,23 @@ type removal struct {
 	Label   string `json:"label,omitempty"`
 	Reason  string `json:"reason"`
 	// Uncommitted files removal discards, and the ref that already has them.
-	Modified     int      `json:"modified,omitempty"`
-	Untracked    int      `json:"untracked,omitempty"`
-	ContentRef   string   `json:"contentRef,omitempty"`
-	Ignored      []string `json:"ignored,omitempty"`    // ignored files removal deletes with the worktree
-	Submodules   int      `json:"submodules,omitempty"` // initialized submodules removal deletes with the worktree
-	FreedKB      int64    `json:"freedKB,omitempty"`
-	Plan         string   `json:"plan,omitempty"`   // a dry run's plan, to pass back in plans
-	Backup       string   `json:"backup,omitempty"` // the ref holding a copy of what a checked removal deleted
-	minIdle      time.Duration
-	autoclean    bool
-	deadline     time.Time
-	repo, branch string
-	pr           *PR
-	expect       string // the plan the request passed for this path
+	Modified         int      `json:"modified,omitempty"`
+	Untracked        int      `json:"untracked,omitempty"`
+	ContentRef       string   `json:"contentRef,omitempty"`
+	Ignored          []string `json:"ignored,omitempty"`    // ignored files removal deletes with the worktree
+	Submodules       int      `json:"submodules,omitempty"` // initialized submodules removal deletes with the worktree
+	FreedKB          int64    `json:"freedKB,omitempty"`
+	Plan             string   `json:"plan,omitempty"`         // a dry run's plan, to pass back in plans
+	Backup           string   `json:"backup,omitempty"`       // the ref holding a copy of what a checked removal deleted
+	FilesBackup      string   `json:"files_backup,omitempty"` // ignored non-artifact files, separate from the Git ref
+	FilesBackupCount int      `json:"files_backup_count,omitempty"`
+	FilesBackupBytes int64    `json:"files_backup_bytes,omitempty"`
+	minIdle          time.Duration
+	autoclean        bool
+	deadline         time.Time
+	repo, branch     string
+	pr               *PR
+	expect           string // the plan the request passed for this path
 }
 
 func (it *removal) refuse(reason string) { it.Outcome, it.Reason = "refused", reason }
@@ -207,6 +210,9 @@ func usedNow(w *Worktree) string {
 // fetch fails, the remote-tracking refs may be stale (a branch deleted on the
 // remote is still listed), so nothing whose safety rests on them goes.
 func removeIn(repo string, snap *Snapshot, items []*removal, dryRun bool) (warnings []string) {
+	if !dryRun {
+		maintainFilesBackups()
+	}
 	sizes := &sizeCache{m: map[string]sizeEntry{}}
 	sizes.seed(snap, time.Now()) // the fresh scan re-runs git, not du
 	uses := usageNow()
@@ -234,6 +240,18 @@ func removeIn(repo string, snap *Snapshot, items []*removal, dryRun bool) (warni
 			it.refuse("a fresh scan no longer lists it as a worktree of " + tilde(repo))
 		case it.admit(w, dryRun, stale):
 			it.remove(repo, w)
+		}
+		if w != nil && it.Outcome == "would_remove" {
+			p, err := planFilesBackup(w)
+			if err != nil {
+				it.refuse("cannot back up ignored files: " + err.Error())
+			} else {
+				it.describeFilesBackup(p)
+				it.Reason += fmt.Sprintf("; would back up %d ignored files (%d bytes)", len(p.copied), p.bytes)
+				if n := p.tooLarge(); n > 0 {
+					it.Reason += fmt.Sprintf("; %d files too large to back up (will be listed in manifest)", n)
+				}
+			}
 		}
 	}
 	return warnings
@@ -303,6 +321,9 @@ func (it *removal) done(w *Worktree) {
 	if w.Prunable {
 		it.Outcome, it.Reason = "pruned", "stale registration removed"
 	}
+	if it.FilesBackup != "" {
+		it.Reason += "; ignored files backed up at " + it.FilesBackup
+	}
 }
 
 // remove runs w's one removal command. The scan may be minutes old by now,
@@ -338,6 +359,16 @@ func (it *removal) remove(repo string, w *Worktree) {
 			defer kept.p.done()
 			it.Backup = kept.ref
 		}
+		p, backupErr := planFilesBackup(w)
+		if backupErr == nil {
+			it.describeFilesBackup(p)
+			it.FilesBackup, backupErr = keepFilesBackup(repo, w, p)
+		}
+		if backupErr != nil {
+			it.discardBackup(repo)
+			it.refuse("cannot back up ignored files: " + backupErr.Error())
+			return
+		}
 		// Once more, since the copy takes time; and before the last looks at
 		// the files, so a write by a process that started meanwhile is seen.
 		beforeLastUse(w)
@@ -351,12 +382,23 @@ func (it *removal) remove(repo string, w *Worktree) {
 			it.refuse("it changed while it was being removed; list it again")
 			return
 		}
-		if force = forceRemove(w); force {
-			if hz := lastLook(w); hz != "" {
-				it.discardBackup(repo)
-				it.refuse(hz + "; list it again")
-				return
-			}
+		force = forceRemove(w)
+		if hz := lastLook(w); hz != "" {
+			it.discardBackup(repo)
+			it.refuse(hz + "; list it again")
+			return
+		}
+		if !p.unchanged(w) {
+			it.discardBackup(repo)
+			it.refuse("its ignored files changed during the backup; list it again")
+			return
+		}
+		// Copying ignored data can take time even for an otherwise clean tree.
+		// Re-check HEAD as well as the inventory immediately before deletion.
+		if head, err := git(w.Path, "rev-parse", "HEAD"); err != nil || strings.TrimSpace(head) != w.Sha {
+			it.discardBackup(repo)
+			it.refuse("HEAD moved or could not be read after the backup; list it again")
+			return
 		}
 	} else if _, err := os.Lstat(w.Path); !errors.Is(err, fs.ErrNotExist) {
 		// git would remove a folder that came back, unchecked.
@@ -378,6 +420,9 @@ func (it *removal) remove(repo string, w *Worktree) {
 		if it.Backup != "" {
 			reason += "; a copy of its files is kept at " + it.Backup
 		}
+		if it.FilesBackup != "" {
+			reason += "; ignored files backed up at " + it.FilesBackup
+		}
 		it.refuse(reason)
 		return
 	}
@@ -388,6 +433,12 @@ func (it *removal) discardBackup(repo string) {
 	if it.Backup != "" {
 		git(repo, "update-ref", "-d", it.Backup)
 		it.Backup = ""
+	}
+	if it.FilesBackup != "" {
+		if err := os.RemoveAll(it.FilesBackup); err != nil {
+			log.Printf("discard ignored-file backup: %v", err)
+		}
+		it.FilesBackup = ""
 	}
 }
 
@@ -443,7 +494,8 @@ var refUnsafe = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 //
 // That last look narrows the window in which a write is lost; it does not
 // close it. A file written between it and git's delete is gone, and so are
-// ignored files, which no snapshot holds. Everything else is in the ref:
+// ignored artifacts. Non-artifact ignored files have a separate files backup.
+// Everything else is in the ref:
 //
 //	git worktree add <folder> <ref> && git -C <folder> reset HEAD~1
 func keepCopy(repo string, w *Worktree) (*keptCopy, error) {
@@ -724,7 +776,7 @@ func removeHandler(s *scanner, y *syncer, token string, demo bool, cleaners ...*
 				if it.Outcome == "removed" || it.Outcome == "pruned" {
 					freed = it.FreedKB
 				}
-				entry := autocleanWorktreeRecord{Type: "worktree", At: time.Now(), Run: q.Run, Path: it.Path, Repo: it.repo, Branch: it.branch, PR: it.pr, Verdict: it.Verdict, Outcome: it.Outcome, ModelReason: q.Reasons[it.Path], AgentyardReason: it.Reason, FreedKB: freed, Ignored: it.Ignored, Backup: it.Backup}
+				entry := autocleanWorktreeRecord{Type: "worktree", At: time.Now(), Run: q.Run, Path: it.Path, Repo: it.repo, Branch: it.branch, PR: it.pr, Verdict: it.Verdict, Outcome: it.Outcome, ModelReason: q.Reasons[it.Path], AgentyardReason: it.Reason, FreedKB: freed, Ignored: it.Ignored, Backup: it.Backup, FilesBackup: it.FilesBackup}
 				if err := cleaner.audit.append(entry); err != nil {
 					cleaner.runErr = errors.Join(cleaner.runErr, fmt.Errorf("autoclean audit: %w", err))
 					log.Printf("autoclean audit: %v", err)

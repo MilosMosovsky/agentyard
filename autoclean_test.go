@@ -209,6 +209,7 @@ func TestAutocleanArgs(t *testing.T) {
 
 func TestAutocleanRemove(t *testing.T) {
 	_, s, wt, _ := removeFixture(t)
+	writeIn(t, wt("clean"), ".env", "TOKEN=1\n", false)
 	a := &autocleaner{cfg: autocleanConfig{minIdle: 3 * time.Hour}, active: "active", timeout: 20 * time.Minute, record: autocleanRunRecord{Started: time.Now()}, audit: autocleanLog{dir: t.TempDir()}}
 	y := &syncer{s: s, t: &prTracker{}, x: &sessionIndex{byPath: map[string]*Session{}}}
 	handler := removeHandler(s, y, "token", false, a)
@@ -267,7 +268,7 @@ func TestAutocleanRemove(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if entry.ModelReason != q.Reasons[wt("clean")] || entry.Outcome != "removed" || entry.Repo == "" || a.record.Removed != 1 || a.record.Refused != 1 {
+	if entry.ModelReason != q.Reasons[wt("clean")] || entry.Outcome != "removed" || entry.Repo == "" || entry.FilesBackup == "" || entry.FilesBackup != rep.Results[0].FilesBackup || a.record.Removed != 1 || a.record.Refused != 1 {
 		t.Fatalf("%+v %+v", entry, a.record)
 	}
 	for deadline := time.Now().Add(time.Minute); y.running.Load() && time.Now().Before(deadline); {
