@@ -6,6 +6,13 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Submodule commits reachable only from an origin tag no longer keep an otherwise merged worktree.
+  Background scans refresh origin's branches and tags hourly; local-only commits still keep it.
+- Scheduled cleanup keeps its due time across agent restarts instead of restarting the interval,
+  and checks for overdue runs every minute after machine sleep. The startup delay still applies.
+
 ## [0.17.0] - 2026-11-12
 
 ### Added

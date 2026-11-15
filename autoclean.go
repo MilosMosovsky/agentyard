@@ -236,23 +236,63 @@ func newAutocleaner(cfg autocleanConfig, dir string) (*autocleaner, error) {
 // Schedule is called only after the HTTP server can accept the child's MCP calls.
 // The first tick waits startDelay: right after a start the snapshot is still the
 // on-disk cache, possibly hours old, until the first scan replaces it.
-func (a *autocleaner) schedule(every func(time.Duration, func(), time.Time)) {
+func (a *autocleaner) schedule() {
 	if a == nil || a.cfg.provider == "" {
 		return
 	}
 	go func() {
-		done := context.Background().Done()
+		ctx := context.Background()
 		if a.ctx != nil {
-			done = a.ctx.Done()
+			ctx = a.ctx
 		}
-		select {
-		case <-time.After(a.startDelay):
-		case <-done:
-			return
-		}
-		every(a.cfg.every, a.run, a.lastRunAt)
+		a.scheduleLoop(time.Now, func(delay time.Duration) bool {
+			if ctx.Err() != nil {
+				return false
+			}
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				return ctx.Err() == nil
+			case <-ctx.Done():
+				return false
+			}
+		}, a.run)
 	}()
 }
+
+// scheduleLoop uses wall time: macOS's monotonic timers can pause during sleep.
+// Check at least once a minute so an overdue run starts promptly after wake.
+// now and wait are injectable so restarts and sleep need no real waits in tests.
+func (a *autocleaner) scheduleLoop(now func() time.Time, wait func(time.Duration) bool, run func()) {
+	ready := now().Round(0).Add(a.startDelay)
+	var lastAttempt time.Time
+	for {
+		a.mu.Lock()
+		last := a.lastRunAt.Round(0)
+		a.mu.Unlock()
+		// Failed attempts still wait an interval; manual runs also move the due time.
+		if lastAttempt.After(last) {
+			last = lastAttempt
+		}
+		due := last.Add(a.cfg.every)
+		if due.Before(ready) {
+			due = ready
+		}
+		delay := max(0, min(time.Minute, due.Sub(now().Round(0))))
+		if !wait(delay) {
+			return
+		}
+		if delay > 0 {
+			continue // Re-read lastRunAt in case a manual run happened while waiting.
+		}
+		if !now().Round(0).Before(due) {
+			lastAttempt = now().Round(0)
+			run()
+		}
+	}
+}
+
 func (a *autocleaner) run() {
 	if _, err := a.runNow(); err != nil {
 		log.Printf("autoclean: %v", err)
@@ -275,6 +315,7 @@ func (a *autocleaner) runNow() (rec autocleanRunRecord, err error) {
 		return rec, err
 	}
 	a.mu.Lock()
+	a.lastRunAt = started
 	a.active, a.record, a.runErr = rec.Run, rec, nil
 	a.mu.Unlock()
 	defer func() {

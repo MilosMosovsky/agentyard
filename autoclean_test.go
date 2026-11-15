@@ -45,28 +45,83 @@ func TestAutocleanConfig(t *testing.T) {
 }
 
 func TestAutocleanFirstTickWaitsForStartDelay(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	a := &autocleaner{cfg: autocleanConfig{provider: "claude", every: time.Hour}, ctx: ctx, startDelay: 50 * time.Millisecond}
-	calls := make(chan bool, 1)
-	a.schedule(func(time.Duration, func(), time.Time) { calls <- true })
-	select {
-	case <-calls:
-		t.Fatal("scheduled before the start delay")
-	case <-time.After(20 * time.Millisecond):
+	start := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	now := start
+	a := &autocleaner{cfg: autocleanConfig{provider: "claude", every: time.Hour}, startDelay: 5 * time.Minute}
+	calls := 0
+	a.scheduleLoop(func() time.Time { return now }, func(delay time.Duration) bool {
+		if calls > 0 {
+			return false
+		}
+		if delay < 0 || delay > time.Minute || now.Sub(start) > time.Hour {
+			t.Fatalf("invalid or stalled startup schedule: now=%v delay=%s", now, delay)
+		}
+		now = now.Add(delay)
+		return true
+	}, func() {
+		calls++
+		if elapsed := now.Sub(start); elapsed != a.startDelay {
+			t.Fatalf("first run after %s, want %s", elapsed, a.startDelay)
+		}
+	})
+	if calls != 1 {
+		t.Fatalf("runs = %d, want 1", calls)
 	}
-	select {
-	case <-calls:
-	case <-time.After(time.Second):
-		t.Fatal("never scheduled after the start delay")
-	}
-
-	a.startDelay = time.Hour
-	a.schedule(func(time.Duration, func(), time.Time) { calls <- true })
-	cancel()
-	select {
-	case <-calls:
+	// A canceled wait must prevent a run, even when already overdue.
+	a.scheduleLoop(func() time.Time { return now }, func(time.Duration) bool { return false }, func() {
 		t.Fatal("scheduled after shutdown")
-	case <-time.After(50 * time.Millisecond):
+	})
+}
+
+func TestAutocleanScheduleAfterRestart(t *testing.T) {
+	for _, elapsed := range []time.Duration{4 * time.Hour, 7 * time.Hour} {
+		t.Run(elapsed.String(), func(t *testing.T) {
+			start := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+			now := start
+			a := &autocleaner{cfg: autocleanConfig{every: 6 * time.Hour}, startDelay: 5 * time.Minute, lastRunAt: start.Add(-elapsed)}
+			first := start.Add(2 * time.Hour)
+			if elapsed > a.cfg.every {
+				first = start.Add(a.startDelay)
+			}
+			var runs []time.Time
+			a.scheduleLoop(func() time.Time { return now }, func(delay time.Duration) bool {
+				if len(runs) == 2 {
+					return false
+				}
+				if delay > time.Minute || delay < 0 || now.Sub(start) > 16*time.Hour {
+					t.Fatalf("invalid or stalled schedule: now=%v delay=%s", now, delay)
+				}
+				now = now.Add(delay)
+				return true
+			}, func() { runs = append(runs, now) })
+			if !runs[0].Equal(first) || !runs[1].Equal(first.Add(a.cfg.every)) {
+				t.Fatalf("runs = %v, want %v and one interval later", runs, first)
+			}
+		})
+	}
+}
+
+func TestAutocleanOverdueAfterSleep(t *testing.T) {
+	start := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	now := start
+	a := &autocleaner{cfg: autocleanConfig{every: 6 * time.Hour}, startDelay: 5 * time.Minute, lastRunAt: start.Add(-4 * time.Hour)}
+	checks, calls := 0, 0
+	a.scheduleLoop(func() time.Time { return now }, func(delay time.Duration) bool {
+		if calls > 0 {
+			return false
+		}
+		if delay > 0 {
+			checks++
+			if checks > 1 || delay > time.Minute {
+				t.Fatalf("overdue run missed the first check: checks=%d delay=%s", checks, delay)
+			}
+			// Wall time jumps past the deadline while the monotonic timer sleeps.
+			now = now.Add(8 * time.Hour)
+		}
+		return true
+	}, func() { calls++ })
+	if calls != 1 {
+		t.Fatalf("runs = %d, want 1 on wake", calls)
 	}
 }
 
@@ -75,13 +130,7 @@ func TestAutocleanOffAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := make(chan bool, 1)
-	a.schedule(func(time.Duration, func(), time.Time) { calls <- true })
-	select {
-	case <-calls:
-		t.Fatal("scheduled while off")
-	case <-time.After(20 * time.Millisecond):
-	}
+	a.schedule()
 	if _, err := a.runNow(); err == nil {
 		t.Fatal("ran while off")
 	}
@@ -288,8 +337,8 @@ func TestAutocleanRunLifecycle(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(a.dir, "last-run.json"))
 	var last time.Time
 	json.Unmarshal(b, &last)
-	if err != nil || !last.Equal(rec.Started) {
-		t.Fatal("last run not saved", err)
+	if err != nil || !last.Equal(rec.Started) || !a.lastRunAt.Equal(rec.Started) {
+		t.Fatal("last run not saved in memory and on disk", err)
 	}
 	a.call = func(time.Duration, string, []string, string, string, ...string) (string, error) {
 		return "", context.DeadlineExceeded

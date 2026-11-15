@@ -435,9 +435,10 @@ func fetchArgs(slug string) []string {
 	return append(args, "fetch", "--prune", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules", "origin")
 }
 
-// fetchGitDir fetches the branches of a submodule repository's origin into
-// refs/remotes/origin/, whatever its configured refspecs, and nothing else:
-// no tags, so no local tag is pruned. url is origin's URL.
+// fetchGitDir fetches origin's branches and tags into private tracking refs,
+// whatever its configured refspecs. --no-tags and pruneTags=false keep real
+// local tags untouched; --prune applies only to the two tracking namespaces.
+// url is origin's URL.
 func fetchGitDir(dirs []string, url string) error {
 	from := url
 	args := []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "fetch.pruneTags=false", "-c", "remote.origin.pruneTags=false"}
@@ -447,7 +448,7 @@ func fetchGitDir(dirs []string, url string) error {
 		args = append(args, "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")
 	}
 	args = append(args, "fetch", "--prune", "--no-tags", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules",
-		from, "+refs/heads/*:refs/remotes/origin/*")
+		from, "+refs/heads/*:refs/remotes/origin/*", "+refs/tags/*:refs/remotes/origin-tags/*")
 	_, err := run(3*time.Minute, "", "git", append(dirs, args...)...)
 	return err
 }
@@ -1977,7 +1978,7 @@ func runServe(args []string) error {
 		go every(time.Minute, summaries.tick, time.Time{})
 	}
 
-	cleaner.schedule(every)
+	cleaner.schedule()
 
 	<-ctx.Done()
 	shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)
