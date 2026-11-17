@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // subRepo is a repository whose main has a pushed submodule "sub" (its own
@@ -78,7 +79,7 @@ func TestSubmoduleWorkIsKept(t *testing.T) {
 		writeIn(t, sub, "work.txt", "only here\n", true)
 		// The superproject sees a new gitlink; revert that so only the submodule holds the work.
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 		gitT(t, sub, "rev-parse", "--verify", "-q", "refs/heads/work")
 	})
 	t.Run("stash", func(t *testing.T) {
@@ -103,8 +104,105 @@ func TestSubmoduleWorkIsKept(t *testing.T) {
 		if exists(filepath.Join(sub, "lib.txt")) {
 			t.Fatal("setup: deinit left the checkout")
 		}
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "README")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "README")
 	})
+}
+
+// tagOnlySubmodule leaves a local branch at a commit that origin has only on
+// a tag. HEAD stays at the superproject's gitlink, so the checkout is clean.
+func tagOnlySubmodule(t *testing.T, annotated bool) (base, repo, wt, sub string) {
+	t.Helper()
+	base, repo, wt = subRepo(t, "subtag")
+	sub = filepath.Join(wt, "sub")
+	gitT(t, sub, "switch", "-q", "-c", "work")
+	writeIn(t, sub, "tagged.txt", "only on origin's tag\n", true)
+	if annotated {
+		gitT(t, sub, "tag", "-a", "-m", "release", "v2.3.0")
+	} else {
+		gitT(t, sub, "tag", "v2.3.0")
+	}
+	gitT(t, sub, "push", "-q", "origin", "refs/tags/v2.3.0")
+	gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
+	// A conflicting local tag must neither vouch for the branch nor be replaced.
+	gitT(t, sub, "tag", "-f", "v2.3.0", "HEAD")
+	return
+}
+
+func TestSubmoduleOriginTagCommitsAreRemovable(t *testing.T) {
+	for _, annotated := range []bool{false, true} {
+		name := "lightweight"
+		if annotated {
+			name = "annotated"
+		}
+		t.Run(name, func(t *testing.T) {
+			_, repo, wt, sub := tagOnlySubmodule(t, annotated)
+			// Even a user's pruneTags setting must not prune real local tags.
+			gitT(t, sub, "config", "fetch.pruneTags", "true")
+			gitT(t, sub, "config", "remote.origin.pruneTags", "true")
+			gitT(t, sub, "tag", "local-only")
+			localTag := gitT(t, sub, "rev-parse", "refs/tags/v2.3.0")
+			snap := scanned(t, repo) // background/non-fresh scan must fetch the tag
+			if w := worktreeIn(t, snap, wt); w.Verdict != "merged" {
+				t.Fatalf("tag-only commit: %s %q", w.Verdict, w.Reason)
+			}
+			if got := gitT(t, sub, "rev-parse", "refs/remotes/origin-tags/v2.3.0^{commit}"); got != gitT(t, sub, "rev-parse", "work") {
+				t.Fatalf("tracking tag = %q, want local branch's commit", got)
+			}
+			if got := gitT(t, sub, "rev-parse", "refs/tags/v2.3.0"); got != localTag {
+				t.Fatalf("local tag changed: %q -> %q", localTag, got)
+			}
+			gitT(t, sub, "rev-parse", "--verify", "refs/tags/local-only")
+			if _, got := removeNow(snap, removeRequest{Paths: []string{wt}}); got[wt] == nil || got[wt].Outcome != "removed" {
+				t.Fatalf("tag-only removal: %+v", got[wt])
+			}
+		})
+	}
+}
+
+func TestSubmoduleLocalCommitBeyondOriginTagIsKept(t *testing.T) {
+	_, repo, wt, sub := tagOnlySubmodule(t, true)
+	gitT(t, sub, "switch", "-q", "work")
+	writeIn(t, sub, "local.txt", "origin has no copy\n", true)
+	gitT(t, sub, "switch", "-q", "--detach", "HEAD~2")
+	keptOrRefused(t, scanned(t, repo), wt, "1 commit on no branch or tag of its origin", "sub/lib.txt")
+	gitT(t, sub, "rev-parse", "--verify", "refs/heads/work")
+}
+
+func TestSubmoduleOriginTagRefreshAndPrune(t *testing.T) {
+	base, repo, wt, sub := tagOnlySubmodule(t, false)
+	if w := worktreeIn(t, scanned(t, repo), wt); w.Verdict != "merged" {
+		t.Fatalf("initial background scan: %s %q", w.Verdict, w.Reason)
+	}
+	gitT(t, filepath.Join(base, "lib"), "push", "-q", "origin", "--delete", "v2.3.0")
+	// Within the hour, background scans use the successful fetch's cached refs.
+	if w := worktreeIn(t, scanned(t, repo), wt); w.Verdict != "merged" {
+		t.Fatalf("cached background scan: %s %q", w.Verdict, w.Reason)
+	}
+	gd := line(gitT(t, sub, "rev-parse", "--absolute-git-dir"))
+	stamp := filepath.Join(gd, "agentyard-origin-fetch.json")
+	if err := writeJSONFile(stamp, struct {
+		URL string
+		At  time.Time
+	}{line(gitT(t, sub, "remote", "get-url", "origin")), time.Now().Add(-2 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
+	if out := gitT(t, sub, "for-each-ref", "--format=%(refname)", "refs/remotes/origin-tags/"); out != "" {
+		t.Fatalf("deleted origin tag still tracked: %s", out)
+	}
+	gitT(t, sub, "rev-parse", "--verify", "refs/tags/v2.3.0")
+}
+
+func TestSubmoduleStaleOriginTagRefRefetched(t *testing.T) {
+	base, repo, wt, sub := tagOnlySubmodule(t, true)
+	snap := scanned(t, repo)
+	gitT(t, filepath.Join(base, "lib"), "push", "-q", "origin", "--delete", "v2.3.0")
+	// Removal must bypass even a recent successful background fetch.
+	_, got := removeNow(snap, removeRequest{Paths: []string{wt}})
+	if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, "on no branch or tag of its origin") {
+		t.Fatalf("stale origin tag: %+v", got[wt])
+	}
+	gitT(t, sub, "rev-parse", "--verify", "refs/heads/work")
 }
 
 // A submodule that gains work between the fresh scan and git's delete stops
@@ -157,7 +255,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		gitT(t, sub, "tag", "-d", "inner")
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
 		gitT(t, sub, "reflog", "expire", "--expire=all", "--all")
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 	})
 	t.Run("reflog only", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "subreflog")
@@ -165,7 +263,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		gitT(t, sub, "switch", "-q", "--detach")
 		writeIn(t, sub, "lost.txt", "only in the reflog\n", true)
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 	})
 	t.Run("embedded git folder", func(t *testing.T) {
 		base, repo, wt := subRepo(t, "subembedded")
@@ -178,7 +276,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		if fi, err := os.Stat(filepath.Join(sub, ".git")); err != nil || !fi.IsDir() {
 			t.Fatalf("setup: sub/.git is not a folder: %v", err)
 		}
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 	})
 	t.Run("gitfile into an ignored folder", func(t *testing.T) {
 		base, repo, wt := subRepo(t, "subgitfile")
@@ -193,7 +291,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		gitT(t, wt, "add", ".gitignore")
 		gitT(t, wt, "commit", "-q", "-m", "ignore")
 		gitT(t, wt, "push", "-q", "origin", "HEAD:main")
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 	})
 	t.Run("pushed only to another remote", func(t *testing.T) {
 		base, repo, wt := subRepo(t, "subbackup")
@@ -205,7 +303,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		writeIn(t, sub, "work.txt", "on backup only\n", true)
 		gitT(t, sub, "push", "-q", "backup", "work")
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 	})
 	t.Run("origin removed, its tracking refs left", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "subnoorigin")
@@ -216,7 +314,7 @@ func TestSubmoduleHiddenWorkIsKept(t *testing.T) {
 		gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
 		gitT(t, sub, "config", "--remove-section", "remote.origin")
 		gitT(t, sub, "rev-parse", "--verify", "-q", "refs/remotes/origin/work")
-		keptOrRefused(t, scanned(t, repo), wt, "on no branch of its origin", "sub/lib.txt")
+		keptOrRefused(t, scanned(t, repo), wt, "on no branch or tag of its origin", "sub/lib.txt")
 	})
 	t.Run("inactive but checked out", func(t *testing.T) {
 		_, repo, wt := subRepo(t, "subinactive")
@@ -239,7 +337,7 @@ func TestSubmoduleStaleRemoteRefRefetched(t *testing.T) {
 	gitT(t, sub, "switch", "-q", "--detach", "HEAD~1")
 	gitT(t, filepath.Join(base, "lib"), "push", "-q", "origin", "--delete", "work")
 	_, got := removeNow(scanned(t, repo), removeRequest{Paths: []string{wt}})
-	if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, "on no branch of its origin") {
+	if r := got[wt]; r == nil || r.Outcome != "refused" || !strings.Contains(r.Reason, "on no branch or tag of its origin") {
 		t.Fatalf("stale remote branch: %+v", got[wt])
 	}
 	gitT(t, sub, "rev-parse", "--verify", "-q", "refs/heads/work")
@@ -255,7 +353,7 @@ func TestGoneWorktreeSubmoduleCommitsKept(t *testing.T) {
 	gitDir := strings.TrimSpace(gitT(t, sub, "rev-parse", "--absolute-git-dir"))
 	os.RemoveAll(wt)
 	snap := scanned(t, repo)
-	if w := worktreeIn(t, snap, wt); reclaimable(w.Verdict) || !strings.Contains(w.Reason, "on no branch of its origin") {
+	if w := worktreeIn(t, snap, wt); reclaimable(w.Verdict) || !strings.Contains(w.Reason, "on no branch or tag of its origin") {
 		t.Fatalf("gone worktree: %s %q", w.Verdict, w.Reason)
 	}
 	if _, got := removeNow(snap, removeRequest{Paths: []string{wt}}); got[wt] == nil || got[wt].Outcome != "refused" {

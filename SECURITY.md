@@ -41,13 +41,18 @@ with `--lan`. Session ids are validated and shell-quoted in the copied resume co
   same copy is kept before removing a detached HEAD whose commits are on no branch, tag or remote. The
   files and HEAD are read again right before git deletes them, which narrows, but does not close, the
   window in which a write is lost: a file saved after that last look and before git's delete is gone,
-  and so are ignored files, which no copy holds. The proof fails closed (Keep) on submodules, nested
+  and so are ignored artifacts; other ignored files have a separate backup. The proof fails closed (Keep) on submodules, nested
   repositories, clean/smudge filters, custom merge drivers, staged versions the disk lacks,
   assume-unchanged or skip-worktree files, and when the fresh scan's fetch fails. Such worktrees get
   no copy-ready command, since a copied command would skip all of this. A dry run returns a plan per
   path; a removal passing it refuses a worktree that changed since. Anything else, and any path git
   does not list as a worktree at that moment, is refused. Ignored files inside a removed worktree
-  (`.env` and the like) are deleted with it and listed in every result. Branches are never deleted.
+  (`.env` and the like) are backed up before removal under `os.UserConfigDir()/agentyard/backups`
+  (`~/Library/Application Support/agentyard/backups` on macOS); `files_backup` names the folder.
+  Backups have private directories, `.env*` files are at most 0600, and retention is 30 days.
+  Regenerable artifacts are excluded. Files over 100 MB are skipped and recorded in the manifest;
+  non-artifact data over 1 GB, insufficient space to leave 2 GB free, or a copy failure refuses
+  removal. Dry runs report counts and sizes without copying. Branches are never deleted.
   `agentyard mcp` reads its listings from the agent at the address it is given, the installed agent's
   by default; the decision to remove always comes from its own local scan, never from that data.
 - **Summaries send transcript excerpts to a model provider (opt-in).** With summaries off, the default,

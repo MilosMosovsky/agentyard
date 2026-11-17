@@ -519,7 +519,7 @@ func TestMCPRemoveSafety(t *testing.T) {
 	if isErr || got[wt("clean")]["outcome"] != "would_remove" || got[wt("gone")]["outcome"] != "would_remove" || got[wt("outer")]["outcome"] != "refused" {
 		t.Fatalf("dry run: %v", dry)
 	}
-	if e := got[wt("envy")]; e["outcome"] != "would_remove" || !strings.Contains(e["reason"].(string), "removing also deletes ignored .env") ||
+	if e := got[wt("envy")]; e["outcome"] != "would_remove" || !strings.Contains(e["reason"].(string), "ignored files (non-artifacts backed up by agentyard remove): .env") ||
 		len(e["ignored"].([]any)) != 1 || e["ignored"].([]any)[0] != ".env" {
 		t.Errorf("dry run hides the ignored .env: %v", e)
 	}
@@ -554,7 +554,7 @@ func TestMCPRemoveSafety(t *testing.T) {
 	check(wt("late"), "refused", "keep", "a fresh scan says Keep: 1 commit exists only locally")
 	check(wt("local"), "refused", "keep", "a fresh scan says Keep")
 	check(wt("pushed"), "refused", "unmerged", "a fresh scan says Not merged")
-	check(wt("envy"), "removed", "merged", "removing also deletes ignored .env")
+	check(wt("envy"), "removed", "merged", "ignored files (non-artifacts backed up by agentyard remove): .env")
 	check(wt("outer"), "refused", "keep", "another git checkout sits in its ignored folder .worktrees/")
 	check(wt("outer2"), "refused", "keep", "another git checkout sits in its ignored folder .worktrees/")
 	check(wt("detached"), "refused", "keep", "reachable only from its HEAD")

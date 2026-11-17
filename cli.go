@@ -384,7 +384,11 @@ func runRemove(args []string) error {
 		fmt.Fprintln(os.Stderr, "warning:", w)
 	}
 	for _, it := range rep.Results {
-		fmt.Printf("%s  %s\n    %s\n", it.Outcome, tilde(it.Path), it.Reason)
+		backup := ""
+		if it.FilesBackup != "" {
+			backup = "  files_backup=" + it.FilesBackup
+		}
+		fmt.Printf("%s  %s%s\n    %s\n", it.Outcome, tilde(it.Path), backup, it.Reason)
 		if it.Backup != "" {
 			fmt.Printf("    a copy of its files is kept at %s\n", it.Backup)
 		}

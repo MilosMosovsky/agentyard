@@ -271,8 +271,8 @@ func gitOK(dir string, args ...string) bool { _, err := git(dir, args...); retur
 
 // ---------------------------------------------------------------- discovery
 
-// skipDirs are dependency and build output: never a repository, too big to
-// walk, and regenerated rather than written by hand.
+// skipDirs limits repository discovery in common large directories. This is
+// a traversal budget, not a removal policy; ignoredArtifact owns that policy.
 var skipDirs = map[string]bool{
 	"node_modules": true, ".venv": true, "venv": true, "vendor": true, "dist": true, "build": true,
 	"target": true, ".next": true, ".cache": true, "__pycache__": true, "Pods": true, "DerivedData": true,
@@ -435,9 +435,10 @@ func fetchArgs(slug string) []string {
 	return append(args, "fetch", "--prune", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules", "origin")
 }
 
-// fetchGitDir fetches the branches of a submodule repository's origin into
-// refs/remotes/origin/, whatever its configured refspecs, and nothing else:
-// no tags, so no local tag is pruned. url is origin's URL.
+// fetchGitDir fetches origin's branches and tags into private tracking refs,
+// whatever its configured refspecs. --no-tags and pruneTags=false keep real
+// local tags untouched; --prune applies only to the two tracking namespaces.
+// url is origin's URL.
 func fetchGitDir(dirs []string, url string) error {
 	from := url
 	args := []string{"-c", "gc.auto=0", "-c", "maintenance.auto=false", "-c", "fetch.pruneTags=false", "-c", "remote.origin.pruneTags=false"}
@@ -447,7 +448,7 @@ func fetchGitDir(dirs []string, url string) error {
 		args = append(args, "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")
 	}
 	args = append(args, "fetch", "--prune", "--no-tags", "--quiet", "--no-write-fetch-head", "--no-recurse-submodules",
-		from, "+refs/heads/*:refs/remotes/origin/*")
+		from, "+refs/heads/*:refs/remotes/origin/*", "+refs/tags/*:refs/remotes/origin-tags/*")
 	_, err := run(3*time.Minute, "", "git", append(dirs, args...)...)
 	return err
 }
@@ -747,7 +748,7 @@ func orphaned(repo, sha string) string {
 const ignoredShown = 20 // ignored entries kept per worktree
 
 // ignoredContent is what `git worktree remove` deletes without asking:
-// ignored files, which git status never shows. skipDirs output is left out of
+// ignored files, which git status never shows. Artifact output is left out of
 // the list as regenerable, but not out of the checks. sum is a digest of every
 // ignored entry, so a removal plan notices one that appeared since.
 //
@@ -765,7 +766,7 @@ func ignoredContent(wt string) (ignored []string, sum, hazard string) {
 	for _, p := range strings.Split(out, "\x00") {
 		h.Write([]byte(p + "\x00"))
 		name := strings.TrimSuffix(p, "/")
-		if base := filepath.Base(name); name == "" || skipDirs[base] || base == ".DS_Store" {
+		if name == "" || ignoredArtifact(name, strings.HasSuffix(p, "/")) {
 			continue
 		}
 		if len(ignored) < ignoredShown {
@@ -788,21 +789,11 @@ func ignoredContent(wt string) (ignored []string, sum, hazard string) {
 		}
 		// Every file counts, so one new inside an ignored folder changes the
 		// sum too; build and dependency output, rewritten all the time, does not.
-		if !inSkipDir(p) {
+		if !ignoredArtifact(p, false) {
 			h.Write([]byte(p + "\x00"))
 		}
 	}
 	return ignored, hex.EncodeToString(h.Sum(nil)), ""
-}
-
-// inSkipDir says p lies in build or dependency output (skipDirs).
-func inSkipDir(p string) bool {
-	for _, part := range strings.Split(p, "/") {
-		if skipDirs[part] || part == ".DS_Store" {
-			return true
-		}
-	}
-	return false
 }
 
 // trackedHazard is tracked work that git status cannot see: a file on disk
@@ -881,7 +872,7 @@ func judge(repo string, w *Worktree) {
 	}
 	w.RemoveCmd = "agentyard remove " + shellQuote(w.Path)
 	if len(w.Ignored) > 0 {
-		w.Reason += " · removing also deletes ignored " + strings.Join(w.Ignored, ", ")
+		w.Reason += " · ignored files (non-artifacts backed up by agentyard remove): " + strings.Join(w.Ignored, ", ")
 	}
 }
 
@@ -1885,6 +1876,7 @@ func runServe(args []string) error {
 		return err
 	}
 	log.SetFlags(log.LstdFlags)
+	maintainFilesBackups()
 	s := &scanner{sizes: &sizeCache{m: map[string]sizeEntry{}}}
 	t := &prTracker{}
 	x := newSessionIndex()
@@ -1977,7 +1969,7 @@ func runServe(args []string) error {
 		go every(time.Minute, summaries.tick, time.Time{})
 	}
 
-	cleaner.schedule(every)
+	cleaner.schedule()
 
 	<-ctx.Done()
 	shutdown, done := context.WithTimeout(context.Background(), 3*time.Second)

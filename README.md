@@ -124,7 +124,7 @@ repository's cleanup panel has **Remove all**. Other devices on your network see
 commands only, whatever `--sessions-lan` says.
 
 1. Pressing Remove opens a dialog and runs a **dry run**: nothing is removed yet. It lists what will
-   go, what will not and why, the ignored files that go with the folder (`.env` and the like), and,
+   go, what will not and why, the count and size of ignored files to back up (`.env` and the like), and,
    for a worktree with uncommitted files, which files are discarded, the ref that already has them
    and the ref where a copy is kept.
 2. **Confirm** removes them. The worktrees are re-checked first (see
@@ -132,7 +132,8 @@ commands only, whatever `--sessions-lan` says.
    not removed. The result lists each outcome and the space freed, and the rows disappear once the
    rescan lands.
 
-What is deleted is the worktree folder and git's registration of it, ignored files included. Branches
+What is deleted is the worktree folder and git's registration of it. Non-artifact ignored files are
+backed up first under agentyard's data directory; the result reports the backup path. Branches
 are never deleted. Removal has one implementation and two ways in: this dialog (`POST /api/remove`,
 answered only for a browser on this Mac) and the [MCP server](#let-your-ai-clean-up)'s
 `remove_worktrees` tool. `agentyard demo` shows the same dialog and removes nothing.
@@ -629,9 +630,19 @@ The same rules hold for the dashboard's `POST /api/remove`, which runs the same 
   that last look and before git deletes the folder is gone. The result names the ref; restore with
   `git worktree add <folder> <ref> && git -C <folder> reset HEAD~1`, and delete it with
   `git update-ref -d <ref>` when you no longer need it. `--force` is used once, so a lock still stops it.
-- **Ignored files go with the worktree.** git does not count ignored files as changes, so `.env`,
-  local databases or notes in a removed worktree are deleted. Build and dependency output aside, the
-  dry run and every result list them, so you and your AI see them first.
+- **Ignored files are backed up before removal.** `.env*`, local databases and notes are copied,
+  preserving relative paths, to `os.UserConfigDir()/agentyard/backups/<UTC time>-<repo>-<worktree>/`
+  (`~/Library/Application Support/agentyard/backups/` on macOS). Results report `files_backup`;
+  dry runs report `files_backup_count` and `files_backup_bytes` without copying. Each folder has a
+  `manifest.json` with the worktree, repository, branch, HEAD, removal time, copied paths and sizes,
+  and skipped paths with reasons. Directories are private (0700), `.env*` files are at most 0600,
+  and symlinks are copied as links, never followed. Initialized submodules' ignored files are included.
+  Regenerable build/cache artifacts are skipped, even inside a backed-up folder: for example,
+  `.local/notes.md` is kept but `.local/bun-cache/` is skipped. Files larger than 100 MB are skipped
+  and listed in the manifest. Removal is refused if all non-artifact data exceeds 1 GB, if copying
+  cannot leave 2 GB free, or if the backup fails. A failed copy leaves no partial backup. No backup
+  folder is made when there are no non-artifact files. Backup folders expire after 30 days;
+  retention runs at server startup, during real removals, and after scheduled cleanup runs.
 - **Local only.** The MCP server runs as you, on this Mac, over your AI client's stdin and stdout. The
   dashboard's endpoint answers only a browser on this Mac; see [Privacy and security](#privacy-and-security).
 
@@ -654,7 +665,13 @@ Configuration is read once at startup; an invalid value keeps cleanup off and wr
 
 `agentyard autoclean run` asks the running background agent to run now and waits for its result. `agentyard autoclean log -n 20` shows recent audit records. The append-only log lives at `~/Library/Application Support/agentyard/autoclean/autoclean.jsonl` on macOS, is readable only by your user, and rotates above 5 MB with one previous generation.
 
-The cleanup agent is told to skip uncertain worktrees, uncommitted files, recent activity, and ignored files containing secrets or other non-artifact data. Agentyard independently requires an active run ID, a reason for each removal, a matching dry-run plan, the minimum idle time, and the existing fresh-scan removal safety checks. Manual MCP and dashboard removals keep their existing behavior and do not enter this audit log. Autoclean has no shell, file-edit, web, or subagent tool, and uses no permission bypass flags.
+The cleanup agent is told to skip uncertain worktrees and recent activity. Ignored secrets and other
+non-artifact data are backed up by agentyard's Go removal policy, and the agent reports the backup
+path. Agentyard independently requires an active run ID, a reason for each removal, a matching dry-run
+plan, the minimum idle time, and the existing fresh-scan removal safety checks. Work no remote has
+still blocks removal. Each removal's audit record includes `files_backup`. Manual CLI, MCP and
+dashboard removals use the same backups and safety checks but do not enter this audit log. Autoclean
+has no shell, file-edit, web, or subagent tool, and uses no permission bypass flags.
 
 ## Configuration
 
@@ -758,7 +775,7 @@ Content-Type: application/json
 ```
 
 It answers `200` with the per-path `results` (`removed`, `pruned`, `would_remove` or `refused`, each
-with its verdict, reason, ignored files and freed size) and the totals `removed`, `pruned`,
+with its verdict, reason, ignored files, `files_backup` path and freed size) and the totals `removed`, `pruned`,
 `wouldRemove`, `refused`, `freed` and `freedKB`, as `remove_worktrees` does; `simulated` is true in
 `agentyard demo`. A refused request gets `403` (not this Mac, wrong or missing `Origin` or token),
 `415` (not JSON), `413` (over 64 KB), `400` (unknown fields, no paths, more than 50) or `503` (no
@@ -851,8 +868,9 @@ this Mac it can also remove them for you (`POST /api/remove`), and if you connec
 only worktrees a fresh scan, taken at that moment, still finds Safe to delete or Prunable go, through
 `git worktree remove` (with `--force` only for a dirty worktree whose every change was just re-proven
 to be in the default branch, after a copy is kept under `refs/agentyard/removed/`, or for one whose
-submodules were just re-checked to hold nothing their remote lacks). Ignored files
-inside them, such as `.env`, go too, and are listed first. Branches are never deleted. Otherwise the
+submodules were just re-checked to hold nothing their remote lacks). Non-artifact ignored files
+inside them, such as `.env`, are backed up first under agentyard's data directory's `backups/` folder,
+with the path reported in the result and 30-day retention. Branches are never deleted. Otherwise the
 only command it runs against your repositories is `git fetch --prune`.
 </details>
 

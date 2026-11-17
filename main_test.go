@@ -373,7 +373,7 @@ func TestJudgeRemoveCommands(t *testing.T) {
 	}
 	w = &Worktree{Path: "/r/env", InDefault: true, Ignored: []string{".env", "notes/"}}
 	judge("/r/repo", w)
-	if w.Verdict != "merged" || !strings.HasSuffix(w.Reason, "removing also deletes ignored .env, notes/") {
+	if w.Verdict != "merged" || !strings.HasSuffix(w.Reason, "ignored files (non-artifacts backed up by agentyard remove): .env, notes/") {
 		t.Errorf("ignored files not stated: %s %q", w.Verdict, w.Reason)
 	}
 }

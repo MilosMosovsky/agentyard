@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"hash"
 	"io/fs"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // submoduleState is what removing a worktree would do to its submodules. Git
@@ -28,9 +30,10 @@ import (
 //   - a repository with a stash, or with a commit on no remote-tracking ref in
 //     HEAD, a branch, a tag or any of their reflogs, is a hazard.
 //
-// fresh fetches each repository's origin first, so a remote branch deleted
-// or force-pushed since the last fetch cannot vouch for local commits; a
-// removal's fresh scan sets it, and a failed fetch is a hazard.
+// fresh fetches each repository's origin first, so a remote branch or tag
+// deleted or force-pushed since the last fetch cannot vouch for local commits.
+// A removal's fresh scan sets it; background scans refresh at most hourly.
+// A failed fetch is a hazard.
 //
 // n counts the checkouts (git refuses to remove such a worktree without
 // --force), ignored lists their ignored files as the worktree's own, and sum
@@ -199,9 +202,9 @@ func (s *subScan) repos(root string) string {
 
 // repo checks one submodule repository for commits that only it has: in
 // HEAD, any ref other than a remote-tracking one (branches, tags, notes) and
-// their reflogs, against origin's branches. Only origin vouches, since only
-// it is fetched: another remote's refs may be stale. The local side is read
-// before the fetch, so nothing the fetch changes can hide it.
+// their reflogs, against origin's branches and tags. Only origin vouches,
+// since only it is fetched: another remote's refs may be stale. The local
+// side is read before the fetch, so nothing the fetch changes can hide it.
 func (s *subScan) repo(gd string) string {
 	key := gd
 	if real, err := filepath.EvalSymlinks(gd); err == nil {
@@ -250,13 +253,28 @@ func (s *subScan) repo(gd string) string {
 	// Without an origin to fetch, its leftover tracking refs vouch for nothing.
 	origin := ""
 	if url, err := gitc("remote", "get-url", "origin"); err == nil {
-		if s.fresh {
+		// A separate successful-fetch record also covers origins with no tags.
+		// FETCH_HEAD is deliberately not written, and may belong to another tool.
+		stamp := filepath.Join(gd, "agentyard-origin-fetch.json")
+		var fetched struct {
+			URL string
+			At  time.Time
+		}
+		if b, err := os.ReadFile(stamp); err == nil {
+			_ = json.Unmarshal(b, &fetched)
+		}
+		now := time.Now()
+		if s.fresh || fetched.URL != line(url) || fetched.At.IsZero() || now.Before(fetched.At) || now.Sub(fetched.At) >= time.Hour {
 			if err := fetchGitDir(dirs, line(url)); err != nil {
 				return "cannot fetch the submodule " + name + " to re-prove its commits are on its remote: " + err.Error()
 			}
+			fetched.URL, fetched.At = line(url), now
+			if err := writeJSONFile(stamp, fetched); err != nil {
+				return "cannot record the submodule " + name + "'s fetch: " + err.Error()
+			}
 		}
-		if origin, err = gitc("for-each-ref", "--format=^%(objectname)", "refs/remotes/origin/"); err != nil {
-			return "cannot read the submodule " + name + "'s remote branches: " + err.Error()
+		if origin, err = gitc("for-each-ref", "--format=^%(objectname)", "refs/remotes/origin/", "refs/remotes/origin-tags/"); err != nil {
+			return "cannot read the submodule " + name + "'s remote branches and tags: " + err.Error()
 		}
 	}
 	input := strings.Join(keep, "\n") + "\n" + origin
@@ -268,7 +286,7 @@ func (s *subScan) repo(gd string) string {
 	}
 	if k, _ := strconv.Atoi(strings.TrimSpace(cnt)); k > 0 {
 		return "the submodule " + name + " has " + counted(k, "commit", "commits") +
-			" on no branch of its origin (in HEAD, a branch, a tag or a reflog), and removing the worktree would delete them"
+			" on no branch or tag of its origin (in HEAD, a branch, a tag or a reflog), and removing the worktree would delete them"
 	}
 	return ""
 }
