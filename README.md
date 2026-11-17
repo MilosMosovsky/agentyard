@@ -7,7 +7,8 @@
 
 ### The yard where your coding agents work.
 
-Every git worktree, open pull request and Claude Code / Codex session on one calm page.<br>
+Every git worktree, open pull request and Claude Code / Codex session on one calm page,<br>
+a morning summary of where each piece of work stands, and cleanup you can hand to your AI.<br>
 One Go binary. No dependencies. Runs quietly in the background on your Mac.
 
 [![CI](https://github.com/MilosMosovsky/agentyard/actions/workflows/ci.yml/badge.svg)](https://github.com/MilosMosovsky/agentyard/actions/workflows/ci.yml)
@@ -44,7 +45,9 @@ One Go binary. No dependencies. Runs quietly in the background on your Mac.
 Run ten coding agents in parallel and by Friday you have forty worktrees, a dozen open PRs and a
 hundred sessions you cannot find again. Which folders are safe to delete? Which PR is stuck, and on
 what? Where was the session that fixed the auth race? agentyard answers all three on one page, and
-keeps the answers fresh while you work.
+keeps the answers fresh while you work. Each morning it can also tell you what every session got to
+and what is waiting on you, and your own agent can clean up the finished worktrees through its MCP
+tools, on request or on a schedule.
 
 ## Quick start
 
@@ -221,6 +224,11 @@ filters, sorting, repository expansion, and the selected PR persist for the brow
 
 ### Merge train
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/prs-merge-train-dark.jpg">
+  <img alt="The Merge train view: open pull requests in lanes by their next step, such as close because it is already in the base, merge and rebase, each with its age, idle time and base branch." src="docs/screenshots/prs-merge-train-light.jpg" width="100%">
+</picture>
+
 The **Merge train** view in Pull requests ranks every open PR by its one next step. Lanes appear in
 this order; within each lane, stale PRs come first, then the oldest opened PRs. A PR is stale after
 14 days without a commit. It keeps its lane, with an idle notice in the next step.
@@ -305,8 +313,10 @@ a brief builds on the previous one, sessions keep their topic, two topics that t
 work merge into one, and unrelated work in one topic splits out.
 A list of projects beside the summary (a **Jump to project** menu on a phone) shows how many topics
 each has, when it was last active ("10 minutes ago") and how many sessions wait on you or are
-blocked, and takes you straight there. Open a
-topic to see its sessions. For each session:
+blocked, and takes you straight there. Those times follow your sessions as they run, not just the
+last summary: the page updates them every minute without summarizing again, and projects and topics
+stay ordered by them, the most recently active first. Open a topic to see its sessions. For each
+session:
 
 - where it got to, what it is waiting on you for or blocked on, and what comes next;
 - its branch and PR, any sub-agents with a line each, and **Copy resume**.
@@ -320,7 +330,9 @@ then comes back on its own, or **Unsnooze** brings it back sooner. Snoozing chan
 saved runs, and `get_summary` leaves snoozed topics out and counts them.
 
 Topics carry over from one summary to the next and say how long they have been open ("open since
-Mon, Nov 2 · 4 days"). A topic with no activity stays visible for 7 days and leaves the list after
+Mon, Nov 2 · 4 days"). A carried-over topic with no session in the latest window shows its last
+sessions instead, up to three, each with its note, branch, PR and **Copy resume**, so you can pick
+it up where it stopped. A topic with no activity stays visible for 7 days and leaves the list after
 14. Every run is saved, including failed ones, and you can reopen any of the last 30 from the dated
 picker. A failed run keeps showing the previous good summary beneath its error.
 
