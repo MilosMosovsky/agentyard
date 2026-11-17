@@ -18,7 +18,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false # stdlib only: no go.sum to key a module cache on
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
